@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>月 | ( ◠ ᗜ ◠ )</title>
+    <link rel="icon" href="/assets/icons/icon.svg" type="image/x-icon">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="tsukuyomi.css">
+</head>
+
+<body>
+    <canvas id="scene" aria-hidden="true"></canvas>
+    <canvas id="ripple" aria-hidden="true"></canvas>
+    <canvas id="fg" aria-hidden="true"></canvas>
+
+    <div class="dock">
+        <section class="panel" id="panel" aria-label="장면 전환">
+            <div class="meter" id="meter" role="progressbar" aria-label="장면 전환 진행" aria-valuemin="0" aria-valuemax="100"
+                aria-valuenow="0"><span id="fill"></span></div>
+            <button class="btn" id="go" type="button">해 지게 하기</button>
+            <span class="sr-only" id="status" aria-live="polite"></span>
+        </section>
+    </div>
+
+    <script src="tsukuyomi.js"></script>
+</body>
+
+</html>

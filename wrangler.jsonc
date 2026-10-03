@@ -1,0 +1,19 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	// 로컬 미리보기 전용. Pages/Workers에 배포하지 않음.
+	// 실행: wrangler dev  -> http://localhost:8787/
+	"name": "tsukuyomi-preview",
+	"compatibility_date": "2026-08-01",
+	"main": "preview-worker.js",
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS",
+		// "/" 요청도 Worker를 먼저 거쳐 tsukuyomi.html로 매핑하기 위해 필요
+		"run_worker_first": true
+	},
+	"dev": {
+		"port": 8787
+	},
+	// 실수로 배포되는 것을 방지: workers.dev 노출 끔
+	"workers_dev": false
+}
