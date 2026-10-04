@@ -59,7 +59,8 @@
                 REFL_AMP0: 0.15, REFL_AMP1: 2.4, SEAM_A: 0.22,
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 3,
                 RIP_MAX: 8, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
-                LANTERN_N: 64, LANTERN_GX: 0.48, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
+                LANTERN_N: 64, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
+                LANTERN_TX: 0.62, LANTERN_PAD: 2, LANTERN_SN_POW: 1.25,
                 LANTERN_H: 0.15, LANTERN_GLOW: 0.5, LANTERN_POOL: 0.4,
                 LANTERN_SEED: 7, LANTERN_EXCL: 1.0,
             };
@@ -263,11 +264,30 @@
                 const n = Math.max(0, Math.round(CFG.LANTERN_N));
                 const sn0 = Math.min(CFG.LANTERN_SN0, CFG.LANTERN_SN1);
                 const sn1 = Math.max(CFG.LANTERN_SN0, CFG.LANTERN_SN1);
-                for (let i = 0; i < n; i++) {
-                    const sn = lerp(sn0, sn1, rng());
-                    // ux: -1..1 uniform; x spread narrows toward the horizon (perspective)
-                    const ux = rng() * 2 - 1;
-                    lanterns.push({ sn, ux, x: 0, y: 0, w: 0, h: 0, s: 0 });
+                // jittered grid (shuffled cells): pure uniform random clumps and leaves
+                // large voids (e.g. a ~35%W gap on the far band at 16:9). One lantern
+                // per grid cell guarantees even coverage with no shared cells.
+                const POW = clamp(CFG.LANTERN_SN_POW ?? 1.25, 0.5, 2.5);
+                if (n === 1) {
+                    lanterns.push({ sn: (sn0 + sn1) / 2, ux: 0, x: 0, y: 0, w: 0, h: 0, s: 0 });
+                } else if (n > 1) {
+                    const cols = Math.ceil(Math.sqrt(n));
+                    const rows = Math.ceil(n / cols);
+                    const cells = [];
+                    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push([r, c]);
+                    for (let i = cells.length - 1; i > 0; i--) {
+                        const j = (rng() * (i + 1)) | 0;
+                        const t = cells[i]; cells[i] = cells[j]; cells[j] = t;
+                    }
+                    for (let i = 0; i < n; i++) {
+                        const cr = cells[i][0], cc = cells[i][1];
+                        // POW > 1 biases depths toward the horizon so the bottom
+                        // band (large bodies) doesn't dominate the coverage.
+                        const t = (cr + 0.15 + 0.7 * rng()) / rows;
+                        const sn = lerp(sn0, sn1, Math.pow(t, POW));
+                        const ux = -1 + 2 * ((cc + 0.15 + 0.7 * rng()) / cols);
+                        lanterns.push({ sn, ux, x: 0, y: 0, w: 0, h: 0, s: 0 });
+                    }
                 }
                 lanterns.sort((a, b) => a.sn - b.sn);   // far-to-near painter order
                 projectLanterns();
@@ -276,34 +296,144 @@
                 if (!W || !H) return;
                 const reflH = Math.max(1, H - HZ);
                 const minS = Math.max(2, 0.03 * reflH);
-                const halfW = W * clamp(CFG.LANTERN_GX, 0.05, 0.6);
+                const halfW = W * clamp(CFG.LANTERN_GX, 0.05, 0.65);
+                // TX: top-width ratio (1 = rectangle, 0 = vanishing point).
+                // Old hardcoded 0.22 left ~41% of the floor empty at 16:9.
+                const TX = clamp(CFG.LANTERN_TX ?? 0.62, 0.15, 1);
+                const PAD = Math.max(0, CFG.LANTERN_PAD ?? 2);
                 for (const L of lanterns) {
                     const s = clamp(L.sn * reflH, minS, reflH);
                     L.s = s;
-                    L.x = W / 2 + L.ux * halfW * (0.22 + 0.78 * L.sn);
+                    L.x = W / 2 + L.ux * halfW * (TX + (1 - TX) * L.sn);
                     L.y = HZ + s;
                     L.h = Math.max(2, CFG.LANTERN_H * s);
                     L.w = L.h * LAN_WHR;
                 }
                 // keep clear of the torii and the bottom control card
                 const tcx = torX + torW / 2;
+                const narrow = W <= 460;
+                const cardCx = narrow ? 90 : W / 2;
+                const cardHalf = narrow ? 110 : 250;
+                const cardTop = H - (narrow ? 90 : 170);
+                // torii x-push first (vertical composition); card uses
+                // least-penetration with upward bias inside the resolver.
                 for (const L of lanterns) {
                     const m = CFG.LANTERN_EXCL;
-                    const lx0 = L.x - L.w / 2, lx1 = L.x + L.w / 2;
                     const tExp = (torW / 2 + L.w / 2) * m;
                     if (Math.abs(L.x - tcx) < tExp && L.y - L.h < torBase && L.y > torY) {
                         L.x = tcx + (L.x < tcx ? -tExp : tExp);
                     }
-                    if (lx1 < -L.w || lx0 > W + L.w) continue;
-                    // bottom control: desktop card (centre) vs mobile button (bottom-left)
-                    const narrow = W <= 460;
-                    const cardCx = narrow ? 90 : W / 2;
-                    const cardHalf = narrow ? 110 : 250;
-                    const cardTop = H - (narrow ? 90 : 170);
-                    if (L.y > cardTop && Math.abs(L.x - cardCx) < cardHalf + L.w / 2) {
-                        L.x = cardCx + (L.x < cardCx ? -(cardHalf + L.w / 2) : (cardHalf + L.w / 2));
+                }
+                resolveLanternOverlaps(PAD, { tcx, cardCx, cardHalf, cardTop });
+            }
+            // AABB relaxation in screen space: bodies must not intersect.
+            // Sizes stay fixed (depth cue); only positions move. Deterministic
+            // (no rng here) so a seed always yields the same layout.
+            function resolveLanternOverlaps(PAD, obs) {
+                const n = lanterns.length;
+                if (n === 0) return;
+                const hhOf = L => L.h * LAN_FEET;
+                // allow drifting fully off-screen to relieve pressure on narrow
+                // layouts; fully hidden lanterns are skipped below and cost nothing.
+                const sync = L => {
+                    L.x = clamp(L.x, -L.w, W + L.w);
+                    L.y = clamp(L.y, HZ + 2, H);
+                };
+                const hidden = L => (L.x + L.w / 2 < 0 || L.x - L.w / 2 > W);
+                for (const L of lanterns) sync(L);
+                // first: card least-penetration with upward bias (replaces x-only)
+                const { cardCx, cardHalf, cardTop } = obs;
+                for (const L of lanterns) {
+                    const hh = hhOf(L);
+                    const lx0 = L.x - L.w / 2, lx1 = L.x + L.w / 2;
+                    const ly0 = L.y - hh, ly1 = L.y;
+                    const ox = Math.min(lx1, cardCx + cardHalf) - Math.max(lx0, cardCx - cardHalf) + PAD;
+                    const oy = Math.min(ly1, H) - Math.max(ly0, cardTop) + PAD;
+                    if (ox > 0 && oy > 0) {
+                        if (ox < oy) {
+                            L.x = cardCx + (L.x < cardCx ? -(cardHalf + L.w / 2 + PAD) : (cardHalf + L.w / 2 + PAD));
+                        } else {
+                            L.y = cardTop - PAD;   // hop above the card, never below
+                        }
+                        sync(L);
                     }
                 }
+                const MAX_IT = 120;
+                for (let it = 0; it < MAX_IT; it++) {
+                    for (let i = 0; i < n; i++) {
+                        const A = lanterns[i];
+                        if (hidden(A)) continue;
+                        const ah = hhOf(A);
+                        for (let j = i + 1; j < n; j++) {
+                            const B = lanterns[j];
+                            if (hidden(B)) continue;
+                            const bh = hhOf(B);
+                            const dx = B.x - A.x;
+                            const ox = (A.w + B.w) / 2 + PAD - Math.abs(dx);
+                            if (ox <= 0) continue;
+                            const dcy = (B.y - bh / 2) - (A.y - ah / 2);
+                            const oy = (ah + bh) / 2 + PAD - Math.abs(dcy);
+                            if (oy <= 0) continue;
+                            const aa = A.w * ah, bb = B.w * bh, tot = aa + bb || 1;
+                            const wa = bb / tot, wb = aa / tot;
+                            if (ox < oy) {
+                                const s = dx >= 0 ? 1 : -1;
+                                A.x -= s * ox * wa * 0.85;
+                                B.x += s * ox * wb * 0.85;
+                                sync(A); sync(B);
+                            } else {
+                                const s = dcy >= 0 ? 1 : -1;
+                                A.y -= s * oy * wa * 0.85;
+                                B.y += s * oy * wb * 0.85;
+                                sync(A); sync(B);
+                            }
+                        }
+                    }
+                    // torii stays x-only (protects the vertical composition);
+                    // card keeps least-penetration with upward bias.
+                    const tcx = obs.tcx;
+                    for (const L of lanterns) {
+                        if (hidden(L)) continue;
+                        const m = CFG.LANTERN_EXCL;
+                        const tExp = (torW / 2 + L.w / 2) * m + PAD * 0.5;
+                        if (Math.abs(L.x - tcx) < tExp && L.y - L.h < torBase && L.y > torY) {
+                            L.x = tcx + (L.x < tcx ? -tExp : tExp);
+                            sync(L);
+                        }
+                        const hh = hhOf(L);
+                        const lx0 = L.x - L.w / 2, lx1 = L.x + L.w / 2;
+                        const ly0 = L.y - hh, ly1 = L.y;
+                        const ox = Math.min(lx1, cardCx + cardHalf) - Math.max(lx0, cardCx - cardHalf) + PAD;
+                        const oy = Math.min(ly1, H) - Math.max(ly0, cardTop) + PAD;
+                        if (ox > 0 && oy > 0) {
+                            if (ox < oy) {
+                                L.x = cardCx + (L.x < cardCx ? -(cardHalf + L.w / 2 + PAD) : (cardHalf + L.w / 2 + PAD));
+                            } else {
+                                L.y = cardTop - PAD;
+                            }
+                            sync(L);
+                        }
+                    }
+                    // stop as soon as bodies no longer intersect
+                    // (sub-PAD gaps are acceptable and often unavoidable)
+                    let ok = true;
+                    for (let i = 0; i < n && ok; i++) {
+                        const A = lanterns[i];
+                        if (hidden(A)) continue;
+                        const ah = hhOf(A);
+                        for (let j = i + 1; j < n; j++) {
+                            const B = lanterns[j];
+                            if (hidden(B)) continue;
+                            const bh = hhOf(B);
+                            if (Math.abs(B.x - A.x) < (A.w + B.w) / 2 &&
+                                Math.abs((B.y - bh / 2) - (A.y - ah / 2)) < (ah + bh) / 2) {
+                                ok = false; break;
+                            }
+                        }
+                    }
+                    if (ok) break;
+                }
+                lanterns.sort((a, b) => a.y - b.y);   // far-to-near painter order
             }
             function loadLanternSprite() {
                 try {

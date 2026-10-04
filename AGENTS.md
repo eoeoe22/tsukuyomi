@@ -4,3 +4,4 @@
 - 실행: `wrangler dev` → http://localhost:8787/
 - 정적 파일은 `public/`에 둠. 루트에 두면 `.wrangler/` 감시 루프 발생.
 - `/` 접속 시 `preview-worker.js`가 `/tsukuyomi.html`로 매핑.
+- 서버를 직접 실행하지 않기. 대부분의 경우 서버는 항상 실행 중.
