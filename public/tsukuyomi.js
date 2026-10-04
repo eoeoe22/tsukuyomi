@@ -453,15 +453,18 @@
             }
 
             // ---------- 황혼 전용 구름 ----------
-            // 레퍼런스(수상 토리이 매직아워): 좌상단 광원에 상부가 크림/복숭아빛으로 빛나고,
+            // 레퍼런스(수상 토리이 매직아워, 회화적 애니 배경 스타일): 좌상단 광원에 상부가 크림/복숭아빛으로 빛나고,
             // 몸통은 연어빛 → 장밋빛, 밑면은 자주빛 음영으로 가라앉는다.
-            // 각 퍼프는 좌상단에서 빛을 받는 불투명한 볼록 로브(구 셰이딩: 좌상단 흰빛 → 우하단 자주빛 테두리)이며,
-            // 밑변이 아래인 퍼프를 나중에 그려 아래 로브의 밝은 윗면이 위 로브의 그늘진 밑면을 또렷하게 덮게 한다
-            // (콜리플라워 질감). 이 회색조 마스크(m)를 높이별 색 그라데이션으로 multiply 착색한 뒤
-            // 상단 퍼프에 좌상단 쪽 하이라이트를 얹는다. 색이 구워져 있어 황혼 idle에서는 틴트를 쓰지 않는다.
+            // 1) 마스크(m): 불투명한 볼록 로브를 밑변 순으로 겹쳐 콜리플라워 덩어리를 만들고, 로브 윗면 둘레에
+            //    잔 혹(미세 요철)을 붙인 뒤 사선 붓 터치 얼룩을 얹는다.
+            // 2) duskFinish: 높이별 색 그라데이션으로 multiply 착색 → 외곽 페더링(흐린 후광 + 흩날리는 솜털 조각)
+            //    → 얇은 가장자리 산란광(SSS) → 광원 쪽 림 라이트 → 상부 하이라이트.
+            // 색이 구워져 있어 황혼 idle에서는 틴트를 쓰지 않는다.
             function duskPuff(P, x, y, r, a, ex, ey) { P.push([x, y, r, a, ex, ey]); }
             function drawDuskPuffs(m, P) {
                 const g = m.getContext('2d');
+                // 퍼프 배치용 rng와 분리된 질감 전용 rng: 질감을 바꿔도 구름 배치(DC_SEED)는 그대로
+                const tr = mulberry32(Math.round(m.w0 * 7 + m.h0 * 13 + P.length));
                 // 그늘진 하부일수록 로브 경계 대비를 낮춰 덩어리로 뭉개지게 (상부만 또렷한 콜리플라워)
                 const LIT = [244, 236, 240];
                 P.sort((A, B) => (A[1] + A[2] * A[5]) - (B[1] + B[2] * B[5]));
@@ -470,19 +473,20 @@
                     g.translate(x, y);
                     g.scale(ex, ey);
                     const v = clamp(a, 0.5, 1.2);   // 로브별 밝기 편차
-                    const ct = lerp(1, 0.5, ss(0.35, 1, (y - m.pad) / m.h0));
+                    const hy = (y - m.pad) / m.h0;
+                    const ct = lerp(1, 0.6, ss(0.4, 1, hy));
                     let ci = 0;
                     const sh = c => { const L = LIT[ci++ % 3]; return Math.round(clamp((L + (c - L) * ct) * (0.82 + 0.18 * v), 0, 255)); };
-                    // 공 셰이딩 대신: 윗면은 평평하게 밝고 좌상단 → 우하단 방향 아래쪽만 부드럽게 그늘진다
-                    const lg = g.createLinearGradient(-r * 0.45, -r, r * 0.3, r);
+                    // 윗면은 밝고 좌상단 → 우하단 방향 아래쪽이 그늘진다. 경계는 부드럽게(회화적 그라데이션)
+                    const lg = g.createLinearGradient(-r * 0.5, -r * 1.05, r * 0.35, r);
                     lg.addColorStop(0, 'rgb(255,255,255)');
-                    lg.addColorStop(0.3, `rgb(${sh(252)},${sh(246)},${sh(246)})`);
-                    lg.addColorStop(0.52, `rgb(${sh(222)},${sh(200)},${sh(216)})`);
-                    lg.addColorStop(0.74, `rgb(${sh(170)},${sh(134)},${sh(164)})`);
-                    lg.addColorStop(1, `rgb(${sh(128)},${sh(92)},${sh(128)})`);
+                    lg.addColorStop(0.32, `rgb(${sh(252)},${sh(244)},${sh(244)})`);
+                    lg.addColorStop(0.54, `rgb(${sh(206)},${sh(176)},${sh(200)})`);
+                    lg.addColorStop(0.78, `rgb(${sh(150)},${sh(110)},${sh(146)})`);
+                    lg.addColorStop(1, `rgb(${sh(118)},${sh(82)},${sh(120)})`);
                     g.fillStyle = lg;
-                    // 불규칙한 외곽: 로브 하나를 약간 어긋난 원 3개로 그린다
                     g.beginPath();
+                    // 불규칙한 외곽: 약간 어긋난 원 3개
                     for (let k = 0; k < 3; k++) {
                         const an = (x * 0.37 + y * 0.11 + k * 2.1) % (Math.PI * 2);
                         const ox = Math.cos(an) * r * 0.22, oy = Math.sin(an) * r * 0.14;
@@ -490,43 +494,205 @@
                         g.moveTo(ox + rr, oy);
                         g.arc(ox, oy, rr, 0, Math.PI * 2);
                     }
+                    // 콜리플라워 잔 혹: 윗면 둘레(빛 받는 쪽)에 작은 혹을 붙여 실루엣을 잘게 울퉁불퉁하게
+                    if (r > 9) {
+                        const nb = 4 + ((tr() * 4) | 0);
+                        for (let k = 0; k < nb; k++) {
+                            const an = -Math.PI * (0.08 + 0.84 * (k + tr() * 0.8) / nb);
+                            const br = r * (0.16 + tr() * 0.16);
+                            const d = r * (0.74 + tr() * 0.12);
+                            const bx = Math.cos(an) * d, by = Math.sin(an) * d;
+                            g.moveTo(bx + br, by);
+                            g.arc(bx, by, br, 0, Math.PI * 2);
+                        }
+                    }
                     g.fill();
                     g.restore();
                 }
+                // 붓 터치: 좌상단 광원 방향으로 기운 짧은 사선 얼룩을 밝게/어둡게 흩뿌려 매끈한 그라데이션을 깬다
+                g.save();
+                g.globalCompositeOperation = 'source-atop';
+                const nd = Math.round(m.w0 * m.h0 / 220);
+                for (let i = 0; i < nd; i++) {
+                    const x = m.pad + tr() * m.w0, y = m.pad + tr() * m.h0;
+                    const hy = (y - m.pad) / m.h0;
+                    const lit = tr() < lerp(0.62, 0.3, hy);
+                    g.fillStyle = lit ? `rgba(255,252,248,${(0.05 + tr() * 0.09).toFixed(3)})`
+                                      : `rgba(90,60,96,${(0.04 + tr() * 0.08).toFixed(3)})`;
+                    g.beginPath();
+                    g.ellipse(x, y, 3 + tr() * 9, 1.2 + tr() * 2.4, -0.55 + (tr() - 0.5) * 0.6, 0, Math.PI * 2);
+                    g.fill();
+                }
+                g.restore();
+            }
+            function duskLayer(m) {
+                const c = document.createElement('canvas');
+                c.width = m.width; c.height = m.height;
+                return c;
             }
             // m: 퍼프 마스크 캔버스, stops: 콘텐츠 높이(0=상단, 1=하단) 기준 [위치, 색],
             // hi: 상부 하이라이트 퍼프 [x, y, r], fade: 밑변 소멸 시작 비율(1 = 소멸 없음)
             function duskFinish(m, stops, hi, fade) {
                 const { w0, h0, pad: PAD } = m;
-                const c = document.createElement('canvas');
-                c.width = m.width; c.height = m.height;
+                const W2 = m.width, H2 = m.height;
+                const tr = mulberry32(Math.round(w0 * 31 + h0 * 17 + hi.length));
+                const colGrad = (g, lift) => {
+                    const col = g.createLinearGradient(0, PAD, 0, PAD + h0);
+                    for (const [t, cc] of stops) col.addColorStop(t, cc);
+                    g.fillStyle = col; g.fillRect(0, 0, W2, H2);
+                    if (lift) { g.fillStyle = `rgba(255,236,214,${lift})`; g.fillRect(0, 0, W2, H2); }
+                };
+                const blurDraw = (g, src, px, x = 0, y = 0) => {
+                    if (FILTER_OK) g.filter = `blur(${px}px)`;
+                    g.drawImage(src, x, y);
+                    g.filter = 'none';
+                };
+                // 큰 블러는 1/4 해상도에서: 결과가 어차피 뭉개지므로 품질 차이 없이 빌드 시간을 크게 줄인다
+                const Q = 4, qw = Math.ceil(W2 / Q), qh = Math.ceil(H2 / Q);
+                const mq = document.createElement('canvas');
+                mq.width = qw; mq.height = qh;
+                mq.getContext('2d').drawImage(m, 0, 0, qw, qh);
+                const lowBlur = px => {
+                    const b = document.createElement('canvas');
+                    b.width = qw; b.height = qh;
+                    blurDraw(b.getContext('2d'), mq, px / Q);
+                    return b;
+                };
+                const up = (g, b) => g.drawImage(b, 0, 0, W2, H2);
+                // 반 해상도 마스크: 확대 시 쌍선형 보간이 가는 블러 역할을 해 필터 없이 경계를 푼다
+                const mh = document.createElement('canvas');
+                mh.width = Math.ceil(W2 / 2); mh.height = Math.ceil(H2 / 2);
+                mh.getContext('2d').drawImage(m, 0, 0, mh.width, mh.height);
+                const fromTop = (t0, t1) => {
+                    const fg = g => {
+                        const l = g.createLinearGradient(0, PAD + h0 * t0, 0, PAD + h0 * t1);
+                        l.addColorStop(0, 'rgba(0,0,0,1)'); l.addColorStop(1, 'rgba(0,0,0,0)');
+                        return l;
+                    };
+                    return fg;
+                };
+
+                // --- 본체: 착색 + 살짝 풀린 로브 경계 ---
+                const body = duskLayer(m);
+                {
+                    const g = body.getContext('2d');
+                    colGrad(g, 0);
+                    g.globalCompositeOperation = 'multiply';
+                    blurDraw(g, m, 1.6);
+                    g.globalCompositeOperation = 'destination-in';
+                    up(g, mh);   // 외곽선이 칼같이 끊기지 않게
+                }
+
+                // --- 외곽 페더링: 흐린 후광 + 가장자리에서 흩날리는 솜털 조각 ---
+                const fea = duskLayer(m);
+                {
+                    const fm = duskLayer(m);
+                    const fg = fm.getContext('2d');
+                    const b10 = lowBlur(10);
+                    fg.globalAlpha = 0.5;
+                    up(fg, b10);
+                    fg.globalAlpha = 1;
+                    // 가장자리 후보: 흐린 마스크 알파가 중간인 픽셀
+                    const A = b10.getContext('2d').getImageData(0, 0, qw, qh).data;
+                    const nW = Math.round((w0 + h0) * 0.26);
+                    for (let i = 0, tries = 0; i < nW && tries < nW * 40; tries++) {
+                        const x = (tr() * W2) | 0, y = (tr() * H2) | 0;
+                        const al = A[(((y / Q) | 0) * qw + ((x / Q) | 0)) * 4 + 3] / 255;
+                        if (al < 0.2 || al > 0.6) continue;
+                        const hy = (y - PAD) / h0;
+                        if (hy > 0.86) continue;                 // 밑면은 띠/소멸에 맡긴다
+                        i++;
+                        const rx = 5 + tr() * 11, ry = 3 + tr() * 5;
+                        const rg = fg.createRadialGradient(0, 0, 0, 0, 0, 1);
+                        const a0 = (0.3 + tr() * 0.35) * (1 - al);
+                        rg.addColorStop(0, `rgba(0,0,0,${a0.toFixed(3)})`);
+                        rg.addColorStop(1, 'rgba(0,0,0,0)');
+                        fg.save();
+                        fg.translate(x, y);
+                        fg.rotate((tr() - 0.5) * 0.5);
+                        fg.scale(rx, ry);
+                        fg.fillStyle = rg;
+                        fg.beginPath(); fg.arc(0, 0, 1, 0, Math.PI * 2); fg.fill();
+                        fg.restore();
+                    }
+                    const g = fea.getContext('2d');
+                    colGrad(g, 0.22);   // 얇은 가장자리는 빛이 비쳐 본체보다 밝고 따뜻하게
+                    g.globalCompositeOperation = 'destination-in';
+                    g.drawImage(fm, 0, 0);
+                }
+
+                // --- 산란광(SSS): 얇은 가장자리일수록(두께 ≈ 흐린 마스크 알파가 낮을수록) 빛이 차오른다 ---
+                // 부드러운 빛이라 1/4 해상도에서 만들어 확대한다
+                const sss = document.createElement('canvas');
+                sss.width = qw; sss.height = qh;
+                {
+                    const g = sss.getContext('2d');
+                    g.drawImage(mq, 0, 0);
+                    g.globalCompositeOperation = 'source-in';
+                    g.fillStyle = '#ffc49a'; g.fillRect(0, 0, qw, qh);
+                    g.globalCompositeOperation = 'destination-out';
+                    const b16 = lowBlur(16);
+                    g.drawImage(b16, 0, 0); g.drawImage(b16, 0, 0);
+                    g.globalCompositeOperation = 'destination-in';
+                    g.scale(1 / Q, 1 / Q);
+                    g.fillStyle = fromTop(0.2, 0.85)(g); g.fillRect(0, 0, W2, H2);
+                }
+
+                // --- 림 라이트: 광원(좌상단) 쪽으로 한 걸음 옮기면 구름 밖이 되는 픽셀 ---
+                // 반 해상도에서 만들어 확대(확대 보간이 림을 부드럽게 푼다)
+                const rim = document.createElement('canvas');
+                rim.width = mh.width; rim.height = mh.height;
+                {
+                    const g = rim.getContext('2d');
+                    g.drawImage(mh, 0, 0);
+                    g.globalCompositeOperation = 'destination-out';
+                    g.drawImage(mh, 4, 5.5);
+                    g.globalCompositeOperation = 'source-in';
+                    g.fillStyle = '#fff4dc'; g.fillRect(0, 0, rim.width, rim.height);
+                    g.globalCompositeOperation = 'destination-in';
+                    g.scale(0.5, 0.5);
+                    g.fillStyle = fromTop(0.15, 0.7)(g); g.fillRect(0, 0, W2, H2);
+                }
+
+                const c = duskLayer(m);
                 c.w0 = w0; c.h0 = h0; c.pad = PAD;
                 const g = c.getContext('2d');
-                const col = g.createLinearGradient(0, PAD, 0, PAD + h0);
-                for (const [t, cc] of stops) col.addColorStop(t, cc);
-                g.fillStyle = col; g.fillRect(0, 0, c.width, c.height);
-                g.globalCompositeOperation = 'multiply';
-                if (FILTER_OK) g.filter = 'blur(1.4px)';   // 벡터 원 테두리만 살짝 풀어 페인트 질감
-                g.drawImage(m, 0, 0);
-                g.globalCompositeOperation = 'destination-in';
-                g.drawImage(m, 0, 0);
-                g.filter = 'none';
-                // 상부 햇빛 반사: 좌상단 광원을 향한 쪽에 따뜻한 크림 하이라이트
+                g.drawImage(fea, 0, 0);
+                g.drawImage(body, 0, 0);
                 g.globalCompositeOperation = 'source-atop';
+                g.globalAlpha = 0.55;
+                up(g, sss);
+                g.globalAlpha = 1;
+                // 상부 햇빛 반사: 좌상단 광원을 향한 쪽에 따뜻한 크림 하이라이트
                 for (const [x, y, r] of hi) {
                     const hx = x - r * 0.3, hy = y - r * 0.35;
                     const hg = g.createRadialGradient(hx, hy, 0, hx, hy, r * 0.9);
-                    hg.addColorStop(0, 'rgba(255,247,226,0.32)');
-                    hg.addColorStop(0.5, 'rgba(255,232,196,0.14)');
+                    hg.addColorStop(0, 'rgba(255,247,226,0.36)');
+                    hg.addColorStop(0.5, 'rgba(255,232,196,0.15)');
                     hg.addColorStop(1, 'rgba(255,226,190,0)');
                     g.fillStyle = hg;
                     g.beginPath(); g.arc(hx, hy, r * 0.9, 0, Math.PI * 2); g.fill();
                 }
+                // 방향광: 좌상단은 크림빛으로 차오르고 우하단은 장밋빛 그늘로 가라앉는다
+                {
+                    const dl = g.createLinearGradient(PAD, PAD, PAD + w0 * 0.75, PAD + h0);
+                    dl.addColorStop(0, 'rgba(255,238,206,0.42)');
+                    dl.addColorStop(0.45, 'rgba(255,224,196,0)');
+                    g.globalCompositeOperation = 'source-atop';
+                    g.fillStyle = dl; g.fillRect(0, 0, W2, H2);
+                    const dd = g.createLinearGradient(PAD, PAD, PAD + w0, PAD + h0 * 0.8);
+                    dd.addColorStop(0.45, 'rgba(150,96,132,0)');
+                    dd.addColorStop(1, 'rgba(150,96,132,0.28)');
+                    g.fillStyle = dd; g.fillRect(0, 0, W2, H2);
+                }
+                g.globalAlpha = 0.9;
+                up(g, rim);
+                g.globalAlpha = 1;
                 if (fade < 1) {
                     g.globalCompositeOperation = 'destination-out';
                     const fl = g.createLinearGradient(0, PAD + h0 * fade, 0, PAD + h0);
                     fl.addColorStop(0, 'rgba(0,0,0,0)'); fl.addColorStop(1, 'rgba(0,0,0,1)');
-                    g.fillStyle = fl; g.fillRect(0, 0, c.width, c.height);
+                    g.fillStyle = fl; g.fillRect(0, 0, W2, H2);
                 }
                 g.globalCompositeOperation = 'source-over';
                 return c;
