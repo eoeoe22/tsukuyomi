@@ -61,9 +61,11 @@
                 POLARIS_R: 0.7, HALO_R: 4, HALO_A: 0.35,
                 MTN_H: 0.022, MTN_MIN: 6, MTN_MAX: 20, MTN_TH: 0.47, MTN_POW: 1.15,
                 MTN_W0: 0.62, MTN_W1: 0.28, MTN_W2: 0.10,
-                CLOUD_N: 7, CLOUD_SP0: 0.003, CLOUD_SP1: 0.005, CLOUD_Y0: 0.5, CLOUD_YR: 0.34,
+                CLOUD_N: 7, CLOUD_SP0: 0.003, CLOUD_SP1: 0.005, CLOUD_Y0: 0.62, CLOUD_YR: 0.3,
                 CLOUD_X0: -0.25, CLOUD_SPREAD: 1.4,
                 CLOUD_F0: 0.2, CLOUD_F1: 0.48,
+                CLOUD_CB_N: 2, CLOUD_CB_Y0: 0.8, CLOUD_CB_YR: 0.14,
+                CLOUD_CB_S0: 0.85, CLOUD_CB_S1: 1.45,
                 SUN_PATH: 0.42, SUN_X0: 0.27, SUN_X1: 0.32, SUN_DROP: 2.4,
                 SUN_F0: 0.34, SUN_F1: 0.46,
                 SUN_G0: 0.18, SUN_G1: 0.32, SUN_G2: 0.4, SUN_G3: 0.56,
@@ -267,16 +269,20 @@
             }
 
             function makeCloudSprite(rng) {
+                // PAD: 퍼프가 캔버스 경계에서 잘리지 않게 투명 여백을 둔다.
+                // 그라데이션이 0까지 떨어지기 전에 캔버스가 끝나면 스프라이트
+                // 가장자리에 직선 이음매가 생긴다.
+                const w0 = 560, h0 = 220, PAD = 140;
                 const c = document.createElement('canvas');
-                const cw = 560, ch = 220;
-                c.width = cw; c.height = ch;
+                c.width = w0 + PAD * 2; c.height = h0 + PAD * 2;
+                c.w0 = w0; c.h0 = h0; c.pad = PAD;
                 const g = c.getContext('2d');
                 const puffs = 32 + ((rng() * 9) | 0);
                 for (let i = 0; i < puffs; i++) {
                     const u = rng();
-                    const x = cw * (0.12 + 0.76 * u);
+                    const x = PAD + w0 * (0.12 + 0.76 * u);
                     const bell = Math.sin(Math.PI * u);
-                    const y = ch * (0.66 - 0.38 * bell * (0.5 + 0.5 * rng())) + (rng() - 0.5) * 22;
+                    const y = PAD + h0 * (0.66 - 0.38 * bell * (0.5 + 0.5 * rng())) + (rng() - 0.5) * 22;
                     const r = (20 + rng() * 52) * (0.5 + 0.65 * bell);
                     const a = 0.75 + rng() * 0.45;
                     const ex = 0.75 + rng() * 0.9;
@@ -293,13 +299,73 @@
                     g.restore();
                 }
                 g.globalCompositeOperation = 'destination-out';
-                const fl = g.createLinearGradient(0, ch * 0.64, 0, ch * 0.8);
+                const fl = g.createLinearGradient(0, PAD + h0 * 0.64, 0, PAD + h0 * 0.8);
                 fl.addColorStop(0, 'rgba(0,0,0,0)'); fl.addColorStop(1, 'rgba(0,0,0,1)');
-                g.fillStyle = fl; g.fillRect(0, 0, cw, ch);
+                g.fillStyle = fl; g.fillRect(0, 0, c.width, c.height);
                 g.globalCompositeOperation = 'source-atop';
-                const sh = g.createLinearGradient(0, ch * 0.2, 0, ch * 0.75);
+                const sh = g.createLinearGradient(0, PAD + h0 * 0.2, 0, PAD + h0 * 0.75);
                 sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(126,140,166,0.55)');
-                g.fillStyle = sh; g.fillRect(0, 0, cw, ch);
+                g.fillStyle = sh; g.fillRect(0, 0, c.width, c.height);
+                return c;
+            }
+
+            // 적란운 타워: 하부 데크 + 기둥 + 상부 돔의 3단 적층.
+            // 참조 장면처럼 하단은 넓고 어둡게, 상단은 뭉게뭉게 밝게.
+            function makeCbSprite(rng) {
+                const w0 = 440, h0 = 560, PAD = 140;
+                const c = document.createElement('canvas');
+                c.width = w0 + PAD * 2; c.height = h0 + PAD * 2;
+                c.w0 = w0; c.h0 = h0; c.pad = PAD;
+                const g = c.getContext('2d');
+                const puff = (x, y, r, a, ex, ey) => {
+                    g.save();
+                    g.translate(x, y);
+                    g.scale(ex, ey);
+                    const gr = g.createRadialGradient(0, 0, 0, 0, 0, r);
+                    gr.addColorStop(0, `rgba(255,255,255,${(0.6 * a).toFixed(3)})`);
+                    gr.addColorStop(0.55, `rgba(255,255,255,${(0.34 * a).toFixed(3)})`);
+                    gr.addColorStop(1, 'rgba(255,255,255,0)');
+                    g.fillStyle = gr;
+                    g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill();
+                    g.restore();
+                };
+                // 하부 데크: 넓고 납작하게 깔림
+                for (let i = 0; i < 22; i++) {
+                    const u = rng();
+                    const x = PAD + w0 * (0.05 + 0.9 * u);
+                    const bell = Math.sin(Math.PI * u);
+                    const y = PAD + h0 * (0.74 + rng() * 0.2 - 0.06 * bell);
+                    const r = 30 + rng() * 42;
+                    puff(x, y, r, 0.7 + rng() * 0.4, 1.2 + rng() * 0.8, 0.5 + rng() * 0.3);
+                }
+                // 기둥: 중앙에 밀집, 위로 갈수록 약간 좁아짐
+                for (let i = 0; i < 22; i++) {
+                    const t = rng(); // 0 = 하단, 1 = 상단
+                    const gauss = (rng() + rng() + rng()) / 3 - 0.5;
+                    const x = PAD + w0 * (0.5 + gauss * 0.44 * (1.1 - 0.4 * t));
+                    const y = PAD + h0 * (0.72 - 0.42 * t) + (rng() - 0.5) * 18;
+                    const r = 26 + rng() * 36;
+                    puff(x, y, r, 0.75 + rng() * 0.45, 0.8 + rng() * 0.5, 0.8 + rng() * 0.45);
+                }
+                // 상부 돔: 뭉게뭉게 밝은 머리
+                for (let i = 0; i < 16; i++) {
+                    const t = rng();
+                    const gauss = (rng() + rng() + rng()) / 3 - 0.5;
+                    const x = PAD + w0 * (0.5 + gauss * 0.52);
+                    const y = PAD + h0 * (0.3 - 0.22 * t) + (rng() - 0.5) * 16;
+                    const r = 22 + rng() * 34;
+                    puff(x, y, r, 0.85 + rng() * 0.4, 0.85 + rng() * 0.5, 0.75 + rng() * 0.45);
+                }
+                g.globalCompositeOperation = 'destination-out';
+                const fl = g.createLinearGradient(0, PAD + h0 * 0.78, 0, PAD + h0 * 0.97);
+                fl.addColorStop(0, 'rgba(0,0,0,0)'); fl.addColorStop(1, 'rgba(0,0,0,1)');
+                g.fillStyle = fl; g.fillRect(0, 0, c.width, c.height);
+                g.globalCompositeOperation = 'source-atop';
+                const sh2 = g.createLinearGradient(0, PAD + h0 * 0.05, 0, PAD + h0 * 0.95);
+                sh2.addColorStop(0, 'rgba(255,255,255,0)');
+                sh2.addColorStop(0.55, 'rgba(126,140,166,0.28)');
+                sh2.addColorStop(1, 'rgba(90,96,128,0.62)');
+                g.fillStyle = sh2; g.fillRect(0, 0, c.width, c.height);
                 return c;
             }
 
@@ -309,6 +375,7 @@
                 const n = Math.max(0, Math.round(CFG.CLOUD_N));
                 for (let i = 0; i < n; i++) {
                     clouds.push({
+                        kind: 'base',
                         spr: makeCloudSprite(rng),
                         xn: CFG.CLOUD_X0 + (i / Math.max(1, n)) * CFG.CLOUD_SPREAD + rng() * 0.08,
                         yn: CFG.CLOUD_Y0 + rng() * CFG.CLOUD_YR,
@@ -317,6 +384,38 @@
                         sh: 0.85 + rng() * 0.3
                     });
                 }
+                // 적란운: 하부 레이어 위에 랜덤하게 0~N개 솟은 타워
+                const ncb = Math.max(0, Math.round(CFG.CLOUD_CB_N ?? 2));
+                const cbY0 = CFG.CLOUD_CB_Y0 ?? 0.8, cbYR = CFG.CLOUD_CB_YR ?? 0.14;
+                const cbS0 = Math.min(CFG.CLOUD_CB_S0 ?? 0.85, CFG.CLOUD_CB_S1 ?? 1.45);
+                const cbS1 = Math.max(CFG.CLOUD_CB_S0 ?? 0.85, CFG.CLOUD_CB_S1 ?? 1.45);
+                for (let i = 0; i < ncb; i++) {
+                    const sideL = rng() < 0.5;
+                    clouds.push({
+                        kind: 'cb',
+                        spr: makeCbSprite(rng),
+                        xn: sideL ? -0.18 + rng() * 0.35 : 0.42 + rng() * 0.45,
+                        yn: cbY0 + rng() * cbYR,
+                        sp: CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1,
+                        s: cbS0 + rng() * (cbS1 - cbS0)
+                    });
+                }
+            }
+
+            // 스프라이트 기하: PAD 포함 전체 비트맵 기준 그리기 위치/크기.
+            // update(랩어라운드)와 drawSky가 같은 식을 공유해 화면 끝 출현 팝을 막는다.
+            function cloudGeom(c, base) {
+                const pad = c.spr.pad ?? 0, w0 = c.spr.w0 ?? c.spr.width, h0 = c.spr.h0 ?? c.spr.height;
+                if (c.kind === 'cb') {
+                    const k = base * (c.s ?? 1);
+                    const cw = w0 * k, ch = h0 * k, px = pad * k, py = pad * k;
+                    return { k, cw, ch, px, py, tw: cw + px * 2, th: ch + py * 2, dx: c.xn * W - px, dy: c.yn * HZ - ch * 0.88 - py };
+                }
+                const denom = CFG.CLOUD_YR || 1;
+                const k = base * lerp(1, 0.4, clamp((c.yn - CFG.CLOUD_Y0) / denom, 0, 1));
+                const sx = c.sw ?? 1, sy = c.sh ?? 1;
+                const cw = w0 * k * sx, ch = h0 * k * sy, px = pad * k * sx, py = pad * k * sy;
+                return { k, cw, ch, px, py, tw: cw + px * 2, th: ch + py * 2, dx: c.xn * W - px, dy: c.yn * HZ - ch * 0.7 - py };
             }
 
             // ---------- stone lanterns scattered on the flat ----------
@@ -701,9 +800,12 @@
                 }
 
                 if (!RM.matches) {
+                    const base = clamp(W / 1400, 0.5, 1.1);
                     for (const c of clouds) {
                         c.xn += c.sp * dt;
-                        if (c.xn > 1.25) c.xn = -0.4;
+                        const G = cloudGeom(c, base);
+                        // 왼쪽이 화면 오른쪽 밖으로 완전히 나가면 너비만큼 왼쪽 밖으로 되돌림 (팝인 없음)
+                        if (G.dx > W) c.xn = (-G.tw - 8 + G.px) / W;
                     }
                 }
             }
@@ -769,9 +871,8 @@
                     CL.setTransform(dpr, 0, 0, dpr, 0, 0);
                     const base = clamp(W / 1400, 0.5, 1.1);
                     for (const c of clouds) {
-                        const k = base * lerp(1, 0.4, (c.yn - CFG.CLOUD_Y0) / CFG.CLOUD_YR);
-                        const cw = 560 * k * (c.sw ?? 1), ch = 220 * k * (c.sh ?? 1);
-                        CL.drawImage(c.spr, c.xn * W, c.yn * HZ - ch * 0.7, cw, ch);
+                        const G = cloudGeom(c, base);
+                        CL.drawImage(c.spr, G.dx, G.dy, G.tw, G.th);
                     }
                     const [tc, ta] = keyed(CLOUD_TINT, q);
                     if (ta > 0.01) {

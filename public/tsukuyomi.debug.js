@@ -54,6 +54,8 @@
             ['CLOUD_Y0', 0, 1, 0.01, 'clouds'], ['CLOUD_YR', 0, 0.6, 0.01, 'clouds'],
             ['CLOUD_X0', -1, 0.5, 0.01, 'clouds'], ['CLOUD_SPREAD', 0, 2.5, 0.01, 'clouds'],
             ['CLOUD_F0', 0, 1, 0.01], ['CLOUD_F1', 0, 1, 0.01],
+            ['CLOUD_CB_N', 0, 6, 1, 'clouds'], ['CLOUD_CB_Y0', 0, 1, 0.01, 'clouds'], ['CLOUD_CB_YR', 0, 0.5, 0.01, 'clouds'],
+            ['CLOUD_CB_S0', 0.3, 2.5, 0.01, 'clouds'], ['CLOUD_CB_S1', 0.3, 2.5, 0.01, 'clouds'],
         ]},
         { title: '태양', keys: [
             ['SUN_PATH', 0.1, 1, 0.005], ['SUN_X0', 0, 1, 0.005], ['SUN_X1', 0, 1, 0.005],
