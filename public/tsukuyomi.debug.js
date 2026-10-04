@@ -56,6 +56,11 @@
             ['CLOUD_F0', 0, 1, 0.01], ['CLOUD_F1', 0, 1, 0.01],
             ['CLOUD_CB_N', 0, 6, 1, 'clouds'], ['CLOUD_CB_Y0', 0, 1, 0.01, 'clouds'], ['CLOUD_CB_YR', 0, 0.5, 0.01, 'clouds'],
             ['CLOUD_CB_S0', 0.3, 2.5, 0.01, 'clouds'], ['CLOUD_CB_S1', 0.3, 2.5, 0.01, 'clouds'],
+            ['DC_SEED', 0, 50, 1, 'clouds'], ['DC_N', 0, 16, 1, 'clouds'],
+            ['DC_Y0', 0.6, 1.1, 0.01, 'clouds'], ['DC_YR', 0, 0.3, 0.01, 'clouds'],
+            ['DC_CB_N', 0, 6, 1, 'clouds'], ['DC_CB_S0', 0.3, 2.5, 0.01, 'clouds'], ['DC_CB_S1', 0.3, 2.5, 0.01, 'clouds'],
+            ['DC_W0', 0, 0.4, 0.01], ['DC_W1', 0, 0.4, 0.01], ['DC_F0', 0.3, 1, 0.01], ['DC_F1', 0.3, 1, 0.01],
+            ['DC_LX', -0.3, 1.2, 0.01], ['DC_LY', -0.6, 0.6, 0.01], ['DC_LIGHT', 0, 1.5, 0.01],
         ]},
         { title: '태양', keys: [
             ['SUN_PATH', 0.1, 1, 0.005], ['SUN_X0', 0, 1, 0.005], ['SUN_X1', 0, 1, 0.005],
@@ -90,7 +95,7 @@
             ['LANTERN_GLOW', 0, 1, 0.01], ['LANTERN_POOL', 0, 1, 0.01],
         ]},
     ];
-    const PALETTES = ['SKY', 'MOUNT', 'TORII', 'CLOUD_TINT', 'REFL', 'VIG', 'LV', 'COLS'];
+    const PALETTES = ['SKY', 'MOUNT', 'TORII', 'CLOUD_TINT', 'DCLOUD_TINT', 'REFL', 'VIG', 'LV', 'COLS'];
 
     const fmt = v => {
         if (!isFinite(v)) return String(v);

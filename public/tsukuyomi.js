@@ -66,6 +66,13 @@
                 CLOUD_F0: 0.2, CLOUD_F1: 0.48,
                 CLOUD_CB_N: 2, CLOUD_CB_Y0: 0.8, CLOUD_CB_YR: 0.14,
                 CLOUD_CB_S0: 0.85, CLOUD_CB_S1: 1.45,
+                // 황혼 전용 구름 세트(낮 구름과 분리): 수평선 위 하부 띠 + 랜덤 적란운.
+                // DC_W0/W1: q 기준 낮 구름 → 황혼 구름 크로스페이드 구간, DC_F0/F1: 황혼 구름 → 밤 소멸 구간.
+                // DC_CB_N: 적란운 최대 개수(실제 개수는 시드 기반 1~N 랜덤). DC_LX/LY: 화면 밖 좌상단 광원 위치.
+                DC_SEED: 5, DC_N: 9, DC_Y0: 0.93, DC_YR: 0.07,
+                DC_CB_N: 3, DC_CB_S0: 0.95, DC_CB_S1: 1.5,
+                DC_W0: 0.12, DC_W1: 0.28, DC_F0: 0.36, DC_F1: 0.58,
+                DC_LX: 0.16, DC_LY: -0.12, DC_LIGHT: 0.5,
                 SUN_PATH: 0.42, SUN_X0: 0.27, SUN_X1: 0.32, SUN_DROP: 2.4,
                 SUN_F0: 0.34, SUN_F1: 0.46,
                 SUN_G0: 0.18, SUN_G1: 0.32, SUN_G2: 0.4, SUN_G3: 0.56,
@@ -132,8 +139,8 @@
             let SKY_RAW = [
                 [0.00, '#2a64b4', '#4b83c7', '#6aa0d8', '#a5c6e6', '#dbe9f3'],
                 [0.16, '#2f63ad', '#5886c1', '#7ea7d3', '#b6c6d2', '#e8e2d2'],
-                [0.26, '#2f62e4', '#6876e6', '#a487d6', '#c886b0', '#a86a9e'],
-                [0.34, '#2f62e4', '#6876e6', '#a487d6', '#c886b0', '#a86a9e'],
+                [0.26, '#4e5687', '#6f77ab', '#9d95c6', '#cfa3c6', '#b3809a'],
+                [0.34, '#4e5687', '#6f77ab', '#9d95c6', '#cfa3c6', '#b3809a'],
                 [0.42, '#141a44', '#2c2a62', '#4a3070', '#6a3672', '#7a3c6e'],
                 [0.52, '#070b22', '#111536', '#1a1f48', '#333059', '#4a3f68'],
                 [0.64, '#03050f', '#05091a', '#070d24', '#101a38', '#18264a'],
@@ -176,6 +183,11 @@
                 [0.34, '#ef7fa2', 0.50], [0.42, '#5c3a6e', 0.62], [1.00, '#1a1a30', 0.7]
             ];
             let CLOUD_TINT = prep(CLOUD_TINT_RAW);
+            // 황혼 구름은 색을 스프라이트에 직접 구우므로 황혼 idle(≤0.34)에서는 틴트 없음, 밤으로만 어두워진다.
+            let DCLOUD_TINT_RAW = [
+                [0.00, '#ffffff', 0], [0.34, '#ffffff', 0], [0.42, '#4a2f5e', 0.5], [1.00, '#1a1a30', 0.7]
+            ];
+            let DCLOUD_TINT = prep(DCLOUD_TINT_RAW);
             // reflection dimming: day and sunset unchanged, stronger only once the sky is night
             let REFL = [[0, 0.06, 0.20], [0.45, 0.14, 0.34], [0.64, 0.42, 0.60], [1, 0.42, 0.60]];
             let VIG = [[0, 0.05], [0.6, 0.32], [1, 0.32]];
@@ -210,12 +222,15 @@
             // p와 함께 연속으로만 움직이므로 전환 중 점프가 없다.
             // 태양 위치/소멸/여광이 모두 nk에 묶이며, toNight에서는 T_SUNSET으로 하늘(T_NIGHT)보다 먼저 진다.
             let nk = 0, nkFrom = 0, nkTo = 0;
+            // 태양 원반 가시도: 낮 = 1, 황혼 = 0(원반 없이 좌상단 광원만). toDay/toDusk에서만 보간하고
+            // toNight에서는 출발값을 유지한다 (낮→밤은 해가 지고, 황혼→밤은 원반 없이 진행).
+            let sunVis = 0, svFrom = 0, svTo = 0;
             const sunK = () => clamp(nk, 0, 1);
             let phi = 0, phiTail = null, omega = 0, clock = 0;   // phiTail: 궤적 꼬리 각도 (null = 궤적 없음)
             // 달 상승 보간(mt)과 궤적 길이를 공유하는 헬퍼: drawSky의 달 위치와 동일한 식
             const moonMT = pp => { const m = ss(CFG.MOON_A0, CFG.MOON_A1, pp); return 1 - Math.pow(1 - m, 3); };
             let stars = [], buckets = [];
-            let mtn = [], clouds = [];
+            let mtn = [], clouds = [], duskClouds = [];
             // stone lanterns on the flat (lantern-front.svg, all facing the viewer)
             let lanterns = [], lanImg = null, lanReady = false;
             // lantern raster cache: SVG를 1회 비트맵으로 구워 매 프레임 벡터 재래스터 방지
@@ -437,6 +452,188 @@
                 return c;
             }
 
+            // ---------- 황혼 전용 구름 ----------
+            // 레퍼런스(수상 토리이 매직아워): 좌상단 광원에 상부가 크림/복숭아빛으로 빛나고,
+            // 몸통은 연어빛 → 장밋빛, 밑면은 자주빛 음영으로 가라앉는다.
+            // 퍼프를 흰 코어 + 우하단 음영 로브로 쌓은 마스크(m)를 높이별 색 그라데이션으로 multiply 착색한 뒤
+            // 상단 퍼프에 좌상단 쪽 하이라이트를 얹는다. 색이 구워져 있어 황혼 idle에서는 틴트를 쓰지 않는다.
+            function duskPuff(g, x, y, r, a, ex, ey) {
+                g.save();
+                g.translate(x, y);
+                g.scale(ex, ey);
+                const sg = g.createRadialGradient(r * 0.16, r * 0.36, 0, r * 0.16, r * 0.36, r * 0.95);
+                sg.addColorStop(0, `rgba(118,74,108,${(0.5 * a).toFixed(3)})`);
+                sg.addColorStop(1, 'rgba(118,74,108,0)');
+                g.fillStyle = sg;
+                g.beginPath(); g.arc(r * 0.16, r * 0.36, r * 0.95, 0, Math.PI * 2); g.fill();
+                const gr = g.createRadialGradient(-r * 0.1, -r * 0.16, 0, -r * 0.1, -r * 0.16, r);
+                gr.addColorStop(0, `rgba(255,255,255,${(0.7 * a).toFixed(3)})`);
+                gr.addColorStop(0.68, `rgba(255,255,255,${(0.5 * a).toFixed(3)})`);
+                gr.addColorStop(1, 'rgba(255,255,255,0)');
+                g.fillStyle = gr;
+                g.beginPath(); g.arc(-r * 0.1, -r * 0.16, r, 0, Math.PI * 2); g.fill();
+                g.restore();
+            }
+            // m: 퍼프 마스크 캔버스, stops: 콘텐츠 높이(0=상단, 1=하단) 기준 [위치, 색],
+            // hi: 상부 하이라이트 퍼프 [x, y, r], fade: 밑변 소멸 시작 비율(1 = 소멸 없음)
+            function duskFinish(m, stops, hi, fade) {
+                const { w0, h0, pad: PAD } = m;
+                const c = document.createElement('canvas');
+                c.width = m.width; c.height = m.height;
+                c.w0 = w0; c.h0 = h0; c.pad = PAD;
+                const g = c.getContext('2d');
+                const col = g.createLinearGradient(0, PAD, 0, PAD + h0);
+                for (const [t, cc] of stops) col.addColorStop(t, cc);
+                g.fillStyle = col; g.fillRect(0, 0, c.width, c.height);
+                g.globalCompositeOperation = 'multiply';
+                g.drawImage(m, 0, 0);
+                g.globalCompositeOperation = 'destination-in';
+                g.drawImage(m, 0, 0);
+                // 상부 햇빛 반사: 좌상단 광원을 향한 쪽에 따뜻한 크림 하이라이트
+                g.globalCompositeOperation = 'source-atop';
+                for (const [x, y, r] of hi) {
+                    const hx = x - r * 0.3, hy = y - r * 0.35;
+                    const hg = g.createRadialGradient(hx, hy, 0, hx, hy, r * 0.9);
+                    hg.addColorStop(0, 'rgba(255,247,226,0.32)');
+                    hg.addColorStop(0.5, 'rgba(255,232,196,0.14)');
+                    hg.addColorStop(1, 'rgba(255,226,190,0)');
+                    g.fillStyle = hg;
+                    g.beginPath(); g.arc(hx, hy, r * 0.9, 0, Math.PI * 2); g.fill();
+                }
+                if (fade < 1) {
+                    g.globalCompositeOperation = 'destination-out';
+                    const fl = g.createLinearGradient(0, PAD + h0 * fade, 0, PAD + h0);
+                    fl.addColorStop(0, 'rgba(0,0,0,0)'); fl.addColorStop(1, 'rgba(0,0,0,1)');
+                    g.fillStyle = fl; g.fillRect(0, 0, c.width, c.height);
+                }
+                g.globalCompositeOperation = 'source-over';
+                return c;
+            }
+            function duskMask(w0, h0, PAD) {
+                const m = document.createElement('canvas');
+                m.width = w0 + PAD * 2; m.height = h0 + PAD * 2;
+                m.w0 = w0; m.h0 = h0; m.pad = PAD;
+                return m;
+            }
+            // 하부 띠: 납작하고 두꺼운 데크 위에 여러 개의 낮은 뭉게 봉우리가 불규칙하게 솟는다.
+            function makeDuskBandSprite(rng) {
+                const w0 = 640, h0 = 230, PAD = 140;
+                const m = duskMask(w0, h0, PAD);
+                const g = m.getContext('2d');
+                const hi = [];
+                // 봉우리 프로파일: 2~4개의 가우스 봉우리 (높이 = 콘텐츠 상단으로부터의 비율)
+                const humps = Array.from({ length: 2 + ((rng() * 3) | 0) }, () => ({
+                    u: 0.1 + rng() * 0.8, w: 0.06 + rng() * 0.1, h: 0.3 + rng() * 0.6
+                }));
+                const top = u => {
+                    let v = 0.12;
+                    for (const hp of humps) v = Math.max(v, hp.h * Math.exp(-((u - hp.u) ** 2) / (2 * hp.w * hp.w)));
+                    return 0.62 - 0.6 * Math.min(1, v);   // 0.02(가장 높은 봉우리) ~ 0.55(데크 윗면)
+                };
+                // 데크: 밑변 가득 납작하게
+                for (let i = 0; i < 34; i++) {
+                    const u = rng();
+                    const x = PAD + w0 * (0.02 + 0.96 * u);
+                    const y = PAD + h0 * (0.66 + rng() * 0.24);
+                    const r = 30 + rng() * 40;
+                    duskPuff(g, x, y, r, 0.8 + rng() * 0.35, 1.4 + rng() * 0.9, 0.5 + rng() * 0.25);
+                }
+                // 봉우리 몸통: 프로파일 윗면부터 데크까지 채운다
+                for (let i = 0; i < 64; i++) {
+                    const u = 0.04 + 0.92 * rng();
+                    const tp = top(u);
+                    const f = Math.pow(rng(), 0.7); // 0 = 윗면, 1 = 데크
+                    const yy = lerp(tp + 0.08, 0.7, f);
+                    const x = PAD + w0 * u;
+                    const y = PAD + h0 * yy;
+                    const r = 18 + rng() * 30 + (0.62 - tp) * 40;
+                    duskPuff(g, x, y, r, 0.8 + rng() * 0.35, 0.9 + rng() * 0.5, 0.7 + rng() * 0.35);
+                    if (f < 0.25) hi.push([x, y, r]);
+                }
+                // 미세 질감: 윗면 가장자리의 작은 뭉게
+                for (let i = 0; i < 34; i++) {
+                    const u = 0.05 + 0.9 * rng();
+                    const x = PAD + w0 * u + (rng() - 0.5) * 12;
+                    const y = PAD + h0 * (top(u) + 0.06 + rng() * 0.06);
+                    const r = 7 + rng() * 10;
+                    duskPuff(g, x, y, r, 0.55 + rng() * 0.4, 0.8 + rng() * 0.5, 0.7 + rng() * 0.4);
+                }
+                return duskFinish(m, [
+                    [0, '#fff3dc'], [0.22, '#ffd8b0'], [0.42, '#f6aa90'],
+                    [0.62, '#c98482'], [0.8, '#8e5a6c'], [1, '#64405a']
+                ], hi, 0.9);
+            }
+            // 황혼 적란운: 넓은 몸통 + 둥근 머리. 상부는 빛을 받아 크림색, 하단은 띠 뒤로 자주빛 음영.
+            function makeDuskCbSprite(rng) {
+                const w0 = 600, h0 = 560, PAD = 150;
+                const m = duskMask(w0, h0, PAD);
+                const g = m.getContext('2d');
+                const hi = [];
+                const lean = (rng() - 0.5) * 0.12;   // 탑이 살짝 기울어 개체마다 실루엣이 다르게
+                for (let i = 0; i < 30; i++) {
+                    const u = rng();
+                    const x = PAD + w0 * (0.04 + 0.92 * u);
+                    const y = PAD + h0 * (0.78 + rng() * 0.16);
+                    const r = 40 + rng() * 44;
+                    duskPuff(g, x, y, r, 0.8 + rng() * 0.35, 1.4 + rng() * 0.8, 0.5 + rng() * 0.25);
+                }
+                for (let i = 0; i < 70; i++) {
+                    const t = rng(); // 0 = 하단, 1 = 꼭대기
+                    const hw = lerp(0.36, 0.2, t);
+                    const gauss = (rng() + rng() + rng()) / 3 - 0.5;
+                    const x = PAD + w0 * (0.5 + lean * t + gauss * 2 * hw);
+                    const y = PAD + h0 * (0.76 - 0.6 * t) + (rng() - 0.5) * 16;
+                    const r = 30 + rng() * 40 + (1 - t) * 12;
+                    duskPuff(g, x, y, r, 0.85 + rng() * 0.35, 0.9 + rng() * 0.5, 0.75 + rng() * 0.35);
+                    if (t > 0.45 || Math.abs(gauss) > 0.22) hi.push([x, y, r]);
+                }
+                for (let i = 0; i < 36; i++) {
+                    const t = 0.3 + rng() * 0.7;
+                    const hw = lerp(0.36, 0.2, t);
+                    const gauss = (rng() + rng() + rng()) / 3 - 0.5;
+                    const x = PAD + w0 * (0.5 + lean * t + gauss * 2 * hw) + (rng() - 0.5) * 14;
+                    const y = PAD + h0 * (0.7 - 0.6 * t) + (rng() - 0.5) * 12;
+                    const r = 9 + rng() * 12;
+                    duskPuff(g, x, y, r, 0.55 + rng() * 0.4, 0.8 + rng() * 0.5, 0.7 + rng() * 0.4);
+                }
+                return duskFinish(m, [
+                    [0, '#fff8e8'], [0.18, '#ffe6c2'], [0.38, '#fbbd9c'], [0.56, '#e19486'],
+                    [0.72, '#a86d76'], [0.86, '#76495e'], [1, '#5c3a50']
+                ], hi, 0.92);
+            }
+            function buildDuskClouds() {
+                const rng = mulberry32(Math.round((CFG.DC_SEED ?? 5) * 1000 + 77));
+                duskClouds = [];
+                // 적란운 먼저(뒤), 띠를 위에 그려 적란운 밑동을 띠가 덮게 한다
+                const cbMax = Math.max(0, Math.round(CFG.DC_CB_N ?? 3));
+                const ncb = cbMax > 0 ? 1 + ((rng() * cbMax) | 0) : 0;
+                const s0 = Math.min(CFG.DC_CB_S0, CFG.DC_CB_S1), s1 = Math.max(CFG.DC_CB_S0, CFG.DC_CB_S1);
+                // 화면 폭을 ncb 구간으로 나눠 구간마다 하나씩: 랜덤하되 서로 겹쳐 뭉치지 않게
+                for (let i = 0; i < ncb; i++) {
+                    duskClouds.push({
+                        kind: 'cb',
+                        spr: makeDuskCbSprite(rng),
+                        xn: -0.2 + (i + 0.1 + rng() * 0.8) * (1.15 / ncb),
+                        yn: CFG.DC_Y0 - 0.06 + rng() * 0.06,
+                        sp: CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1,
+                        s: s0 + rng() * (s1 - s0)
+                    });
+                }
+                const n = Math.max(0, Math.round(CFG.DC_N));
+                for (let i = 0; i < n; i++) {
+                    duskClouds.push({
+                        kind: 'band',
+                        spr: makeDuskBandSprite(rng),
+                        xn: -0.35 + (i / Math.max(1, n)) * 1.5 + rng() * 0.06,
+                        yn: CFG.DC_Y0 + rng() * CFG.DC_YR,
+                        sp: CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1,
+                        s: 0.85 + rng() * 0.35,
+                        sw: 1.3 + rng() * 0.6,
+                        sh: 0.8 + rng() * 0.45
+                    });
+                }
+            }
+
             function buildClouds() {
                 const rng = mulberry32(42);
                 clouds = [];
@@ -478,6 +675,11 @@
                     const k = base * (c.s ?? 1);
                     const cw = w0 * k, ch = h0 * k, px = pad * k, py = pad * k;
                     return { k, cw, ch, px, py, tw: cw + px * 2, th: ch + py * 2, dx: c.xn * W - px, dy: c.yn * HZ - ch * 0.88 - py };
+                }
+                if (c.kind === 'band') {
+                    const k = base * (c.s ?? 1), sx = c.sw ?? 1, sy = c.sh ?? 1;
+                    const cw = w0 * k * sx, ch = h0 * k * sy, px = pad * k * sx, py = pad * k * sy;
+                    return { k, cw, ch, px, py, tw: cw + px * 2, th: ch + py * 2, dx: c.xn * W - px, dy: c.yn * HZ - ch * 0.9 - py };
                 }
                 const denom = CFG.CLOUD_YR || 1;
                 // 수평선에 가까울수록 크게: 멀리 작아지는 실제 원근과 반대로 두지만
@@ -819,11 +1021,13 @@
                     p = transFrom + (transTo - transFrom) * e;
                     duskW = duskFrom + (duskTo - duskFrom) * e;
                     nk = nkFrom + (nkTo - nkFrom) * e;
+                    sunVis = svFrom + (svTo - svFrom) * e;
                     omega *= Math.exp(-dt * 3);
                     if (k >= 1) {
                         state = transTarget; p = transTo;
                         duskW = duskTo;
                         nk = nkTo;
+                        sunVis = svTo;
                         phi = 0; phiTail = null; omega = 0;
                     }
                 } else {
@@ -871,7 +1075,7 @@
 
                 if (!RM.matches) {
                     const base = clamp(W / 1400, 0.5, 1.1);
-                    for (const c of clouds) {
+                    for (const c of clouds.concat(duskClouds)) {
                         c.xn += c.sp * dt;
                         const G = cloudGeom(c, base);
                         // 왼쪽이 화면 오른쪽 밖으로 완전히 나가면 너비만큼 왼쪽 밖으로 되돌림 (팝인 없음)
@@ -916,7 +1120,7 @@
                 }
 
                 // sun (소멸도 nk 기준: 낮/황혼 동일한 타이밍)
-                const sunFade = 1 - ss(CFG.SUN_F0, CFG.SUN_F1, nk);
+                const sunFade = (1 - ss(CFG.SUN_F0, CFG.SUN_F1, nk)) * sunVis;
                 if (sy < HZ + sunR * 3 && sunFade > 0.001) {
                     const hgt = clamp((HZ - sy) / (HZ - sy0), 0, 1);
                     const sc = hgt > 0.35
@@ -932,31 +1136,60 @@
                     S.beginPath(); S.arc(sx, sy, sunR, 0, Math.PI * 2); S.fill();
                 }
 
-                // clouds
-                const ca = 1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q);
-                if (ca > 0.01) {
+                // 황혼: 원반 대신 화면 밖 좌상단 광원의 은은한 빛 (구름 상부 반사 방향과 일치)
+                const wD = ss(CFG.DC_W0, CFG.DC_W1, q);
+                const dLive = wD * (1 - ss(CFG.DC_F0, CFG.DC_F1, q));
+                const lx = W * CFG.DC_LX, ly = HZ * CFG.DC_LY;
+                const lA = CFG.DC_LIGHT * dLive * (1 - sunVis);
+                if (lA > 0.005) {
+                    const lg = S.createRadialGradient(lx, ly, 0, lx, ly, HZ * 1.1);
+                    lg.addColorStop(0, rgba(hex('#fff0d8'), 0.75 * lA));
+                    lg.addColorStop(0.35, rgba(hex('#f8c8b8'), 0.32 * lA));
+                    lg.addColorStop(1, 'rgba(240,180,190,0)');
+                    S.fillStyle = lg; S.fillRect(0, 0, W, HZ);
+                }
+
+                // clouds: 낮 세트(틴트 방식)와 황혼 세트(색 구움)를 q로 크로스페이드
+                const base = clamp(W / 1400, 0.5, 1.1);
+                const drawSet = (set, tint, alpha, light) => {
                     CL.setTransform(1, 0, 0, 1, 0, 0);
                     CL.globalCompositeOperation = 'source-over';
                     CL.clearRect(0, 0, cloudLayer.width, cloudLayer.height);
                     CL.setTransform(dpr, 0, 0, dpr, 0, 0);
-                    const base = clamp(W / 1400, 0.5, 1.1);
-                    for (const c of clouds) {
+                    for (const c of set) {
                         const G = cloudGeom(c, base);
+                        if (G.dx > W || G.dx + G.tw < 0) continue;
                         CL.drawImage(c.spr, G.dx, G.dy, G.tw, G.th);
                     }
-                    const [tc, ta] = keyed(CLOUD_TINT, q);
+                    if (light > 0.005) {
+                        // 광원 쪽 구름일수록 더 밝게 반사
+                        CL.globalCompositeOperation = 'source-atop';
+                        const rg = CL.createRadialGradient(lx, ly, 0, lx, ly, Math.max(W, HZ) * 0.9);
+                        rg.addColorStop(0, rgba(hex('#fff2dc'), 0.42 * light));
+                        rg.addColorStop(1, 'rgba(255,236,210,0)');
+                        CL.fillStyle = rg; CL.fillRect(0, 0, W, HZ);
+                        // 하부 음영: 수평선 쪽 구름 밑면을 자주빛으로 가라앉힌다
+                        const bg = CL.createLinearGradient(0, HZ * 0.62, 0, HZ);
+                        bg.addColorStop(0, 'rgba(94,56,84,0)');
+                        bg.addColorStop(1, `rgba(94,56,84,${(0.5 * light).toFixed(3)})`);
+                        CL.fillStyle = bg; CL.fillRect(0, HZ * 0.62, W, HZ * 0.38);
+                    }
+                    const [tc, ta] = keyed(tint, q);
                     if (ta > 0.01) {
                         CL.globalCompositeOperation = 'source-atop';
                         CL.fillStyle = rgba(tc, ta);
                         CL.fillRect(0, 0, W, HZ);
-                        CL.globalCompositeOperation = 'source-over';
                     }
+                    CL.globalCompositeOperation = 'source-over';
                     S.setTransform(1, 0, 0, 1, 0, 0);
-                    S.globalAlpha = ca;
+                    S.globalAlpha = alpha;
                     S.drawImage(cloudLayer, 0, 0);
                     S.globalAlpha = 1;
                     S.setTransform(dpr, 0, 0, dpr, 0, 0);
-                }
+                };
+                const ca = (1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q)) * (1 - wD);
+                if (ca > 0.01) drawSet(clouds, CLOUD_TINT, ca, 0);
+                if (dLive > 0.01) drawSet(duskClouds, DCLOUD_TINT, dLive, 1 - ss(DUSK_Q, CFG.DC_F1, q));
 
                 drawStars();
 
@@ -1529,6 +1762,8 @@ void main() {
                 transFrom = p;
                 nkFrom = nk;
                 duskFrom = duskW;
+                svFrom = sunVis;
+                svTo = target === 'day' ? 1 : target === 'dusk' ? 0 : sunVis;
                 transTarget = target;
                 if (target === 'night') {
                     // 현재 시각(qFrom)을 낮 분기 좌표로 스냅: q가 같아 화면 점프는 없고,
@@ -1588,8 +1823,8 @@ void main() {
                 get state() { return state; },
                 set state(v) {
                     state = v;
-                    if (v === 'day') { p = CFG.P_DAY; transFrom = p; transTo = p; transTarget = 'day'; duskW = 0; duskFrom = 0; duskTo = 0; nk = 0; nkFrom = 0; nkTo = 0; phi = 0; phiTail = null; omega = 0; }
-                    else if (v === 'dusk') { p = CFG.P_DUSK; transFrom = p; transTo = p; transTarget = 'dusk'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 0; nkFrom = 0; nkTo = 0; phi = 0; phiTail = null; omega = 0; }
+                    if (v === 'day') { p = CFG.P_DAY; transFrom = p; transTo = p; transTarget = 'day'; duskW = 0; duskFrom = 0; duskTo = 0; nk = 0; nkFrom = 0; nkTo = 0; sunVis = svFrom = svTo = 1; phi = 0; phiTail = null; omega = 0; }
+                    else if (v === 'dusk') { p = CFG.P_DUSK; transFrom = p; transTo = p; transTarget = 'dusk'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 0; nkFrom = 0; nkTo = 0; sunVis = svFrom = svTo = 0; phi = 0; phiTail = null; omega = 0; }
                     else if (v === 'night') { p = 1; transFrom = 1; transTo = 1; transTarget = 'night'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 1; nkFrom = 1; nkTo = 1; }
                     else if (v === 'toNight') {
                         if (!(p < 1)) p = CFG.P_DUSK;
@@ -1603,11 +1838,13 @@ void main() {
                         duskTo = v === 'toDay' ? 0 : 1;
                         if (!(p >= 0 && p <= 1)) p = 1;
                         transFrom = p; duskFrom = duskW; nkFrom = nk; nkTo = 0; tState = 0;
+                        svFrom = sunVis; svTo = v === 'toDay' ? 1 : 0;
                     }
                 },
                 get mode() { return targetOf(state); }, set mode(v) { goTo(v); },
                 get sunK() { return sunK(); },
                 get nk() { return nk; }, set nk(v) { nk = clamp(Number(v) || 0, 0, 1); },
+                get sunVis() { return sunVis; }, set sunVis(v) { sunVis = svFrom = svTo = clamp(Number(v) || 0, 0, 1); },
                 get p() { return p; }, set p(v) { p = clamp(Number(v) || 0, 0, 1); },
                 get q() { return palQ(); },
                 get duskW() { return duskW; }, set duskW(v) { duskW = clamp(Number(v) || 0, 0, 1); },
@@ -1629,7 +1866,7 @@ void main() {
                 get torBuilds() { return torBuilds; },
                 get bandBuilds() { return bandBuilds; },
                 get palettes() {
-                    return { SKY: SKY_RAW, MOUNT: MOUNT_RAW, TORII: TORII_RAW, CLOUD_TINT: CLOUD_TINT_RAW, REFL, VIG, LV, COLS: COLS_RAW };
+                    return { SKY: SKY_RAW, MOUNT: MOUNT_RAW, TORII: TORII_RAW, CLOUD_TINT: CLOUD_TINT_RAW, DCLOUD_TINT: DCLOUD_TINT_RAW, REFL, VIG, LV, COLS: COLS_RAW };
                 },
                 setPalette(name, raw) {
                     const parsed = JSON.parse(JSON.stringify(raw));
@@ -1637,6 +1874,7 @@ void main() {
                     else if (name === 'MOUNT') { MOUNT_RAW = parsed; MOUNT = prep(MOUNT_RAW); }
                     else if (name === 'TORII') { TORII_RAW = parsed; TORII = prep(TORII_RAW); }
                     else if (name === 'CLOUD_TINT') { CLOUD_TINT_RAW = parsed; CLOUD_TINT = prep(CLOUD_TINT_RAW); }
+                    else if (name === 'DCLOUD_TINT') { DCLOUD_TINT_RAW = parsed; DCLOUD_TINT = prep(DCLOUD_TINT_RAW); }
                     else if (name === 'REFL') { REFL = parsed; }
                     else if (name === 'VIG') { VIG = parsed; }
                     else if (name === 'LV') { LV = parsed; }
@@ -1645,7 +1883,8 @@ void main() {
                 },
                 resetPalette(name, defaults) { this.setPalette(name, defaults); },
                 actions: {
-                    resize, buildStars, buildMountains, buildClouds, buildLanterns,
+                    resize, buildStars, buildMountains, buildLanterns,
+                    buildClouds() { buildClouds(); buildDuskClouds(); },
                     goTo,
                     toNight() { goTo('night'); },
                     toDay() { goTo('day'); },
@@ -1661,9 +1900,10 @@ void main() {
                         transFrom = CFG.P_DUSK; transTo = CFG.P_DUSK; transTarget = 'dusk';
                         duskW = 1; duskFrom = 1; duskTo = 1;
                         nk = 0; nkFrom = 0; nkTo = 0;
+                        sunVis = 0; svFrom = 0; svTo = 0;
                         state = 'dusk'; p = CFG.P_DUSK; tState = 0; tNight = 0;
                         phi = 0; phiTail = null; omega = 0; debugHold = false; debugPaused = false;
-                        buildMountains(); buildClouds(); buildLanterns(); resize();
+                        buildMountains(); buildClouds(); buildDuskClouds(); buildLanterns(); resize();
                     },
                     ripple(xn = 0.5, sn = 0.5) {
                         const cap = Math.min(RIP_SLOTS, Math.max(1, Math.round(CFG.RIP_MAX)));
@@ -1698,6 +1938,7 @@ void main() {
             initGL();
             buildMountains();
             buildClouds();
+            buildDuskClouds();
             buildLanterns();
             loadLanternSprite();
             resize();
