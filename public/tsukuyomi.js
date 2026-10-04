@@ -34,7 +34,7 @@
             // 모든 수치 파라미터는 CFG 하나로 모음. 기본값 = 기존 하드코딩 값과 동일.
             // debug 패널(tsukuyomi.debug.js)이 window.__TSUKUYOMI__ 를 통해 live로 읽고 쓴다.
             const CFG = {
-                T_NIGHT: 14, T_DAY: 2.4, W_FAST: 0.28, W_SLOW: 0.009, TRAIL_LEN: 0.6, DECAY: 1.4,
+                T_NIGHT: 9.5, T_DAY: 2.4, W_FAST: 0.28, W_SLOW: 0.009, TRAIL_LEN: 0.6, DECAY: 0.45, FAST_HOLD: 2.0,
                 P_DUSK: 0.32,
                 HZ_RATIO: 0.56, DPR_MAX: 2, PIX_BUDGET: 5e6,
                 BAND_PAD: 12, BLUR_PX: 3, BAND_H: 0.3,
@@ -49,7 +49,7 @@
                 CLOUD_N: 7, CLOUD_SP0: 0.003, CLOUD_SP1: 0.005, CLOUD_Y0: 0.5, CLOUD_YR: 0.34,
                 CLOUD_X0: -0.25, CLOUD_SPREAD: 1.4,
                 CLOUD_F0: 0.2, CLOUD_F1: 0.48,
-                SUN_PATH: 0.38, SUN_X0: 0.27, SUN_X1: 0.32, SUN_DROP: 2.4,
+                SUN_PATH: 0.42, SUN_X0: 0.27, SUN_X1: 0.32, SUN_DROP: 2.4,
                 SUN_F0: 0.34, SUN_F1: 0.46,
                 SUN_G0: 0.18, SUN_G1: 0.32, SUN_G2: 0.4, SUN_G3: 0.56,
                 MOON_A0: 0.46, MOON_A1: 0.92, MOON_GLOW: 9, MOON_A: 0.24, MOON_X0: 0.82, MOON_X1: 0.76,
@@ -57,6 +57,9 @@
                 REFL_AMP0: 0.15, REFL_AMP1: 2.4, SEAM_A: 0.22,
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 3,
                 RIP_MAX: 8, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
+                LANTERN_N: 9, LANTERN_GX: 0.48, LANTERN_SN0: 0.06, LANTERN_SN1: 0.92,
+                LANTERN_H: 0.5, LANTERN_JITTER: 0.25, LANTERN_GLOW: 0.5, LANTERN_POOL: 0.4,
+                LANTERN_SEED: 7, LANTERN_EXCL: 1.0,
             };
             const CFG_DEFAULTS = JSON.parse(JSON.stringify(CFG));
             // 수동 스크럽용 플래그 (debug UI에서 토글)
@@ -98,8 +101,8 @@
             let SKY_RAW = [
                 [0.00, '#2a64b4', '#6aa0d8', '#dbe9f3'],
                 [0.16, '#2f63ad', '#7ea7d3', '#e8e2d2'],
-                [0.26, '#34518f', '#a98ea8', '#f6c88f'],
-                [0.34, '#262e63', '#b0607a', '#ff9356'],
+                [0.26, '#E87A5D', '#EE966C', '#F3B27A'],
+                [0.34, '#E06D53', '#EA9067', '#F3B27A'],
                 [0.42, '#121838', '#523866', '#d0604c'],
                 [0.52, '#070b22', '#1a1f48', '#4a3f68'],
                 [0.64, '#03050f', '#070d24', '#18264a'],
@@ -155,8 +158,12 @@
             let pole = { x: 0, y: 0 }, sunR = 20, moonR = 18;
             let state = 'dusk', p = CFG.P_DUSK, tState = 0, tNight = 0;
             let phi = 0, phiTail = null, omega = 0, clock = 0;   // phiTail: rotation angle at the trail's tail
+            let trailTState = null;   // tState at which the trail first reached full length (early-decay 기준점)
+            let nightBase = 0;   // night 진입 시점의 감속 경과량 (점프 방지용 오프셋)
             let stars = [], buckets = [];
             let mtn = [], clouds = [];
+            // stone lanterns on the flat (lantern-front.svg, all facing the viewer)
+            let lanterns = [], lanImg = null, lanReady = false;
 
             const starAlpha = () => ss(CFG.STAR_A0, CFG.STAR_A1, p);
 
@@ -244,6 +251,69 @@
                 }
             }
 
+            // ---------- stone lanterns scattered on the flat ----------
+            // lantern-front.svg (viewBox -130 -276 260x318): lantern body y -256..22,
+            // feet at 298/318 of the image height, horizontally centred.
+            const LAN_FEET = 298 / 318, LAN_WHR = 260 / 318;
+            function buildLanterns() {
+                const rng = mulberry32(Math.round(CFG.LANTERN_SEED * 1000 + 11));
+                lanterns = [];
+                const n = Math.max(0, Math.round(CFG.LANTERN_N));
+                const sn0 = Math.min(CFG.LANTERN_SN0, CFG.LANTERN_SN1);
+                const sn1 = Math.max(CFG.LANTERN_SN0, CFG.LANTERN_SN1);
+                for (let i = 0; i < n; i++) {
+                    const sn = lerp(sn0, sn1, rng());
+                    // ux: -1..1 uniform; x spread narrows toward the horizon (perspective)
+                    const ux = rng() * 2 - 1;
+                    const js = 1 + (rng() * 2 - 1) * clamp(CFG.LANTERN_JITTER, 0, 0.6);
+                    lanterns.push({ sn, ux, js, x: 0, y: 0, w: 0, h: 0, s: 0 });
+                }
+                lanterns.sort((a, b) => a.sn - b.sn);   // far-to-near painter order
+                projectLanterns();
+            }
+            function projectLanterns() {
+                if (!W || !H) return;
+                const reflH = Math.max(1, H - HZ);
+                const minS = Math.max(2, 0.03 * reflH);
+                const halfW = W * clamp(CFG.LANTERN_GX, 0.05, 0.6);
+                for (const L of lanterns) {
+                    const s = clamp(L.sn * reflH, minS, reflH);
+                    L.s = s;
+                    L.x = W / 2 + L.ux * halfW * (0.22 + 0.78 * L.sn);
+                    L.y = HZ + s;
+                    L.h = Math.max(2, CFG.LANTERN_H * s * L.js);
+                    L.w = L.h * LAN_WHR;
+                }
+                // keep clear of the torii and the bottom control card
+                const tcx = torX + torW / 2;
+                for (const L of lanterns) {
+                    const m = CFG.LANTERN_EXCL;
+                    const lx0 = L.x - L.w / 2, lx1 = L.x + L.w / 2;
+                    const tExp = (torW / 2 + L.w / 2) * m;
+                    if (Math.abs(L.x - tcx) < tExp && L.y - L.h < torBase && L.y > torY) {
+                        L.x = tcx + (L.x < tcx ? -tExp : tExp);
+                    }
+                    if (lx1 < -L.w || lx0 > W + L.w) continue;
+                    // bottom control: desktop card (centre) vs mobile button (bottom-left)
+                    const narrow = W <= 460;
+                    const cardCx = narrow ? 90 : W / 2;
+                    const cardHalf = narrow ? 110 : 250;
+                    const cardTop = H - (narrow ? 90 : 170);
+                    if (L.y > cardTop && Math.abs(L.x - cardCx) < cardHalf + L.w / 2) {
+                        L.x = cardCx + (L.x < cardCx ? -(cardHalf + L.w / 2) : (cardHalf + L.w / 2));
+                    }
+                }
+            }
+            function loadLanternSprite() {
+                try {
+                    lanImg = new Image();
+                    lanImg.decoding = 'async';
+                    lanImg.onload = () => { lanReady = true; };
+                    lanImg.onerror = () => { lanReady = false; };
+                    lanImg.src = 'lantern-front.svg';
+                } catch (e) { lanReady = false; }
+            }
+
             // ---------- stars and their trails ----------
             // Each trail runs from where the star was phiLen radians ago to where it is now.
             // It grows from the star's starting point until it reaches TRAIL_LEN, then keeps that length.
@@ -323,6 +393,7 @@
                 fg.width = cv.width; fg.height = cv.height;
                 resizeRipple();
                 buildStars();
+                projectLanterns();
             }
 
             // ---------- update ----------
@@ -334,11 +405,32 @@
                     tState += dt;
                     const k = Math.min(1, tState / CFG.T_NIGHT);
                     p = CFG.P_DUSK + (1 - CFG.P_DUSK) * k;
-                    omega = CFG.W_FAST * ss(0.46, 0.56, p);
-                    if (k >= 1) { state = 'night'; tNight = 0; p = 1; }
+                    // 감속 곡선: FAST_HOLD 뒤 DECAY*4 구간을 smoothstep으로 감속.
+                    // 양끝 기울기가 0이라 유지-감속, 감속-완료 경계에서 끊기는 느낌이 없다.
+                    const dur = Math.max(0.05, CFG.DECAY * 4);
+                    if (trailTState === null) {
+                        omega = CFG.W_FAST * ss(0.46, 0.56, p);
+                    } else {
+                        const e = tState - trailTState - CFG.FAST_HOLD;
+                        omega = lerp(CFG.W_FAST, CFG.W_SLOW, ss(0, dur, e));
+                    }
+                    // 감속 완료(e >= dur) 시점을 전환 완료로 취급 (k>=1은 트레일 미완성 시 폴백)
+                    const eNow = trailTState === null ? -1 : tState - trailTState - CFG.FAST_HOLD;
+                    const decelDone = eNow >= Math.max(0.05, CFG.DECAY * 4);
+                    if (decelDone || k >= 1) {
+                        nightBase = trailTState !== null ? Math.max(0, tState - trailTState - CFG.FAST_HOLD) : 0;
+                        state = 'night'; tNight = 0; p = 1;
+                    }
                 } else if (state === 'night') {
                     tNight += dt;
-                    omega = CFG.W_SLOW + (CFG.W_FAST - CFG.W_SLOW) * Math.exp(-tNight / CFG.DECAY);
+                    // 진입 시점의 감속 곡선을 그대로 이어감 (값·기울기 모두 연속)
+                    const dur = Math.max(0.05, CFG.DECAY * 4);
+                    if (trailTState === null) {
+                        omega = lerp(CFG.W_FAST, CFG.W_SLOW, ss(0, dur, tNight));
+                    } else {
+                        // toNight에서 이미 감속이 시작됐다면 이어서 감속 (점프 방지)
+                        omega = lerp(CFG.W_FAST, CFG.W_SLOW, ss(0, dur, nightBase + tNight));
+                    }
                 } else if (state === 'toDusk' || state === 'toDay') {
                     // 'toDay' 분기는 더미 호환용으로 남겨둠 (완전 낮 p=0으로는 복귀하지 않고 노을로 복귀)
                     tState += dt;
@@ -346,7 +438,7 @@
                     p = 1 - (1 - CFG.P_DUSK) * ss(0, 1, k);
                     omega *= Math.exp(-dt * 3);
                     if (k >= 1) {
-                        state = 'dusk'; p = CFG.P_DUSK; phi = 0; phiTail = null; omega = 0;
+                        state = 'dusk'; p = CFG.P_DUSK; phi = 0; phiTail = null; trailTState = null; nightBase = 0; omega = 0;
                     }
                 } else {
                     // 'day'(완전 낮, 더미) / 'dusk'(노을 idle) 모두 정지 상태
@@ -355,14 +447,17 @@
                 }
                 }
 
-                if (phiTail === null && omega > 0) phiTail = phi;
+                if (phiTail === null && omega > 0) { phiTail = phi; trailTState = null; }
                 phi += omega * dt;
                 if (phiTail !== null) {
-                    // The tail eases into motion as the trail lengthens, so the move from
-                    // "growing" to "fixed length" has no sudden jump in speed.
-                    const g = ss(0.2 * CFG.TRAIL_LEN, 1.05 * CFG.TRAIL_LEN, phi - phiTail);
+                    // The tail holds still until the trail is ~80% grown, then eases into motion,
+                    // so the move from "growing" to "fixed length" has no sudden jump in speed.
+                    // (0.2 -> 0.8: 트레일 완성 시점을 앞당겨 빠른 회전 시간을 단축)
+                    const g = ss(0.8 * CFG.TRAIL_LEN, 1.05 * CFG.TRAIL_LEN, phi - phiTail);
                     phiTail += omega * g * dt;
                     if (phi - phiTail > CFG.TRAIL_LEN) phiTail = phi - CFG.TRAIL_LEN;
+                    // 트레일 완성 시점을 기록: 이후 omega는 DECAY(~0.45)로 2초 이내 최저속도까지 감속
+                    if (trailTState === null && (phi - phiTail) >= CFG.TRAIL_LEN - 1e-6) trailTState = tState;
                 }
 
                 if (!RM.matches) {
@@ -539,6 +634,97 @@
                 FG.drawImage(torC, torX, torY, torW, torH);
             }
 
+            // lantern-front.svg sprites scattered on the flat, all facing the viewer.
+            // Reflections ride on the scene canvas with the same ripple as the torii;
+            // bodies + night glow ride on FG above the ripple copy.
+            function drawLanterns(r0, r1) {
+                if (!lanReady || !lanterns.length || !lanImg.naturalWidth) return;
+                const reflH = Math.max(1, H - HZ);
+                const night = ss(CFG.MOON_A0, CFG.MOON_A1, p);
+                const sw = lanImg.naturalWidth, shFull = lanImg.naturalHeight;
+                const shBody = shFull * LAN_FEET;
+                const step = Math.max(1, Math.round(CFG.ROW_STEP));
+
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                ctx.globalCompositeOperation = 'source-over';
+                // reflections, far-to-near
+                for (const L of lanterns) {
+                    if (L.w < 2 || L.h < 3) continue;
+                    if (L.x + L.w / 2 < -20 || L.x - L.w / 2 > W + 20) continue;
+                    if (L.y < HZ - 2) continue;
+                    const dh = Math.min(L.h * LAN_FEET, H - L.y);
+                    if (dh < 2) continue;
+                    const rd = lerp(r0, r1, clamp((L.y - HZ) / reflH + 0.15, 0, 1));
+                    if (RM.matches) {
+                        ctx.save();
+                        ctx.globalAlpha = (1 - rd) * 0.9;
+                        ctx.translate(0, 2 * L.y);
+                        ctx.scale(1, -1);
+                        ctx.drawImage(lanImg, 0, 0, sw, shBody, L.x - L.w / 2, L.y - dh, L.w, dh);
+                        ctx.restore();
+                    } else {
+                        ctx.globalAlpha = (1 - rd) * 0.9;
+                        for (let r = 0; r < dh; r += step) {
+                            const shD = Math.min(step, dh - r);
+                            const y = L.y + r;
+                            if (y > H) break;
+                            const d = y - HZ, kk = d / reflH;
+                            const amp = CFG.REFL_AMP0 + CFG.REFL_AMP1 * kk * kk;
+                            const dx = amp * (0.7 * Math.sin(d * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(d * CFG.SL_F2 - clock * CFG.SL_F3));
+                            const srcH = shD / dh * shBody;
+                            const srcY = shBody - (r + shD) / dh * shBody;
+                            if (srcY < 0 || srcH <= 0) continue;
+                            ctx.drawImage(lanImg, 0, srcY, sw, srcH, L.x - L.w / 2 + dx, y, L.w, shD + 0.5);
+                        }
+                        ctx.globalAlpha = 1;
+                    }
+                }
+                ctx.globalAlpha = 1;
+
+                // bodies + night glow, far-to-near
+                FG.setTransform(dpr, 0, 0, dpr, 0, 0);
+                FG.globalCompositeOperation = 'source-over';
+                FG.globalAlpha = 1;
+                for (const L of lanterns) {
+                    if (L.w < 2 || L.h < 3) continue;
+                    if (L.x + L.w / 2 < -L.w || L.x - L.w / 2 > W + L.w) continue;
+                    const top = L.y - L.h * LAN_FEET;
+                    FG.drawImage(lanImg, L.x - L.w / 2, top, L.w, L.h);
+                    if (night > 0.01) {
+                        const gx = L.x, gy = L.y - L.h * 0.52;
+                        FG.globalCompositeOperation = 'lighter';
+                        // halo behind the glass
+                        const hr = L.h * 0.55;
+                        if (hr > 1) {
+                            const hg = FG.createRadialGradient(gx, gy, 0, gx, gy, hr);
+                            hg.addColorStop(0, `rgba(255,190,110,${0.55 * night * CFG.LANTERN_GLOW})`);
+                            hg.addColorStop(1, 'rgba(255,170,90,0)');
+                            FG.fillStyle = hg;
+                            FG.beginPath(); FG.arc(gx, gy, hr, 0, Math.PI * 2); FG.fill();
+                        }
+                        // lit glass
+                        FG.fillStyle = `rgba(255,224,160,${0.28 * night * CFG.LANTERN_GLOW})`;
+                        FG.fillRect(gx - L.w * 0.14, top + L.h * 0.157, L.w * 0.28, L.h * 0.667);
+                        // warm pool on the floor
+                        const pa = 0.35 * night * CFG.LANTERN_POOL;
+                        if (pa > 0.005) {
+                            FG.save();
+                            FG.translate(gx, L.y + L.h * 0.02);
+                            FG.scale(1, 0.25);
+                            const pr = L.w * 0.95;
+                            const pg = FG.createRadialGradient(0, 0, 0, 0, 0, pr);
+                            pg.addColorStop(0, `rgba(255,174,64,${pa})`);
+                            pg.addColorStop(1, 'rgba(255,138,26,0)');
+                            FG.fillStyle = pg;
+                            FG.beginPath(); FG.arc(0, 0, pr, 0, Math.PI * 2); FG.fill();
+                            FG.restore();
+                        }
+                        FG.globalCompositeOperation = 'source-over';
+                    }
+                }
+                FG.globalAlpha = 1;
+            }
+
             function render() {
                 drawSky();
 
@@ -607,6 +793,7 @@
                 FG.setTransform(1, 0, 0, 1, 0, 0);
                 FG.clearRect(0, 0, fg.width, fg.height);
                 drawTorii(r0, r1);
+                drawLanterns(r0, r1);
                 FG.setTransform(dpr, 0, 0, dpr, 0, 0);
 
                 const v = keyed(VIG, p)[0];
@@ -832,7 +1019,7 @@ void main() {
                 if (state === 'dusk' || state === 'day') {
                     // 'day'는 더미 호환: 실제 시작점은 항상 노을(P_DUSK)
                     state = 'toNight'; tState = 0; p = CFG.P_DUSK;
-                    phi = 0; phiTail = null;
+                    phi = 0; phiTail = null; trailTState = null; nightBase = 0;
                 } else if (state === 'night') {
                     state = 'toDusk'; tState = 0;
                 }
@@ -847,13 +1034,16 @@ void main() {
                 get state() { return state; }, set state(v) { state = v; },
                 get p() { return p; }, set p(v) { p = clamp(Number(v) || 0, 0, 1); },
                 get phi() { return phi; }, set phi(v) { phi = Number(v) || 0; },
-                get phiTail() { return phiTail; }, set phiTail(v) { phiTail = v; },
+                get phiTail() { return phiTail; }, set phiTail(v) { phiTail = v; if (v === null) trailTState = null; },
+                get trailTState() { return trailTState; },
                 get omega() { return omega; }, set omega(v) { omega = Number(v) || 0; },
                 get clock() { return clock; },
                 get tState() { return tState; }, set tState(v) { tState = Number(v) || 0; },
                 get tNight() { return tNight; }, set tNight(v) { tNight = Number(v) || 0; },
                 get hold() { return debugHold; }, set hold(v) { debugHold = !!v; },
                 get paused() { return debugPaused; }, set paused(v) { debugPaused = !!v; },
+                get lanterns() { return lanterns; },
+                get lanReady() { return lanReady; },
                 get palettes() {
                     return { SKY: SKY_RAW, MOUNT: MOUNT_RAW, TORII: TORII_RAW, CLOUD_TINT: CLOUD_TINT_RAW, REFL, VIG, LV, COLS: COLS_RAW };
                 },
@@ -871,14 +1061,14 @@ void main() {
                 },
                 resetPalette(name, defaults) { this.setPalette(name, defaults); },
                 actions: {
-                    resize, buildStars, buildMountains, buildClouds,
-                    toNight() { state = 'toNight'; tState = 0; p = CFG.P_DUSK; phi = 0; phiTail = null; },
+                    resize, buildStars, buildMountains, buildClouds, buildLanterns,
+                    toNight() { state = 'toNight'; tState = 0; p = CFG.P_DUSK; phi = 0; phiTail = null; trailTState = null; nightBase = 0; },
                     toDusk() { state = 'toDusk'; tState = 0; },
                     reset() {
                         Object.assign(CFG, JSON.parse(JSON.stringify(CFG_DEFAULTS)));
                         state = 'dusk'; p = CFG.P_DUSK; tState = 0; tNight = 0;
-                        phi = 0; phiTail = null; omega = 0; debugHold = false; debugPaused = false;
-                        buildMountains(); buildClouds(); resize();
+                        phi = 0; phiTail = null; trailTState = null; nightBase = 0; omega = 0; debugHold = false; debugPaused = false;
+                        buildMountains(); buildClouds(); buildLanterns(); resize();
                     },
                     ripple(xn = 0.5, sn = 0.5) {
                         const cap = Math.min(RIP_SLOTS, Math.max(1, Math.round(CFG.RIP_MAX)));
@@ -911,6 +1101,8 @@ void main() {
             initGL();
             buildMountains();
             buildClouds();
+            buildLanterns();
+            loadLanternSprite();
             resize();
             requestAnimationFrame(t => { lastT = t; frame(t); });
         })();

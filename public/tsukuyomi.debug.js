@@ -24,7 +24,7 @@
         { title: '전환 타이밍', keys: [
             ['T_NIGHT', 1, 40, 0.1], ['T_DAY', 0.5, 10, 0.1],
             ['W_FAST', 0, 1, 0.005], ['W_SLOW', 0, 0.1, 0.001],
-            ['TRAIL_LEN', 0, 2, 0.01], ['DECAY', 0.1, 5, 0.05],
+            ['TRAIL_LEN', 0, 2, 0.01], ['DECAY', 0.1, 5, 0.05], ['FAST_HOLD', 0, 6, 0.1],
             ['P_DUSK', 0, 0.9, 0.005],
         ]},
         { title: '레이아웃', keys: [
@@ -72,6 +72,13 @@
             ['RIP_MAX', 1, 8, 1], ['RIP_V', 0.05, 1.5, 0.005],
             ['RIP_MAX_R', 0.2, 2, 0.005], ['RIP_K', 10, 200, 1],
             ['RIP_STR', 0, 0.15, 0.001], ['FOCAL', 0.3, 2, 0.01],
+        ]},
+        { title: '랜턴', keys: [
+            ['LANTERN_N', 0, 16, 1, 'lanterns'], ['LANTERN_SEED', 0, 99, 1, 'lanterns'],
+            ['LANTERN_GX', 0.05, 0.6, 0.01, 'lanterns'], ['LANTERN_SN0', 0.02, 0.5, 0.01, 'lanterns'],
+            ['LANTERN_SN1', 0.4, 1, 0.01, 'lanterns'], ['LANTERN_H', 0.15, 1.2, 0.01, 'lanterns'],
+            ['LANTERN_JITTER', 0, 0.6, 0.01, 'lanterns'], ['LANTERN_EXCL', 0, 2.5, 0.05, 'lanterns'],
+            ['LANTERN_GLOW', 0, 1, 0.01], ['LANTERN_POOL', 0, 1, 0.01],
         ]},
     ];
     const PALETTES = ['SKY', 'MOUNT', 'TORII', 'CLOUD_TINT', 'REFL', 'VIG', 'LV', 'COLS'];
@@ -250,6 +257,7 @@
         mkRip('별 재생성', () => b.actions.buildStars());
         mkRip('산 재생성', () => b.actions.buildMountains());
         mkRip('구름 재생성', () => b.actions.buildClouds());
+        mkRip('랜턴 재생성', () => b.actions.buildLanterns());
         mkRip('리사이즈', () => b.actions.resize());
         mkRip('전체 리셋', () => {
             b.actions.reset();
@@ -305,6 +313,7 @@
                     else if (rebuild === 'stars') b.actions.buildStars();
                     else if (rebuild === 'mountains') b.actions.buildMountains();
                     else if (rebuild === 'clouds') b.actions.buildClouds();
+                    else if (rebuild === 'lanterns') b.actions.buildLanterns();
                 };
                 range.addEventListener('input', () => apply(range.value, range));
                 num.addEventListener('change', () => apply(num.value, num));
@@ -453,7 +462,8 @@
             'state=' + b.state + '  p=' + fmt(b.p) +
             '\nphi=' + fmt(b.phi) + '  omega=' + fmt(b.omega) +
             '  clock=' + fmt(b.clock) +
-            '\nhold=' + (b.hold ? 'on' : 'off') + '  paused=' + (b.paused ? 'on' : 'off');
+            '\nhold=' + (b.hold ? 'on' : 'off') + '  paused=' + (b.paused ? 'on' : 'off') +
+            '\nlanterns=' + (b.lanterns ? b.lanterns.length : 0) + '  lanReady=' + (b.lanReady ? 'yes' : 'no');
     }
 
     // ---------- 감지 ----------
