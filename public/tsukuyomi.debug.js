@@ -22,9 +22,9 @@
     // rebuild: 변경 후 호출할 액션 (resize는 별/구름/밴드까지 재계산)
     const GROUPS = [
         { title: '전환 타이밍', keys: [
-            ['T_NIGHT', 1, 40, 0.1], ['T_DAY', 0.5, 10, 0.1],
+            ['T_NIGHT', 1, 40, 0.1], ['T_DAY', 0.5, 10, 0.1], ['T_SUNSET', 1, 40, 0.1], ['TN_GAMMA', 0.5, 2.5, 0.05],
             ['TRAIL_LEN', 0, 2, 0.01],
-            ['P_DUSK', 0, 0.9, 0.005],
+            ['P_DAY', 0, 0.9, 0.005], ['P_DUSK', 0, 0.9, 0.005],
         ]},
         { title: '레이아웃', keys: [
             ['HZ_RATIO', 0.3, 0.8, 0.005, 'resize'], ['DPR_MAX', 1, 2, 0.25, 'resize'],
@@ -39,6 +39,7 @@
         ]},
         { title: '별', keys: [
             ['W_SLOW', 0, 0.05, 0.0005],
+            ['TRAIL_A0', 0, 1, 0.005], ['TRAIL_A1', 0, 1, 0.005],
             ['STAR_DENS', 500, 8000, 50, 'stars'], ['STAR_MAX', 100, 3000, 10, 'stars'],
             ['STAR_A0', 0, 1, 0.01], ['STAR_A1', 0, 1, 0.01],
             ['POLARIS_R', 0, 5, 0.05, 'stars'], ['HALO_R', 0, 12, 0.1], ['HALO_A', 0, 1, 0.01],
@@ -500,6 +501,8 @@
         if (!b) { el.textContent = 'bridge 없음: tsukuyomi.js가 먼저 로드되어야 한다.'; return; }
         el.textContent =
             'state=' + b.state + '  mode=' + b.mode + '  p=' + fmt(b.p) +
+            (b.q !== undefined ? '  q=' + fmt(b.q) : '') +
+            (b.duskW !== undefined ? '  duskW=' + fmt(b.duskW) : '') +
             '\nphi=' + fmt(b.phi) + '  omega=' + fmt(b.omega) +
             '  clock=' + fmt(b.clock) +
             '\nhold=' + (b.hold ? 'on' : 'off') + '  paused=' + (b.paused ? 'on' : 'off') +

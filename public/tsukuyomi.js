@@ -41,10 +41,14 @@
             // 모든 수치 파라미터는 CFG 하나로 모음. 기본값 = 기존 하드코딩 값과 동일.
             // debug 패널(tsukuyomi.debug.js)이 window.__TSUKUYOMI__ 를 통해 live로 읽고 쓴다.
             const CFG = {
-                T_NIGHT: 9.5, T_DAY: 2.4, W_SLOW: 0.025, TRAIL_LEN: 0.6,
+                T_NIGHT: 8.0, T_DAY: 2.4, T_SUNSET: 4.7, TN_GAMMA: 1.5, W_SLOW: 0.025, TRAIL_LEN: 0.6,
+                // T_NIGHT: 밤 전환 전체 시간. 해가 진 뒤 밤까지 대기 구간이 길어 9.5 → 8.0 단축.
+                // TN_GAMMA: toNight 전반부 가속(ease-out 지수). 낮 출발의 파랑→주황 전반부가 길어
+                // 체감 정체가 크므로 전반만 가속하고 후반(궤적·달)은 완만하게. 1.0 = 기존 선형.
+                // T_SUNSET: 일몰(nk: 태양 고도/소멸/여광) 전용 전환 시간. 하늘·달·별궤적(T_NIGHT)과 분리.
                 // 별 회전은 달 상승(mt)과 동일한 보간으로 동기화되며 별도 고속 단계가 없다.
                 // 최종 궤적 길이는 TRAIL_LEN 그대로 유지된다.
-                P_DUSK: 0.32,
+                P_DAY: 0, P_DUSK: 0,
                 HZ_RATIO: 0.56, DPR_MAX: 2, PIX_BUDGET: 5e6,
                 BAND_PAD: 12, BLUR_PX: 3, BAND_H: 0.3, BAND_EVERY: 3,
                 POLE_X: 0.25, POLE_Y: 0.27,
@@ -64,6 +68,9 @@
                 SUN_F0: 0.34, SUN_F1: 0.46,
                 SUN_G0: 0.18, SUN_G1: 0.32, SUN_G2: 0.4, SUN_G3: 0.56,
                 MOON_A0: 0.70, MOON_A1: 0.96, MOON_GLOW: 9, MOON_A: 0.24,
+                // TRAIL_A0/A1: 별궤적 생성 전용 구간. 달 상승(MOON_A0/A1)과 분리되어 궤적만 0.75배 감속.
+                // 구간폭 0.35 = 0.26/0.75 (달 구간폭 0.26을 0.75배율로 환산). 종료점은 달과 동일하게 0.96 유지.
+                TRAIL_A0: 0.61, TRAIL_A1: 0.96,
                 HAZE_MIX: 0.22, HAZE_A: 0.32,
                 REFL_AMP0: 0.15, REFL_AMP1: 2.4, SEAM_A: 0.22,
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 8,
@@ -107,10 +114,14 @@
                 };
             }
 
-            // ---------- palettes keyed by scene progress p (0 = day idle, P_DUSK = dusk idle, 1 = night) ----------
-            // 낮/황혼/밤 선택은 하단 아이콘 버튼이 정하고, p는 현재 p에서 목표까지 부드럽게 이동한다.
+            // ---------- palettes keyed by effective progress q (0 = day idle blue, DUSK_Q = dusk idle orange, 1 = night) ----------
+            // 낮/황혼/밤 선택은 하단 아이콘 버튼이 정하고, p(시간값)는 현재 p에서 목표까지 부드럽게 이동한다.
+            // P_DAY/P_DUSK는 낮/황혼 idle의 시간값으로 별도 조정되며 기본값은 모두 0이다.
+            // p가 0 근처일 때는 타입(duskW)에 따라 낮=푸른 하늘 / 황혼=주황 하늘이 갈리고,
+            // 중간 전환부(p >= DUSK_Q)에서는 타입에 관계없이 항상 황혼 corridor를 공유한다.
+            // (낮->밤 전환은 파랑을 거쳐 주황 중간대를 지나 밤으로 가고, 황혼->밤은 주황을 유지한 채 밤으로 간다.)
+            const DUSK_Q = 0.32;  // 구 P_DUSK 기본값: 황혼 idle의 팔레트 위치 (주황). p≈0에서 황혼 색을 재현한다.
             const P_NOON_DUMMY = 0;  // 낮 idle 시작점 (p = 0, 실제 사용)
-            // P_DUSK 초기값은 CFG에서 가져옴 (debug UI로 조절 가능)
             let SKY_RAW = [
                 [0.00, '#2a64b4', '#6aa0d8', '#dbe9f3'],
                 [0.16, '#2f63ad', '#7ea7d3', '#e8e2d2'],
@@ -171,11 +182,19 @@
             let pole = { x: 0, y: 0 }, sunR = 20, moonR = 18;
             let state = 'dusk', p = CFG.P_DUSK, tState = 0, tNight = 0;
             // 진행 중인 전환의 시작/목표 p (클릭 시 현재 p에서 캡처 → 어디서든 자연스럽게 전환)
-            let transFrom = CFG.P_DUSK, transTo = CFG.P_DUSK;
+            // P_DAY/P_DUSK가 모두 0이어도 낮/황혼을 구분할 수 있게 목표 타입을 별도로 보관한다.
+            let transFrom = CFG.P_DUSK, transTo = CFG.P_DUSK, transTarget = 'dusk';
+            // duskW: 0 = 낮 타입(푸른 하늘), 1 = 황혼 타입(주황 하늘). p≈0에서만 색을 가른다.
+            // p >= DUSK_Q 구간에서는 duskW와 무관하게 항상 같은 황혼 corridor이므로
+            // 낮-밤 전환의 중간부는 타입에 관계없이 항상 황혼을 거친다.
+            let duskW = 1, duskFrom = 1, duskTo = 1;
+            // 유효 팔레트 조회 위치: 낮 분기(p 그대로)와 황혼 분기(max(p, DUSK_Q))를 duskW로 보간.
+            // p=0 + 낮 타입 → 0(파랑), p=0 + 황혼 타입 → DUSK_Q(주황), p>=DUSK_Q → 타입 무관 동일값.
+            const palQ = () => lerp(p, Math.max(p, DUSK_Q), duskW);
             // 태양 정규화 진행도 nk (0 = idle 고도 → 1 = night).
             // 낮/황혼 idle 모두 nk = 0에서 시작하므로 최대 태양 고도가 동일하고,
             // p와 함께 연속으로만 움직이므로 전환 중 점프가 없다.
-            // 태양 위치/소멸/여광이 모두 nk에 묶여 전환 총시간(T_NIGHT/T_DAY)도 동일하다.
+            // 태양 위치/소멸/여광이 모두 nk에 묶이며, toNight에서는 T_SUNSET으로 하늘(T_NIGHT)보다 먼저 진다.
             let nk = 0, nkFrom = 0, nkTo = 0;
             const sunK = () => clamp(nk, 0, 1);
             let phi = 0, phiTail = null, omega = 0, clock = 0;   // phiTail: 궤적 꼬리 각도 (null = 궤적 없음)
@@ -192,7 +211,7 @@
             // reflection adaptive step governor (ROW_STEP=최소, REFL_MAX_STEP=상한)
             let reflStep = 8, reflLastBase = 8, reflEMA = 16, reflCool = 0;
 
-            const starAlpha = () => ss(CFG.STAR_A0, CFG.STAR_A1, p);
+            const starAlpha = () => ss(CFG.STAR_A0, CFG.STAR_A1, palQ());
 
             // ---------- scene construction ----------
             function buildStars() {
@@ -577,8 +596,8 @@
             // ---------- update ----------
             // 고속 회전 단계 없음: 별 궤적 길이는 달 상승 보간(mt)에 동기화되고,
             // 궤적 성장 중에도 꼬리가 W_SLOW로 항상 전진하므로 완료 시점에 멈춤이 없다.
-            // 궤적 생성 시작(mt > 0) = 달이 뜨기 시작(p > MOON_A0),
-            // 궤적 생성 완료(mt = 1) = 달이 최대 고도 도착(p >= MOON_A1).
+            // 궤적 생성 시작(mt > 0) = q > TRAIL_A0, 완료(mt = 1) = q >= TRAIL_A1.
+            // 달 상승(MOON_A0/A1)과 분리된 전용 구간으로 궤적만 0.75배 감속. 달 위치·발광은 MOON_* 그대로.
             // 최종 궤적 길이는 TRAIL_LEN 그대로 유지된다.
             function update(dt) {
                 if (debugPaused) return;
@@ -587,10 +606,18 @@
                 if (state === 'toNight') {
                     tState += dt;
                     const k = Math.min(1, tState / CFG.T_NIGHT);
-                    p = transFrom + (1 - transFrom) * k;
-                    nk = nkFrom + (1 - nkFrom) * k;
+                    // 전반 가속 ease-out: e = 1-(1-k)^GAMMA. 낮 출발의 전반부(파랑→주황) 정체를 줄이고,
+                    // 후반(궤적·달)은 완만하게. 일몰(nk)은 기존 선형 pace 유지.
+                    const gm = Math.max(0.2, CFG.TN_GAMMA ?? 1.5);
+                    const e = 1 - Math.pow(1 - k, gm);
+                    p = transFrom + (1 - transFrom) * e;
+                    duskW = duskFrom + (1 - duskFrom) * e;
+                    // 일몰(nk)만 별도 속도로: 하늘/별궤적은 T_NIGHT 그대로 두고 해 지는 속도만 T_SUNSET으로 조절.
+                    const nkK = Math.min(1, tState / Math.max(1e-4, CFG.T_SUNSET));
+                    nk = nkFrom + (1 - nkFrom) * nkK;
                     if (k >= 1) {
                         state = 'night'; tNight = 0; p = 1; nk = 1;
+                        duskW = 1; duskFrom = 1; duskTo = 1;
                     }
                 } else if (state === 'night') {
                     tNight += dt;
@@ -599,11 +626,12 @@
                     const k = Math.min(1, tState / CFG.T_DAY);
                     const e = ss(0, 1, k);
                     p = transFrom + (transTo - transFrom) * e;
+                    duskW = duskFrom + (duskTo - duskFrom) * e;
                     nk = nkFrom + (nkTo - nkFrom) * e;
                     omega *= Math.exp(-dt * 3);
                     if (k >= 1) {
-                        if (transTo === 0) { state = 'day'; p = 0; }
-                        else { state = 'dusk'; p = transTo; }
+                        state = transTarget; p = transTo;
+                        duskW = duskTo;
                         nk = nkTo;
                         phi = 0; phiTail = null; omega = 0;
                     }
@@ -618,7 +646,7 @@
                 // 성장 완료 시점(mt=1)의 속도가 W_SLOW로 자연스럽게 이어지고 멈춤 구간이 없다.
                 // hold(수동 스크럽) 중에는 꼬리를 고정해 p에 대한 결정성을 유지한다.
                 if (state === 'toNight') {
-                    const m = ss(CFG.MOON_A0, CFG.MOON_A1, p);
+                    const m = ss(CFG.TRAIL_A0, CFG.TRAIL_A1, palQ());
                     const mt = 1 - Math.pow(1 - m, 3);
                     if (m <= 0) {
                         phi = 0; phiTail = null; omega = 0;
@@ -664,7 +692,8 @@
                 S.globalCompositeOperation = 'source-over';
                 S.globalAlpha = 1;
 
-                const [top, mid, hor] = keyed(SKY, p);
+                const q = palQ();
+                const [top, mid, hor] = keyed(SKY, q);
                 const g = S.createLinearGradient(0, 0, 0, HZ);
                 g.addColorStop(0, rgba(top)); g.addColorStop(0.58, rgba(mid)); g.addColorStop(1, rgba(hor));
                 S.fillStyle = g; S.fillRect(0, 0, W, HZ);
@@ -709,7 +738,7 @@
                 }
 
                 // clouds
-                const ca = 1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, p);
+                const ca = 1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q);
                 if (ca > 0.01) {
                     CL.setTransform(1, 0, 0, 1, 0, 0);
                     CL.globalCompositeOperation = 'source-over';
@@ -721,7 +750,7 @@
                         const cw = 560 * k, ch = 220 * k;
                         CL.drawImage(c.spr, c.xn * W, c.yn * HZ - ch * 0.7, cw, ch);
                     }
-                    const [tc, ta] = keyed(CLOUD_TINT, p);
+                    const [tc, ta] = keyed(CLOUD_TINT, q);
                     if (ta > 0.01) {
                         CL.globalCompositeOperation = 'source-atop';
                         CL.fillStyle = rgba(tc, ta);
@@ -738,7 +767,7 @@
                 drawStars();
 
                 // moon
-                const m = ss(CFG.MOON_A0, CFG.MOON_A1, p);
+                const m = ss(CFG.MOON_A0, CFG.MOON_A1, q);
                 if (m > 0.001) {
                     const mt = 1 - Math.pow(1 - m, 3);
                     // 달은 토리이와 항상 같은 수직선상: x는 effToriiX() 공유, y만 MOON_Y로 조절
@@ -767,7 +796,7 @@
 
                 // distant ranges on the horizon
                 const mh = clamp(H * CFG.MTN_H, CFG.MTN_MIN, CFG.MTN_MAX);
-                S.fillStyle = rgba(keyed(MOUNT, p)[0]);
+                S.fillStyle = rgba(keyed(MOUNT, q)[0]);
                 S.beginPath();
                 S.moveTo(0, HZ);
                 for (let i = 0; i < mtn.length; i++) S.lineTo((i / (mtn.length - 1)) * W, HZ - mtn[i] * mh);
@@ -803,7 +832,7 @@
             // torii standing on the flat in front of the ranges, with its own mirror image
             // torC(본체)/torR(뒤집힌 반사체)은 색·크기가 바뀔 때만 재래스터 (idle 시 60fps 재빌드 제거)
             function drawTorii(r0, r1) {
-                const [red, blk, gold] = keyed(TORII, p);
+                const [red, blk, gold] = keyed(TORII, palQ());
                 const k = torS * dpr;
                 const key = torC.width + 'x' + torC.height + '|' + k.toFixed(3) + '|' +
                     (red[0] | 0) + ',' + (red[1] | 0) + ',' + (red[2] | 0) + '|' +
@@ -868,7 +897,7 @@
             function drawLanterns(r0, r1) {
                 if (!lanReady || !lanterns.length || !lanCW) return;
                 const reflH = Math.max(1, H - HZ);
-                const night = ss(CFG.MOON_A0, CFG.MOON_A1, p);
+                const night = ss(CFG.MOON_A0, CFG.MOON_A1, palQ());
                 const sw = lanCW, shFull = lanCH;
                 const shBody = lanBodyH || shFull * LAN_FEET;
                 // 랜턴 몸통이 좁아 ROW_STEP이 크면 행 경계마다
@@ -1016,10 +1045,11 @@
                 // blur+복사는 BAND_EVERY 프레임마다만 갱신 (사이 프레임은 캐시 blit만).
                 if (bandH > 0) {
                     const every = Math.max(1, Math.round(CFG.BAND_EVERY ?? 3));
-                    const pMoved = Math.abs(p - bandLastP) > 0.004;
+                    const qNow = palQ();
+                    const pMoved = Math.abs(qNow - bandLastP) > 0.004;
                     if (!bandValid || (bandTick % every) === 0 || pMoved) {
                         bandBuilds++;
-                        bandLastP = p;
+                        bandLastP = qNow;
                         const srcY = (HZ - CFG.BAND_PAD) * dpr, srcH = (bandH + CFG.BAND_PAD * 2) * dpr;
                         BD.setTransform(1, 0, 0, 1, 0, 0);
                         BD.globalCompositeOperation = 'source-over';
@@ -1045,14 +1075,15 @@
                 }
 
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                const [r0, r1] = keyed(REFL, p);
+                const qR = palQ();
+                const [r0, r1] = keyed(REFL, qR);
                 const rg = ctx.createLinearGradient(0, HZ, 0, H);
                 rg.addColorStop(0, `rgba(10,18,32,${r0})`);
                 rg.addColorStop(1, `rgba(10,18,32,${r1})`);
                 ctx.fillStyle = rg; ctx.fillRect(0, HZ, W, H - HZ);
 
                 // seam glow where sky meets its mirror
-                const hor = keyed(SKY, p)[2];
+                const hor = keyed(SKY, qR)[2];
                 const hl = mix(hor, [255, 255, 255], 0.3);
                 const sg = ctx.createLinearGradient(0, HZ - 6, 0, HZ + 14);
                 sg.addColorStop(0, rgba(hl, 0)); sg.addColorStop(0.3, rgba(hl, CFG.SEAM_A)); sg.addColorStop(1, rgba(hl, 0));
@@ -1064,7 +1095,7 @@
                 drawLanterns(r0, r1);
                 FG.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-                const v = keyed(VIG, p)[0];
+                const v = keyed(VIG, qR)[0];
                 const vg = FG.createRadialGradient(W / 2, HZ, Math.min(W, H) * 0.35, W / 2, HZ, Math.hypot(W, H) * 0.72);
                 vg.addColorStop(0, 'rgba(0,0,0,0)');
                 vg.addColorStop(1, `rgba(0,0,0,${v})`);
@@ -1260,15 +1291,24 @@ void main() {
                 if (targetOf(state) === target) return;
                 transFrom = p;
                 nkFrom = nk;
+                duskFrom = duskW;
+                transTarget = target;
                 if (target === 'night') {
+                    // 현재 시각(qFrom)을 낮 분기 좌표로 스냅: q가 같아 화면 점프는 없고,
+                    // 이후 정체 없이 하늘이 바로 어두워지며 궤적·별·달이 뒤따른다. 소요시간은 T_NIGHT 그대로.
+                    const qFrom = palQ();
+                    p = qFrom; transFrom = qFrom;
+                    duskW = 0; duskFrom = 0;
                     transTo = 1;
                     state = 'toNight'; tState = 0;
                     nkTo = 1;
+                    duskTo = 1;
                     phi = 0; phiTail = null; omega = 0;
                 } else {
-                    transTo = target === 'day' ? 0 : CFG.P_DUSK;
+                    transTo = target === 'day' ? CFG.P_DAY : CFG.P_DUSK;
                     state = target === 'day' ? 'toDay' : 'toDusk'; tState = 0;
                     nkTo = 0;
+                    duskTo = target === 'day' ? 0 : 1;
                 }
             }
             function updateUI() {
@@ -1285,7 +1325,7 @@ void main() {
                     elStatus.textContent = status;
                 }
                 // card switches to its night palette once the sky has gone dark
-                const night = p >= 0.5;
+                const night = palQ() >= 0.5;
                 if (night !== lastNight) { lastNight = night; elPanel.classList.toggle('is-night', night); }
                 if (active !== lastActive) {
                     lastActive = active;
@@ -1311,27 +1351,33 @@ void main() {
                 get state() { return state; },
                 set state(v) {
                     state = v;
-                    if (v === 'day') { p = 0; transFrom = 0; transTo = 0; nk = 0; nkFrom = 0; nkTo = 0; phi = 0; phiTail = null; omega = 0; }
-                    else if (v === 'dusk') { p = CFG.P_DUSK; transFrom = p; transTo = p; nk = 0; nkFrom = 0; nkTo = 0; phi = 0; phiTail = null; omega = 0; }
-                    else if (v === 'night') { p = 1; transFrom = 1; transTo = 1; nk = 1; nkFrom = 1; nkTo = 1; }
+                    if (v === 'day') { p = CFG.P_DAY; transFrom = p; transTo = p; transTarget = 'day'; duskW = 0; duskFrom = 0; duskTo = 0; nk = 0; nkFrom = 0; nkTo = 0; phi = 0; phiTail = null; omega = 0; }
+                    else if (v === 'dusk') { p = CFG.P_DUSK; transFrom = p; transTo = p; transTarget = 'dusk'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 0; nkFrom = 0; nkTo = 0; phi = 0; phiTail = null; omega = 0; }
+                    else if (v === 'night') { p = 1; transFrom = 1; transTo = 1; transTarget = 'night'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 1; nkFrom = 1; nkTo = 1; }
                     else if (v === 'toNight') {
                         if (!(p < 1)) p = CFG.P_DUSK;
-                        transFrom = p; transTo = 1; nkFrom = nk; nkTo = 1; tState = 0;
+                        { const qf = palQ(); p = qf; transFrom = qf; duskW = 0; duskFrom = 0; }
+                        transTo = 1; transTarget = 'night'; duskTo = 1; nkFrom = nk; nkTo = 1; tState = 0;
                         phi = 0; phiTail = null; omega = 0;
                     }
                     else if (v === 'toDay' || v === 'toDusk') {
-                        transTo = v === 'toDay' ? 0 : CFG.P_DUSK;
+                        transTo = v === 'toDay' ? CFG.P_DAY : CFG.P_DUSK;
+                        transTarget = v === 'toDay' ? 'day' : 'dusk';
+                        duskTo = v === 'toDay' ? 0 : 1;
                         if (!(p >= 0 && p <= 1)) p = 1;
-                        transFrom = p; nkFrom = nk; nkTo = 0; tState = 0;
+                        transFrom = p; duskFrom = duskW; nkFrom = nk; nkTo = 0; tState = 0;
                     }
                 },
                 get mode() { return targetOf(state); }, set mode(v) { goTo(v); },
                 get sunK() { return sunK(); },
                 get nk() { return nk; }, set nk(v) { nk = clamp(Number(v) || 0, 0, 1); },
                 get p() { return p; }, set p(v) { p = clamp(Number(v) || 0, 0, 1); },
+                get q() { return palQ(); },
+                get duskW() { return duskW; }, set duskW(v) { duskW = clamp(Number(v) || 0, 0, 1); },
+                get duskQ() { return DUSK_Q; },
                 get phi() { return phi; }, set phi(v) { phi = Number(v) || 0; },
                 get phiTail() { return phiTail; }, set phiTail(v) { phiTail = v; },
-                get moonMT() { return moonMT(p); },
+                get moonMT() { return moonMT(palQ()); },
                 get omega() { return omega; }, set omega(v) { omega = Number(v) || 0; },
                 get clock() { return clock; },
                 get tState() { return tState; }, set tState(v) { tState = Number(v) || 0; },
@@ -1375,7 +1421,9 @@ void main() {
                         reflStep = Math.max(1, Math.round(CFG.ROW_STEP)); reflLastBase = reflStep; reflEMA = 16; reflCool = 0;
                         torKey = ''; torRKey = ''; torBuilds = 0;
                         bandValid = false; bandTick = 0; bandLastP = -1; bandBuilds = 0;
-                        transFrom = CFG.P_DUSK; transTo = CFG.P_DUSK; nk = 0; nkFrom = 0; nkTo = 0;
+                        transFrom = CFG.P_DUSK; transTo = CFG.P_DUSK; transTarget = 'dusk';
+                        duskW = 1; duskFrom = 1; duskTo = 1;
+                        nk = 0; nkFrom = 0; nkTo = 0;
                         state = 'dusk'; p = CFG.P_DUSK; tState = 0; tNight = 0;
                         phi = 0; phiTail = null; omega = 0; debugHold = false; debugPaused = false;
                         buildMountains(); buildClouds(); buildLanterns(); resize();
