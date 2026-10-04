@@ -68,9 +68,9 @@
                 CLOUD_CB_S0: 0.85, CLOUD_CB_S1: 1.45,
                 // 황혼 전용 구름 세트(낮 구름과 분리): 수평선 위 하부 띠 + 랜덤 적란운.
                 // DC_W0/W1: q 기준 낮 구름 → 황혼 구름 크로스페이드 구간, DC_F0/F1: 황혼 구름 → 밤 소멸 구간.
-                // DC_CB_N: 적란운 최대 개수(실제 개수는 시드 기반 1~N 랜덤). DC_LX/LY: 화면 밖 좌상단 광원 위치.
+                // DC_CB_N: 적란운 최대 개수(실제 개수는 시드 기반 1~N 랜덤), DC_CB_SP: 띠 대비 적란운 흐름 속도 배율. DC_LX/LY: 화면 밖 좌상단 광원 위치.
                 DC_SEED: 5, DC_N: 9, DC_Y0: 0.93, DC_YR: 0.07,
-                DC_CB_N: 3, DC_CB_S0: 0.95, DC_CB_S1: 1.5,
+                DC_CB_N: 3, DC_CB_S0: 0.95, DC_CB_S1: 1.5, DC_CB_SP: 0.4,
                 DC_W0: 0.12, DC_W1: 0.17, DC_F0: 0.36, DC_F1: 0.58,
                 DC_LX: 0.16, DC_LY: -0.12, DC_LIGHT: 0.34,
                 // 황혼 구름 질감(적운 셰이더 랩 파라미터): 덮임 정도, 윗면/아랫면 경계 폭, 덩어리 크기, 그림자 깊이, 빛 방향(°, y-up)
@@ -730,14 +730,17 @@
                 const cbMax = Math.max(0, Math.round(CFG.DC_CB_N ?? 3));
                 const ncb = cbMax > 0 ? 1 + ((rng() * cbMax) | 0) : 0;
                 const s0 = Math.min(CFG.DC_CB_S0, CFG.DC_CB_S1), s1 = Math.max(CFG.DC_CB_S0, CFG.DC_CB_S1);
-                // 화면 폭을 ncb 구간으로 나눠 구간마다 하나씩: 랜덤하되 서로 겹쳐 뭉치지 않게
+                // 첫 적란운은 화면 오른쪽, 나머지는 왼쪽 화면 밖에 줄지어 두어 차례로 흘러 들어온다.
+                // 멀리 있는 큰 구름이라 띠보다 느리게(DC_CB_SP 배) 흐른다. 실제 x는 W가 정해진 뒤 placeDuskCb가 확정
                 for (let i = 0; i < ncb; i++) {
+                    const spr = makeDuskCbSprite(rng), u = rng();
                     duskClouds.push({
-                        kind: 'cb',
-                        spr: makeDuskCbSprite(rng),
-                        xn: -0.2 + (i + 0.1 + rng() * 0.8) * (1.15 / ncb),
+                        kind: 'cb', spr, slot: i,
+                        xc: 0.72 + u * 0.06,       // slot 0: 콘텐츠 중심의 화면 비율
+                        gap: 0.08 + u * 0.25,      // slot 1+: 앞 적란운과의 간격(화면 비율)
+                        xn: 0,
                         yn: CFG.DC_Y0 - 0.06 + rng() * 0.06,
-                        sp: CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1,
+                        sp: (CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1) * (CFG.DC_CB_SP ?? 0.4),
                         s: s0 + rng() * (s1 - s0)
                     });
                 }
@@ -753,6 +756,21 @@
                         sw: 1.3 + rng() * 0.6,
                         sh: 0.8 + rng() * 0.45
                     });
+                }
+                placeDuskCb();
+            }
+            // 적란운 초기 x 확정(1회): slot 0은 중심을 xc에 두되 오른쪽으로 넘치지 않게(좁은 화면은 중앙 쪽으로),
+            // slot 1+는 앞 적란운의 왼쪽 화면 밖에 gap을 두고 이어 붙인다.
+            function placeDuskCb() {
+                if (!W) return;
+                const base = clamp(W / 1400, 0.5, 1.1);
+                let left = 0;
+                for (const c of duskClouds) {
+                    if (c.kind !== 'cb' || c.slot == null) continue;
+                    const cw = c.spr.w0 * base * c.s / W;
+                    if (c.slot === 0) c.xn = clamp(c.xc, 0.5, Math.max(0.5, 1 - cw / 2)) - cw / 2;
+                    else { left -= cw + c.gap; c.xn = left; }
+                    c.slot = null;
                 }
             }
 
@@ -1088,6 +1106,7 @@
                     c.width = Math.round(W * dpr); c.height = Math.round(HZ * dpr);
                 }
                 pole = { x: W * CFG.POLE_X, y: HZ * CFG.POLE_Y };
+                placeDuskCb();
                 const m = Math.min(W, H);
                 sunR = clamp(m * CFG.SUN_F, CFG.SUN_MIN, CFG.SUN_MAX);
                 moonR = clamp(m * CFG.MOON_F, CFG.MOON_MIN, CFG.MOON_MAX);
