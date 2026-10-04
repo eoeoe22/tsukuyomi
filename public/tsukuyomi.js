@@ -122,16 +122,28 @@
             // (낮->밤 전환은 파랑을 거쳐 주황 중간대를 지나 밤으로 가고, 황혼->밤은 주황을 유지한 채 밤으로 간다.)
             const DUSK_Q = 0.32;  // 구 P_DUSK 기본값: 황혼 idle의 팔레트 위치 (주황). p≈0에서 황혼 색을 재현한다.
             const P_NOON_DUMMY = 0;  // 낮 idle 시작점 (p = 0, 실제 사용)
+            // 5단 그라데이션: [q, top, upper(0.30), mid(0.58), low(0.80), horizon(1.0)]
+            // 황혼(0.26/0.34)은 참조 장면의 매직아워: 코발트 → 라벤더 → 핑크 → 수평선 자주.
+            // 밝기가 0.80에서 정점을 찍고 수평선에서 다시 내려가므로 3단으로는 표현 불가.
+            // 0.42는 공용 corridor라 주황 수평선을 빼서 보라 → 밤으로 바로 이어지게 한다.
+            const SKY_STOPS = [0, 0.30, 0.58, 0.80, 1];
             let SKY_RAW = [
-                [0.00, '#2a64b4', '#6aa0d8', '#dbe9f3'],
-                [0.16, '#2f63ad', '#7ea7d3', '#e8e2d2'],
-                [0.26, '#E87A5D', '#EE966C', '#F3B27A'],
-                [0.34, '#E06D53', '#EA9067', '#F3B27A'],
-                [0.42, '#121838', '#523866', '#d0604c'],
-                [0.52, '#070b22', '#1a1f48', '#4a3f68'],
-                [0.64, '#03050f', '#070d24', '#18264a'],
-                [1.00, '#02040c', '#060b20', '#172848']
+                [0.00, '#2a64b4', '#4b83c7', '#6aa0d8', '#a5c6e6', '#dbe9f3'],
+                [0.16, '#2f63ad', '#5886c1', '#7ea7d3', '#b6c6d2', '#e8e2d2'],
+                [0.26, '#2f62e4', '#6876e6', '#a487d6', '#c886b0', '#a86a9e'],
+                [0.34, '#2f62e4', '#6876e6', '#a487d6', '#c886b0', '#a86a9e'],
+                [0.42, '#141a44', '#2c2a62', '#4a3070', '#6a3672', '#7a3c6e'],
+                [0.52, '#070b22', '#111536', '#1a1f48', '#333059', '#4a3f68'],
+                [0.64, '#03050f', '#05091a', '#070d24', '#101a38', '#18264a'],
+                [1.00, '#02040c', '#040816', '#060b20', '#0f1a35', '#172848']
             ];
+            // 구형 3단 항목 [q, top, mid, hor] → 5단으로 보간 (debug 스냅샷 호환)
+            const skyTo5 = raw => raw.map(e => {
+                if (e.length !== 4) return e;
+                const [q, t, m, h] = e, T = hex(t), M = hex(m), Z = hex(h);
+                const hx = c => '#' + c.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+                return [q, t, hx(mix(T, M, 0.30 / 0.58)), m, hx(mix(M, Z, 0.22 / 0.42)), h];
+            });
             let SKY = prep(SKY_RAW);
             let MOUNT_RAW = [
                 [0.00, '#93a8bd'], [0.20, '#8d90a8'], [0.32, '#5b4560'],
@@ -693,9 +705,10 @@
                 S.globalAlpha = 1;
 
                 const q = palQ();
-                const [top, mid, hor] = keyed(SKY, q);
+                const skyC = keyed(SKY, q);
+                const hor = skyC[skyC.length - 1];
                 const g = S.createLinearGradient(0, 0, 0, HZ);
-                g.addColorStop(0, rgba(top)); g.addColorStop(0.58, rgba(mid)); g.addColorStop(1, rgba(hor));
+                for (let i = 0; i < skyC.length; i++) g.addColorStop(SKY_STOPS[i], rgba(skyC[i]));
                 S.fillStyle = g; S.fillRect(0, 0, W, HZ);
 
                 // sun path (낮/황혼 공통: 정규화 진행도 nk 기준이라 시작 고도가 동일)
@@ -1083,7 +1096,7 @@
                 ctx.fillStyle = rg; ctx.fillRect(0, HZ, W, H - HZ);
 
                 // seam glow where sky meets its mirror
-                const hor = keyed(SKY, qR)[2];
+                const hor = keyed(SKY, qR)[SKY_STOPS.length - 1];
                 const hl = mix(hor, [255, 255, 255], 0.3);
                 const sg = ctx.createLinearGradient(0, HZ - 6, 0, HZ + 14);
                 sg.addColorStop(0, rgba(hl, 0)); sg.addColorStop(0.3, rgba(hl, CFG.SEAM_A)); sg.addColorStop(1, rgba(hl, 0));
@@ -1439,7 +1452,7 @@ void main() {
                 },
                 setPalette(name, raw) {
                     const parsed = JSON.parse(JSON.stringify(raw));
-                    if (name === 'SKY') { SKY_RAW = parsed; SKY = prep(SKY_RAW); }
+                    if (name === 'SKY') { SKY_RAW = skyTo5(parsed); SKY = prep(SKY_RAW); }
                     else if (name === 'MOUNT') { MOUNT_RAW = parsed; MOUNT = prep(MOUNT_RAW); }
                     else if (name === 'TORII') { TORII_RAW = parsed; TORII = prep(TORII_RAW); }
                     else if (name === 'CLOUD_TINT') { CLOUD_TINT_RAW = parsed; CLOUD_TINT = prep(CLOUD_TINT_RAW); }
