@@ -455,24 +455,44 @@
             // ---------- 황혼 전용 구름 ----------
             // 레퍼런스(수상 토리이 매직아워): 좌상단 광원에 상부가 크림/복숭아빛으로 빛나고,
             // 몸통은 연어빛 → 장밋빛, 밑면은 자주빛 음영으로 가라앉는다.
-            // 퍼프를 흰 코어 + 우하단 음영 로브로 쌓은 마스크(m)를 높이별 색 그라데이션으로 multiply 착색한 뒤
+            // 각 퍼프는 좌상단에서 빛을 받는 불투명한 볼록 로브(구 셰이딩: 좌상단 흰빛 → 우하단 자주빛 테두리)이며,
+            // 밑변이 아래인 퍼프를 나중에 그려 아래 로브의 밝은 윗면이 위 로브의 그늘진 밑면을 또렷하게 덮게 한다
+            // (콜리플라워 질감). 이 회색조 마스크(m)를 높이별 색 그라데이션으로 multiply 착색한 뒤
             // 상단 퍼프에 좌상단 쪽 하이라이트를 얹는다. 색이 구워져 있어 황혼 idle에서는 틴트를 쓰지 않는다.
-            function duskPuff(g, x, y, r, a, ex, ey) {
-                g.save();
-                g.translate(x, y);
-                g.scale(ex, ey);
-                const sg = g.createRadialGradient(r * 0.16, r * 0.36, 0, r * 0.16, r * 0.36, r * 0.95);
-                sg.addColorStop(0, `rgba(118,74,108,${(0.5 * a).toFixed(3)})`);
-                sg.addColorStop(1, 'rgba(118,74,108,0)');
-                g.fillStyle = sg;
-                g.beginPath(); g.arc(r * 0.16, r * 0.36, r * 0.95, 0, Math.PI * 2); g.fill();
-                const gr = g.createRadialGradient(-r * 0.1, -r * 0.16, 0, -r * 0.1, -r * 0.16, r);
-                gr.addColorStop(0, `rgba(255,255,255,${(0.7 * a).toFixed(3)})`);
-                gr.addColorStop(0.68, `rgba(255,255,255,${(0.5 * a).toFixed(3)})`);
-                gr.addColorStop(1, 'rgba(255,255,255,0)');
-                g.fillStyle = gr;
-                g.beginPath(); g.arc(-r * 0.1, -r * 0.16, r, 0, Math.PI * 2); g.fill();
-                g.restore();
+            function duskPuff(P, x, y, r, a, ex, ey) { P.push([x, y, r, a, ex, ey]); }
+            function drawDuskPuffs(m, P) {
+                const g = m.getContext('2d');
+                // 그늘진 하부일수록 로브 경계 대비를 낮춰 덩어리로 뭉개지게 (상부만 또렷한 콜리플라워)
+                const LIT = [244, 236, 240];
+                P.sort((A, B) => (A[1] + A[2] * A[5]) - (B[1] + B[2] * B[5]));
+                for (const [x, y, r, a, ex, ey] of P) {
+                    g.save();
+                    g.translate(x, y);
+                    g.scale(ex, ey);
+                    const v = clamp(a, 0.5, 1.2);   // 로브별 밝기 편차
+                    const ct = lerp(1, 0.5, ss(0.35, 1, (y - m.pad) / m.h0));
+                    let ci = 0;
+                    const sh = c => { const L = LIT[ci++ % 3]; return Math.round(clamp((L + (c - L) * ct) * (0.82 + 0.18 * v), 0, 255)); };
+                    // 공 셰이딩 대신: 윗면은 평평하게 밝고 좌상단 → 우하단 방향 아래쪽만 부드럽게 그늘진다
+                    const lg = g.createLinearGradient(-r * 0.45, -r, r * 0.3, r);
+                    lg.addColorStop(0, 'rgb(255,255,255)');
+                    lg.addColorStop(0.3, `rgb(${sh(252)},${sh(246)},${sh(246)})`);
+                    lg.addColorStop(0.52, `rgb(${sh(222)},${sh(200)},${sh(216)})`);
+                    lg.addColorStop(0.74, `rgb(${sh(170)},${sh(134)},${sh(164)})`);
+                    lg.addColorStop(1, `rgb(${sh(128)},${sh(92)},${sh(128)})`);
+                    g.fillStyle = lg;
+                    // 불규칙한 외곽: 로브 하나를 약간 어긋난 원 3개로 그린다
+                    g.beginPath();
+                    for (let k = 0; k < 3; k++) {
+                        const an = (x * 0.37 + y * 0.11 + k * 2.1) % (Math.PI * 2);
+                        const ox = Math.cos(an) * r * 0.22, oy = Math.sin(an) * r * 0.14;
+                        const rr = r * (0.72 + 0.1 * k);
+                        g.moveTo(ox + rr, oy);
+                        g.arc(ox, oy, rr, 0, Math.PI * 2);
+                    }
+                    g.fill();
+                    g.restore();
+                }
             }
             // m: 퍼프 마스크 캔버스, stops: 콘텐츠 높이(0=상단, 1=하단) 기준 [위치, 색],
             // hi: 상부 하이라이트 퍼프 [x, y, r], fade: 밑변 소멸 시작 비율(1 = 소멸 없음)
@@ -486,9 +506,11 @@
                 for (const [t, cc] of stops) col.addColorStop(t, cc);
                 g.fillStyle = col; g.fillRect(0, 0, c.width, c.height);
                 g.globalCompositeOperation = 'multiply';
+                if (FILTER_OK) g.filter = 'blur(1.4px)';   // 벡터 원 테두리만 살짝 풀어 페인트 질감
                 g.drawImage(m, 0, 0);
                 g.globalCompositeOperation = 'destination-in';
                 g.drawImage(m, 0, 0);
+                g.filter = 'none';
                 // 상부 햇빛 반사: 좌상단 광원을 향한 쪽에 따뜻한 크림 하이라이트
                 g.globalCompositeOperation = 'source-atop';
                 for (const [x, y, r] of hi) {
@@ -519,7 +541,7 @@
             function makeDuskBandSprite(rng) {
                 const w0 = 640, h0 = 230, PAD = 140;
                 const m = duskMask(w0, h0, PAD);
-                const g = m.getContext('2d');
+                const g = [];
                 const hi = [];
                 // 봉우리 프로파일: 2~4개의 가우스 봉우리 (높이 = 콘텐츠 상단으로부터의 비율)
                 const humps = Array.from({ length: 2 + ((rng() * 3) | 0) }, () => ({
@@ -531,33 +553,34 @@
                     return 0.62 - 0.6 * Math.min(1, v);   // 0.02(가장 높은 봉우리) ~ 0.55(데크 윗면)
                 };
                 // 데크: 밑변 가득 납작하게
-                for (let i = 0; i < 34; i++) {
+                for (let i = 0; i < 70; i++) {
                     const u = rng();
                     const x = PAD + w0 * (0.02 + 0.96 * u);
-                    const y = PAD + h0 * (0.66 + rng() * 0.24);
-                    const r = 30 + rng() * 40;
-                    duskPuff(g, x, y, r, 0.8 + rng() * 0.35, 1.4 + rng() * 0.9, 0.5 + rng() * 0.25);
+                    const y = PAD + h0 * (0.64 + rng() * 0.26);
+                    const r = 16 + rng() * 20;
+                    duskPuff(g, x, y, r, 0.8 + rng() * 0.35, 1.1 + rng() * 0.5, 0.6 + rng() * 0.25);
                 }
                 // 봉우리 몸통: 프로파일 윗면부터 데크까지 채운다
-                for (let i = 0; i < 64; i++) {
+                for (let i = 0; i < 110; i++) {
                     const u = 0.04 + 0.92 * rng();
                     const tp = top(u);
                     const f = Math.pow(rng(), 0.7); // 0 = 윗면, 1 = 데크
                     const yy = lerp(tp + 0.08, 0.7, f);
                     const x = PAD + w0 * u;
                     const y = PAD + h0 * yy;
-                    const r = 18 + rng() * 30 + (0.62 - tp) * 40;
+                    const r = 12 + rng() * 20 + (0.62 - tp) * 28;
                     duskPuff(g, x, y, r, 0.8 + rng() * 0.35, 0.9 + rng() * 0.5, 0.7 + rng() * 0.35);
                     if (f < 0.25) hi.push([x, y, r]);
                 }
                 // 미세 질감: 윗면 가장자리의 작은 뭉게
-                for (let i = 0; i < 34; i++) {
+                for (let i = 0; i < 60; i++) {
                     const u = 0.05 + 0.9 * rng();
                     const x = PAD + w0 * u + (rng() - 0.5) * 12;
-                    const y = PAD + h0 * (top(u) + 0.06 + rng() * 0.06);
+                    const y = PAD + h0 * (top(u) + 0.04 + rng() * 0.06);
                     const r = 7 + rng() * 10;
                     duskPuff(g, x, y, r, 0.55 + rng() * 0.4, 0.8 + rng() * 0.5, 0.7 + rng() * 0.4);
                 }
+                drawDuskPuffs(m, g);
                 return duskFinish(m, [
                     [0, '#fff3dc'], [0.22, '#ffd8b0'], [0.42, '#f6aa90'],
                     [0.62, '#c98482'], [0.8, '#8e5a6c'], [1, '#64405a']
@@ -567,27 +590,27 @@
             function makeDuskCbSprite(rng) {
                 const w0 = 600, h0 = 560, PAD = 150;
                 const m = duskMask(w0, h0, PAD);
-                const g = m.getContext('2d');
+                const g = [];
                 const hi = [];
                 const lean = (rng() - 0.5) * 0.12;   // 탑이 살짝 기울어 개체마다 실루엣이 다르게
-                for (let i = 0; i < 30; i++) {
+                for (let i = 0; i < 55; i++) {
                     const u = rng();
                     const x = PAD + w0 * (0.04 + 0.92 * u);
                     const y = PAD + h0 * (0.78 + rng() * 0.16);
-                    const r = 40 + rng() * 44;
-                    duskPuff(g, x, y, r, 0.8 + rng() * 0.35, 1.4 + rng() * 0.8, 0.5 + rng() * 0.25);
+                    const r = 22 + rng() * 26;
+                    duskPuff(g, x, y, r, 0.8 + rng() * 0.35, 1.1 + rng() * 0.5, 0.6 + rng() * 0.25);
                 }
-                for (let i = 0; i < 70; i++) {
+                for (let i = 0; i < 130; i++) {
                     const t = rng(); // 0 = 하단, 1 = 꼭대기
                     const hw = lerp(0.36, 0.2, t);
                     const gauss = (rng() + rng() + rng()) / 3 - 0.5;
                     const x = PAD + w0 * (0.5 + lean * t + gauss * 2 * hw);
                     const y = PAD + h0 * (0.76 - 0.6 * t) + (rng() - 0.5) * 16;
-                    const r = 30 + rng() * 40 + (1 - t) * 12;
+                    const r = 18 + rng() * 28 + (1 - t) * 10;
                     duskPuff(g, x, y, r, 0.85 + rng() * 0.35, 0.9 + rng() * 0.5, 0.75 + rng() * 0.35);
                     if (t > 0.45 || Math.abs(gauss) > 0.22) hi.push([x, y, r]);
                 }
-                for (let i = 0; i < 36; i++) {
+                for (let i = 0; i < 70; i++) {
                     const t = 0.3 + rng() * 0.7;
                     const hw = lerp(0.36, 0.2, t);
                     const gauss = (rng() + rng() + rng()) / 3 - 0.5;
@@ -596,6 +619,7 @@
                     const r = 9 + rng() * 12;
                     duskPuff(g, x, y, r, 0.55 + rng() * 0.4, 0.8 + rng() * 0.5, 0.7 + rng() * 0.4);
                 }
+                drawDuskPuffs(m, g);
                 return duskFinish(m, [
                     [0, '#fff8e8'], [0.18, '#ffe6c2'], [0.38, '#fbbd9c'], [0.56, '#e19486'],
                     [0.72, '#a86d76'], [0.86, '#76495e'], [1, '#5c3a50']
