@@ -61,8 +61,8 @@
                 POLARIS_R: 0.7, HALO_R: 4, HALO_A: 0.35,
                 MTN_H: 0.022, MTN_MIN: 6, MTN_MAX: 20, MTN_TH: 0.47, MTN_POW: 1.15,
                 MTN_W0: 0.62, MTN_W1: 0.28, MTN_W2: 0.10,
-                CLOUD_N: 7, CLOUD_SP0: 0.003, CLOUD_SP1: 0.005, CLOUD_Y0: 0.62, CLOUD_YR: 0.3,
-                CLOUD_X0: -0.25, CLOUD_SPREAD: 1.4,
+                CLOUD_N: 12, CLOUD_SP0: 0.003, CLOUD_SP1: 0.005, CLOUD_Y0: 0.66, CLOUD_YR: 0.28,
+                CLOUD_X0: -0.3, CLOUD_SPREAD: 1.55,
                 CLOUD_F0: 0.2, CLOUD_F1: 0.48,
                 CLOUD_CB_N: 2, CLOUD_CB_Y0: 0.8, CLOUD_CB_YR: 0.14,
                 CLOUD_CB_S0: 0.85, CLOUD_CB_S1: 1.45,
@@ -172,8 +172,8 @@
             // SVG-space bounding box (with a little room for the gold stroke)
             const TB = { x: 124, y: 62, w: 432, h: 360, base: 420 };
             let CLOUD_TINT_RAW = [
-                [0.00, '#ffffff', 0], [0.14, '#ffe8c8', 0.10], [0.26, '#ffb07a', 0.42],
-                [0.34, '#ff6f6a', 0.52], [0.42, '#5a3d6e', 0.62], [1.00, '#1a1a30', 0.7]
+                [0.00, '#ffffff', 0], [0.14, '#ffe9d2', 0.10], [0.26, '#f9b092', 0.40],
+                [0.34, '#ef7fa2', 0.50], [0.42, '#5c3a6e', 0.62], [1.00, '#1a1a30', 0.7]
             ];
             let CLOUD_TINT = prep(CLOUD_TINT_RAW);
             // reflection dimming: day and sunset unchanged, stronger only once the sky is night
@@ -277,7 +277,26 @@
                 c.width = w0 + PAD * 2; c.height = h0 + PAD * 2;
                 c.w0 = w0; c.h0 = h0; c.pad = PAD;
                 const g = c.getContext('2d');
-                const puffs = 32 + ((rng() * 9) | 0);
+                // 2톤 퍼프: 자주빛 하부 로브를 먼저 깔고 밝은 코어를 위로 얹어
+                // 뭉게 하나하나에 음영을 준다 (양배추 질감의 핵심)
+                const puffBase = (x, y, r, a, ex, ey) => {
+                    g.save();
+                    g.translate(x, y);
+                    g.scale(ex, ey);
+                    let sg = g.createRadialGradient(0, r * 0.35, 0, 0, r * 0.35, r * 0.95);
+                    sg.addColorStop(0, `rgba(88,48,124,${(0.46 * a).toFixed(3)})`);
+                    sg.addColorStop(1, 'rgba(96,58,128,0)');
+                    g.fillStyle = sg;
+                    g.beginPath(); g.arc(0, r * 0.35, r * 0.95, 0, Math.PI * 2); g.fill();
+                    const gr = g.createRadialGradient(0, -r * 0.12, 0, 0, -r * 0.12, r);
+                    gr.addColorStop(0, `rgba(255,255,255,${(0.62 * a).toFixed(3)})`);
+                    gr.addColorStop(0.6, `rgba(255,255,255,${(0.36 * a).toFixed(3)})`);
+                    gr.addColorStop(1, 'rgba(255,255,255,0)');
+                    g.fillStyle = gr;
+                    g.beginPath(); g.arc(0, -r * 0.12, r, 0, Math.PI * 2); g.fill();
+                    g.restore();
+                };
+                const puffs = 40 + ((rng() * 9) | 0);
                 for (let i = 0; i < puffs; i++) {
                     const u = rng();
                     const x = PAD + w0 * (0.12 + 0.76 * u);
@@ -287,32 +306,45 @@
                     const a = 0.75 + rng() * 0.45;
                     const ex = 0.75 + rng() * 0.9;
                     const ey = 0.55 + rng() * 0.55;
-                    g.save();
-                    g.translate(x, y);
-                    g.scale(ex, ey);
-                    const gr = g.createRadialGradient(0, 0, 0, 0, 0, r);
-                    gr.addColorStop(0, `rgba(255,255,255,${(0.55 * a).toFixed(3)})`);
-                    gr.addColorStop(0.6, `rgba(255,255,255,${(0.32 * a).toFixed(3)})`);
-                    gr.addColorStop(1, 'rgba(255,255,255,0)');
-                    g.fillStyle = gr;
-                    g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill();
-                    g.restore();
+                    puffBase(x, y, r, a, ex, ey);
+                }
+                // 하부 덱 보강: 밑변에 납작한 퍼프를 깔아 수평선 근처 밀도를 높인다
+                for (let i = 0; i < 18; i++) {
+                    const u = rng();
+                    const x = PAD + w0 * (0.05 + 0.9 * u);
+                    const y = PAD + h0 * (0.74 + rng() * 0.16);
+                    const r = 26 + rng() * 40;
+                    puffBase(x, y, r, 0.7 + rng() * 0.4, 1.3 + rng() * 0.8, 0.45 + rng() * 0.25);
+                }
+                // 미세 질감: 윗면에 작은 뭉게를 뿌려 양배추 결을 만든다
+                for (let i = 0; i < 26; i++) {
+                    const u = rng();
+                    const bell = Math.sin(Math.PI * u);
+                    const x = PAD + w0 * (0.1 + 0.8 * u) + (rng() - 0.5) * 20;
+                    const y = PAD + h0 * (0.5 - 0.32 * bell) + (rng() - 0.5) * 16;
+                    const r = 8 + rng() * 10;
+                    puffBase(x, y, r, 0.5 + rng() * 0.4, 0.8 + rng() * 0.5, 0.7 + rng() * 0.4);
                 }
                 g.globalCompositeOperation = 'destination-out';
-                const fl = g.createLinearGradient(0, PAD + h0 * 0.64, 0, PAD + h0 * 0.8);
+                const fl = g.createLinearGradient(0, PAD + h0 * 0.72, 0, PAD + h0 * 0.94);
                 fl.addColorStop(0, 'rgba(0,0,0,0)'); fl.addColorStop(1, 'rgba(0,0,0,1)');
                 g.fillStyle = fl; g.fillRect(0, 0, c.width, c.height);
                 g.globalCompositeOperation = 'source-atop';
-                const sh = g.createLinearGradient(0, PAD + h0 * 0.2, 0, PAD + h0 * 0.75);
-                sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(126,140,166,0.55)');
+                // 하단 음영: 참조 장면처럼 밑으로 갈수록 진한 자주빛 (상부 하이라이트는 유지)
+                const sh = g.createLinearGradient(0, PAD + h0 * 0.15, 0, PAD + h0 * 0.82);
+                sh.addColorStop(0, 'rgba(255,255,255,0)');
+                sh.addColorStop(0.38, 'rgba(168,112,158,0.55)');
+                sh.addColorStop(0.68, 'rgba(92,42,110,0.80)');
+                sh.addColorStop(1, 'rgba(34,15,62,0.96)');
                 g.fillStyle = sh; g.fillRect(0, 0, c.width, c.height);
                 return c;
             }
 
-            // 적란운 타워: 하부 데크 + 기둥 + 상부 돔의 3단 적층.
-            // 참조 장면처럼 하단은 넓고 어둡게, 상단은 뭉게뭉게 밝게.
+            // 적란운: 넓은 몸통 + 모루(anvil) + 자주빛 하단 음영의 뭉게구름 덩어리.
+            // 가늘게 솟은 기둥형 분포(연기처럼 보이는 원인)를 버리고 전 구간에 걸쳐
+            // 겹을 두껍게 쌓아 한 덩어리로 읽히게 한다.
             function makeCbSprite(rng) {
-                const w0 = 440, h0 = 560, PAD = 140;
+                const w0 = 560, h0 = 520, PAD = 140;
                 const c = document.createElement('canvas');
                 c.width = w0 + PAD * 2; c.height = h0 + PAD * 2;
                 c.w0 = w0; c.h0 = h0; c.pad = PAD;
@@ -321,40 +353,75 @@
                     g.save();
                     g.translate(x, y);
                     g.scale(ex, ey);
-                    const gr = g.createRadialGradient(0, 0, 0, 0, 0, r);
-                    gr.addColorStop(0, `rgba(255,255,255,${(0.6 * a).toFixed(3)})`);
-                    gr.addColorStop(0.55, `rgba(255,255,255,${(0.34 * a).toFixed(3)})`);
+                    let sg = g.createRadialGradient(0, r * 0.35, 0, 0, r * 0.35, r * 0.95);
+                    sg.addColorStop(0, `rgba(88,48,124,${(0.46 * a).toFixed(3)})`);
+                    sg.addColorStop(1, 'rgba(96,58,128,0)');
+                    g.fillStyle = sg;
+                    g.beginPath(); g.arc(0, r * 0.35, r * 0.95, 0, Math.PI * 2); g.fill();
+                    const gr = g.createRadialGradient(0, -r * 0.12, 0, 0, -r * 0.12, r);
+                    gr.addColorStop(0, `rgba(255,255,255,${(0.65 * a).toFixed(3)})`);
+                    gr.addColorStop(0.55, `rgba(255,255,255,${(0.37 * a).toFixed(3)})`);
                     gr.addColorStop(1, 'rgba(255,255,255,0)');
                     g.fillStyle = gr;
-                    g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill();
+                    g.beginPath(); g.arc(0, -r * 0.12, r, 0, Math.PI * 2); g.fill();
                     g.restore();
                 };
-                // 하부 데크: 넓고 납작하게 깔림
-                for (let i = 0; i < 22; i++) {
+                // 하부 데크: 밑변 가득 넓고 납작하게
+                for (let i = 0; i < 30; i++) {
                     const u = rng();
-                    const x = PAD + w0 * (0.05 + 0.9 * u);
+                    const x = PAD + w0 * (0.03 + 0.94 * u);
                     const bell = Math.sin(Math.PI * u);
-                    const y = PAD + h0 * (0.74 + rng() * 0.2 - 0.06 * bell);
-                    const r = 30 + rng() * 42;
-                    puff(x, y, r, 0.7 + rng() * 0.4, 1.2 + rng() * 0.8, 0.5 + rng() * 0.3);
+                    const y = PAD + h0 * (0.76 + rng() * 0.18 - 0.05 * bell);
+                    const r = 38 + rng() * 44;
+                    puff(x, y, r, 0.7 + rng() * 0.4, 1.4 + rng() * 0.8, 0.45 + rng() * 0.25);
                 }
-                // 기둥: 중앙에 밀집, 위로 갈수록 약간 좁아짐
-                for (let i = 0; i < 22; i++) {
+                // 몸통: 아래가 넓고 위로 갈수록 살짝 좁아지는 뭉게 덩어리.
+                // 중앙 집중 가우스로 빽빽이 겹쳐 기둥이 분리돼 보이지 않게 한다.
+                for (let i = 0; i < 44; i++) {
                     const t = rng(); // 0 = 하단, 1 = 상단
+                    const hw = 0.36 - 0.08 * t;
                     const gauss = (rng() + rng() + rng()) / 3 - 0.5;
-                    const x = PAD + w0 * (0.5 + gauss * 0.44 * (1.1 - 0.4 * t));
-                    const y = PAD + h0 * (0.72 - 0.42 * t) + (rng() - 0.5) * 18;
-                    const r = 26 + rng() * 36;
-                    puff(x, y, r, 0.75 + rng() * 0.45, 0.8 + rng() * 0.5, 0.8 + rng() * 0.45);
+                    const x = PAD + w0 * (0.5 + gauss * 2 * hw);
+                    const y = PAD + h0 * (0.72 - 0.47 * t) + (rng() - 0.5) * 14;
+                    const r = 36 + rng() * 44 + t * 10;
+                    puff(x, y, r, 0.8 + rng() * 0.4, 0.9 + rng() * 0.6, 0.7 + rng() * 0.4);
                 }
-                // 상부 돔: 뭉게뭉게 밝은 머리
+                // 모루(anvil): 몸통 꼭대기에 붙어 위로 수렴하는 납작한 머리.
+                // 몸통 상단(y 0.25)과 겹치는 y 0.28부터 시작해 꼭대기로 갈수록
+                // 폭(hw 0.30→0.10)을 좁혀 옆으로 떠다니는 손가락 streak이 생기지 않게 한다.
                 for (let i = 0; i < 16; i++) {
-                    const t = rng();
+                    const v = rng(); // 0 = 몸통 접합부, 1 = 꼭대기
+                    const hw = lerp(0.30, 0.10, v);
                     const gauss = (rng() + rng() + rng()) / 3 - 0.5;
-                    const x = PAD + w0 * (0.5 + gauss * 0.52);
-                    const y = PAD + h0 * (0.3 - 0.22 * t) + (rng() - 0.5) * 16;
-                    const r = 22 + rng() * 34;
-                    puff(x, y, r, 0.85 + rng() * 0.4, 0.85 + rng() * 0.5, 0.75 + rng() * 0.45);
+                    const x = PAD + w0 * (0.5 + gauss * 2 * hw);
+                    const y = PAD + h0 * (0.28 - 0.22 * v) + (rng() - 0.5) * 10;
+                    const r = 30 + rng() * 36 - v * 8;
+                    puff(x, y, r, 0.85 + rng() * 0.4, 1.1 + rng() * 0.6, 0.55 + rng() * 0.3);
+                }
+                // 체적 음영: 하단 1/3에 자주빛 코어를 먼저 깔아 입체감을 준다
+                for (let i = 0; i < 10; i++) {
+                    const x = PAD + w0 * (0.2 + rng() * 0.6);
+                    const y = PAD + h0 * (0.6 + rng() * 0.3);
+                    const r = 44 + rng() * 50;
+                    g.save();
+                    g.translate(x, y);
+                    g.scale(1.5 + rng() * 0.8, 0.6 + rng() * 0.3);
+                    const dg = g.createRadialGradient(0, 0, 0, 0, 0, r);
+                    dg.addColorStop(0, `rgba(52,24,86,${(0.42 + rng() * 0.18).toFixed(3)})`);
+                    dg.addColorStop(1, 'rgba(52,24,86,0)');
+                    g.fillStyle = dg;
+                    g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill();
+                    g.restore();
+                }
+                // 미세 질감: 몸통 윗면·모루에 작은 뭉게를 뿌려 결을 살린다
+                for (let i = 0; i < 30; i++) {
+                    const t = rng();
+                    const hw = 0.34 - 0.08 * t;
+                    const gauss = (rng() + rng() + rng()) / 3 - 0.5;
+                    const x = PAD + w0 * (0.5 + gauss * 2 * hw) + (rng() - 0.5) * 14;
+                    const y = PAD + h0 * (0.55 - 0.45 * t) + (rng() - 0.5) * 12;
+                    const r = 10 + rng() * 12;
+                    puff(x, y, r, 0.55 + rng() * 0.4, 0.8 + rng() * 0.5, 0.7 + rng() * 0.4);
                 }
                 g.globalCompositeOperation = 'destination-out';
                 const fl = g.createLinearGradient(0, PAD + h0 * 0.78, 0, PAD + h0 * 0.97);
@@ -363,8 +430,9 @@
                 g.globalCompositeOperation = 'source-atop';
                 const sh2 = g.createLinearGradient(0, PAD + h0 * 0.05, 0, PAD + h0 * 0.95);
                 sh2.addColorStop(0, 'rgba(255,255,255,0)');
-                sh2.addColorStop(0.55, 'rgba(126,140,166,0.28)');
-                sh2.addColorStop(1, 'rgba(90,96,128,0.62)');
+                sh2.addColorStop(0.38, 'rgba(168,112,158,0.58)');
+                sh2.addColorStop(0.68, 'rgba(88,38,106,0.82)');
+                sh2.addColorStop(1, 'rgba(30,13,58,0.97)');
                 g.fillStyle = sh2; g.fillRect(0, 0, c.width, c.height);
                 return c;
             }
@@ -380,8 +448,8 @@
                         xn: CFG.CLOUD_X0 + (i / Math.max(1, n)) * CFG.CLOUD_SPREAD + rng() * 0.08,
                         yn: CFG.CLOUD_Y0 + rng() * CFG.CLOUD_YR,
                         sp: CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1,
-                        sw: 0.85 + rng() * 0.3,
-                        sh: 0.85 + rng() * 0.3
+                        sw: 1.2 + rng() * 0.6,
+                        sh: 0.9 + rng() * 0.35
                     });
                 }
                 // 적란운: 하부 레이어 위에 랜덤하게 0~N개 솟은 타워
@@ -412,7 +480,9 @@
                     return { k, cw, ch, px, py, tw: cw + px * 2, th: ch + py * 2, dx: c.xn * W - px, dy: c.yn * HZ - ch * 0.88 - py };
                 }
                 const denom = CFG.CLOUD_YR || 1;
-                const k = base * lerp(1, 0.4, clamp((c.yn - CFG.CLOUD_Y0) / denom, 0, 1));
+                // 수평선에 가까울수록 크게: 멀리 작아지는 실제 원근과 반대로 두지만
+                // 하부 덱이 얇아져 끊겨 보이는 문제를 막기 위한 스타일라이즈드 선택
+                const k = base * lerp(0.8, 1.3, clamp((c.yn - CFG.CLOUD_Y0) / denom, 0, 1));
                 const sx = c.sw ?? 1, sy = c.sh ?? 1;
                 const cw = w0 * k * sx, ch = h0 * k * sy, px = pad * k * sx, py = pad * k * sy;
                 return { k, cw, ch, px, py, tw: cw + px * 2, th: ch + py * 2, dx: c.xn * W - px, dy: c.yn * HZ - ch * 0.7 - py };
