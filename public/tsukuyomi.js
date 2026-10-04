@@ -271,18 +271,26 @@
                 const cw = 560, ch = 220;
                 c.width = cw; c.height = ch;
                 const g = c.getContext('2d');
-                for (let i = 0; i < 36; i++) {
+                const puffs = 32 + ((rng() * 9) | 0);
+                for (let i = 0; i < puffs; i++) {
                     const u = rng();
                     const x = cw * (0.12 + 0.76 * u);
                     const bell = Math.sin(Math.PI * u);
-                    const y = ch * (0.66 - 0.38 * bell * (0.5 + 0.5 * rng()));
-                    const r = (22 + rng() * 48) * (0.55 + 0.6 * bell);
-                    const gr = g.createRadialGradient(x, y, 0, x, y, r);
-                    gr.addColorStop(0, 'rgba(255,255,255,0.55)');
-                    gr.addColorStop(0.6, 'rgba(255,255,255,0.32)');
+                    const y = ch * (0.66 - 0.38 * bell * (0.5 + 0.5 * rng())) + (rng() - 0.5) * 22;
+                    const r = (20 + rng() * 52) * (0.5 + 0.65 * bell);
+                    const a = 0.75 + rng() * 0.45;
+                    const ex = 0.75 + rng() * 0.9;
+                    const ey = 0.55 + rng() * 0.55;
+                    g.save();
+                    g.translate(x, y);
+                    g.scale(ex, ey);
+                    const gr = g.createRadialGradient(0, 0, 0, 0, 0, r);
+                    gr.addColorStop(0, `rgba(255,255,255,${(0.55 * a).toFixed(3)})`);
+                    gr.addColorStop(0.6, `rgba(255,255,255,${(0.32 * a).toFixed(3)})`);
                     gr.addColorStop(1, 'rgba(255,255,255,0)');
                     g.fillStyle = gr;
-                    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+                    g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill();
+                    g.restore();
                 }
                 g.globalCompositeOperation = 'destination-out';
                 const fl = g.createLinearGradient(0, ch * 0.64, 0, ch * 0.8);
@@ -304,7 +312,9 @@
                         spr: makeCloudSprite(rng),
                         xn: CFG.CLOUD_X0 + (i / Math.max(1, n)) * CFG.CLOUD_SPREAD + rng() * 0.08,
                         yn: CFG.CLOUD_Y0 + rng() * CFG.CLOUD_YR,
-                        sp: CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1
+                        sp: CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1,
+                        sw: 0.85 + rng() * 0.3,
+                        sh: 0.85 + rng() * 0.3
                     });
                 }
             }
@@ -760,7 +770,7 @@
                     const base = clamp(W / 1400, 0.5, 1.1);
                     for (const c of clouds) {
                         const k = base * lerp(1, 0.4, (c.yn - CFG.CLOUD_Y0) / CFG.CLOUD_YR);
-                        const cw = 560 * k, ch = 220 * k;
+                        const cw = 560 * k * (c.sw ?? 1), ch = 220 * k * (c.sh ?? 1);
                         CL.drawImage(c.spr, c.xn * W, c.yn * HZ - ch * 0.7, cw, ch);
                     }
                     const [tc, ta] = keyed(CLOUD_TINT, q);
