@@ -14,7 +14,6 @@
             --shadow-light: #f9f9f9;
             --raised-md: 8px 8px 16px #d1d9e6, -8px -8px 16px #f9f9f9;
             --raised-md-pressed: 4px 4px 12px #d1d9e6, -4px -4px 12px #f9f9f9;
-            --raised-lg: 10px 10px 10px #d1d9e6, -10px -10px 10px #f9f9f9;
             --inset-sm: inset 2px 2px 4px #d1d9e6, inset -2px -2px 4px #f9f9f9;
             --font-sans: "Montserrat", -apple-system, BlinkMacSystemFont, "Noto Sans KR", system-ui, sans-serif;
             --space-1: 4px;
@@ -115,7 +114,7 @@
             align-items: center;
             background: var(--surface);
             border-radius: var(--radius-pill);
-            box-shadow: var(--raised-lg);
+            box-shadow: 0 10px 10px var(--shadow-dark);
             padding: 10px;
             animation: fadeInUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
             transition: background-color 1.25s ease, box-shadow 1.25s ease;
@@ -125,7 +124,7 @@
             --surface: var(--night-surface);
             --track: var(--night-track);
             --text-subtle: var(--night-disabled);
-            --raised-lg: 10px 10px 10px var(--night-shadow-dark), -10px -10px 10px var(--night-shadow-light);
+            box-shadow: 0 10px 10px var(--night-shadow-dark);
             --raised-md: 8px 8px 16px var(--night-shadow-dark), -8px -8px 16px var(--night-shadow-light);
             --raised-md-pressed: 4px 4px 12px var(--night-shadow-dark), -4px -4px 12px var(--night-shadow-light);
             --inset-sm: inset 2px 2px 4px var(--night-shadow-dark), inset -2px -2px 4px var(--night-shadow-light);
