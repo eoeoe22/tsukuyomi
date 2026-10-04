@@ -572,13 +572,43 @@
                     return fg;
                 };
 
-                // --- 본체: 착색 + 살짝 풀린 로브 경계 ---
+                // 큰 덩어리 명암: 흐린 마스크를 두께 맵으로 보고, 광원 쪽으로 옮기면 얇아지는 곳은 밝게,
+                // 반대쪽으로 옮기면 얇아지는 곳은 그늘지게. 작은 로브 대신 큰 볼륨 단위로 빛이 돈다.
+                const massTerm = (px, dx, dy, color) => {
+                    const b = lowBlur(px);
+                    const L = document.createElement('canvas');
+                    L.width = qw; L.height = qh;
+                    const lg = L.getContext('2d');
+                    lg.drawImage(b, 0, 0);
+                    lg.globalCompositeOperation = 'destination-out';
+                    lg.drawImage(b, dx / Q, dy / Q);
+                    lg.globalCompositeOperation = 'source-in';
+                    lg.fillStyle = color; lg.fillRect(0, 0, qw, qh);
+                    return L;
+                };
+
+                // --- 본체: 착색 + 큰 덩어리 명암 ---
                 const body = duskLayer(m);
                 {
                     const g = body.getContext('2d');
                     colGrad(g, 0);
+                    // 로브 음영은 크게 뭉개 작은 로브 무늬를 없애고 부드러운 명암 변화만 남긴다
                     g.globalCompositeOperation = 'multiply';
-                    blurDraw(g, m, 1.6);
+                    g.globalAlpha = 0.75;
+                    up(g, lowBlur(14));
+                    g.globalAlpha = 1;
+                    const sc = h0 / 400;
+                    g.globalCompositeOperation = 'source-over';
+                    for (const [px, d, a] of [[28, 34, 0.55], [12, 14, 0.35]]) {
+                        g.globalAlpha = a;
+                        up(g, massTerm(px * sc + 4, d * sc * 0.8, d * sc, '#fff1da'));
+                    }
+                    g.globalCompositeOperation = 'multiply';
+                    for (const [px, d, a] of [[28, 34, 0.5], [12, 14, 0.3]]) {
+                        g.globalAlpha = a;
+                        up(g, massTerm(px * sc + 4, -d * sc * 0.8, -d * sc, '#a2708e'));
+                    }
+                    g.globalAlpha = 1;
                     g.globalCompositeOperation = 'destination-in';
                     up(g, mh);   // 외곽선이 칼같이 끊기지 않게
                 }
@@ -667,8 +697,8 @@
                 for (const [x, y, r] of hi) {
                     const hx = x - r * 0.3, hy = y - r * 0.35;
                     const hg = g.createRadialGradient(hx, hy, 0, hx, hy, r * 0.9);
-                    hg.addColorStop(0, 'rgba(255,247,226,0.36)');
-                    hg.addColorStop(0.5, 'rgba(255,232,196,0.15)');
+                    hg.addColorStop(0, 'rgba(255,247,226,0.16)');
+                    hg.addColorStop(0.5, 'rgba(255,232,196,0.06)');
                     hg.addColorStop(1, 'rgba(255,226,190,0)');
                     g.fillStyle = hg;
                     g.beginPath(); g.arc(hx, hy, r * 0.9, 0, Math.PI * 2); g.fill();
