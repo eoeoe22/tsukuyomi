@@ -66,8 +66,8 @@
                 MOON_A0: 0.46, MOON_A1: 0.92, MOON_GLOW: 9, MOON_A: 0.24,
                 HAZE_MIX: 0.22, HAZE_A: 0.32,
                 REFL_AMP0: 0.15, REFL_AMP1: 2.4, SEAM_A: 0.22,
-                SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 3,
-                REFL_SCALE: 0.5, REFL_AUTO: 1, REFL_MAX_STEP: 6,
+                SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 8,
+                REFL_SCALE: 1, REFL_AUTO: 1, REFL_MAX_STEP: 8,
                 RIP_MAX: 8, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
                 LANTERN_N: 64, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
                 LANTERN_TX: 0.62, LANTERN_PAD: 2, LANTERN_SN_POW: 1.25,
@@ -190,7 +190,7 @@
             const LC = lanC.getContext('2d');
             let lanCW = 0, lanCH = 0, lanBodyH = 0;
             // reflection adaptive step governor (ROW_STEP=최소, REFL_MAX_STEP=상한)
-            let reflStep = 3, reflLastBase = 3, reflEMA = 16, reflCool = 0;
+            let reflStep = 8, reflLastBase = 8, reflEMA = 16, reflCool = 0;
 
             const starAlpha = () => ss(CFG.STAR_A0, CFG.STAR_A1, p);
 
@@ -779,6 +779,7 @@
             // ---------- reflection adaptive step ----------
             // ROW_STEP=최소 간격(화질 하한), REFL_MAX_STEP=상한. 부하 시 상한까지 자동 증가.
             // 해상도 하한도 함께 적용: 키가 큰 화면에서도 반사 row 수가 ~220개를 넘지 않게.
+            // 랜턴 스프라이트는 이 값과 별도로 2px 상한 (좁은 수직선 비틀림 방지).
             function effReflStep(reflHPx) {
                 const base = Math.max(1, Math.round(CFG.ROW_STEP));
                 if (reflLastBase !== base) { reflLastBase = base; reflStep = base; }
@@ -870,7 +871,9 @@
                 const night = ss(CFG.MOON_A0, CFG.MOON_A1, p);
                 const sw = lanCW, shFull = lanCH;
                 const shBody = lanBodyH || shFull * LAN_FEET;
-                const step = effReflStep(reflH);
+                // 랜턴 몸통이 좁아 ROW_STEP이 크면 행 경계마다
+                // 수평 오프셋이 점프해 비틀려 보이므로 2px로 고정 + 중앙 샘플링.
+                const step = Math.max(1, Math.min(effReflStep(reflH), 2));
 
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 ctx.globalCompositeOperation = 'source-over';
@@ -895,9 +898,9 @@
                             const shD = Math.min(step, dh - r);
                             const y = L.y + r;
                             if (y > H) break;
-                            const d = y - HZ, kk = d / reflH;
+                            const dc = y + shD / 2 - HZ, kk = dc / reflH;
                             const amp = CFG.REFL_AMP0 + CFG.REFL_AMP1 * kk * kk;
-                            const dx = amp * (0.7 * Math.sin(d * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(d * CFG.SL_F2 - clock * CFG.SL_F3));
+                            const dx = amp * (0.7 * Math.sin(dc * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(dc * CFG.SL_F2 - clock * CFG.SL_F3));
                             const srcH = shD / dh * shBody;
                             const srcY = shBody - (r + shD) / dh * shBody;
                             if (srcY < 0 || srcH <= 0) continue;
