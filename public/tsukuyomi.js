@@ -10,8 +10,7 @@
             const BD = band.getContext('2d');
             const FILTER_OK = (() => { const t = document.createElement('canvas').getContext('2d'); t.filter = 'blur(1px)'; return t.filter === 'blur(1px)'; })();
             const BAND_SCALE = FILTER_OK ? 2 : 5;   // work at reduced resolution; without filter support the downscale itself blurs
-            const BAND_PAD = 12;                     // css px of context above the horizon, sampled but never pasted
-            const BLUR_PX = 3;                       // css px of blur right at the horizon
+            // NOTE: BAND_PAD/BLUR_PX/BAND_H 실값은 CFG에서 관리 (debug UI로 조절). 아래 구형 상수는 삭제됨.
             let bandH = 0;
             // torii sprite and its flipped, darkened copy for the reflection
             const torC = document.createElement('canvas');
@@ -31,13 +30,38 @@
             const elFill = document.getElementById('fill');
             const elMeter = document.getElementById('meter');
 
-            // ---------- timing ----------
-            const T_NIGHT = 14;      // seconds for day → night
-            const T_DAY = 2.4;       // seconds to return to day
-            const W_FAST = 0.28;     // rad/s during the transition
-            const W_SLOW = 0.009;    // rad/s once night has settled (~12 min per turn)
-            const TRAIL_LEN = 0.6;   // rad (~34°): trails grow to this length, then keep it
-            const DECAY = 1.4;       // seconds, deceleration time constant
+            // ---------- tunable params (F12 debug UI에서 수동 조절) ----------
+            // 모든 수치 파라미터는 CFG 하나로 모음. 기본값 = 기존 하드코딩 값과 동일.
+            // debug 패널(tsukuyomi.debug.js)이 window.__TSUKUYOMI__ 를 통해 live로 읽고 쓴다.
+            const CFG = {
+                T_NIGHT: 14, T_DAY: 2.4, W_FAST: 0.28, W_SLOW: 0.009, TRAIL_LEN: 0.6, DECAY: 1.4,
+                P_DUSK: 0.32,
+                HZ_RATIO: 0.56, DPR_MAX: 2, PIX_BUDGET: 5e6,
+                BAND_PAD: 12, BLUR_PX: 3, BAND_H: 0.3,
+                POLE_X: 0.25, POLE_Y: 0.27,
+                SUN_F: 0.03, SUN_MIN: 14, SUN_MAX: 34,
+                MOON_F: 0.026, MOON_MIN: 12, MOON_MAX: 28,
+                TORII_SCALE: 0.7, TORII_X: 0.76, TORII_BASE: 0.75,
+                STAR_DENS: 2400, STAR_MAX: 1600, STAR_A0: 0.40, STAR_A1: 0.62,
+                POLARIS_R: 0.7, HALO_R: 4, HALO_A: 0.35,
+                MTN_H: 0.022, MTN_MIN: 6, MTN_MAX: 20, MTN_TH: 0.47, MTN_POW: 1.15,
+                MTN_W0: 0.62, MTN_W1: 0.28, MTN_W2: 0.10,
+                CLOUD_N: 7, CLOUD_SP0: 0.003, CLOUD_SP1: 0.005, CLOUD_Y0: 0.5, CLOUD_YR: 0.34,
+                CLOUD_X0: -0.25, CLOUD_SPREAD: 1.4,
+                CLOUD_F0: 0.2, CLOUD_F1: 0.48,
+                SUN_PATH: 0.38, SUN_X0: 0.27, SUN_X1: 0.32, SUN_DROP: 2.4,
+                SUN_F0: 0.34, SUN_F1: 0.46,
+                SUN_G0: 0.18, SUN_G1: 0.32, SUN_G2: 0.4, SUN_G3: 0.56,
+                MOON_A0: 0.46, MOON_A1: 0.92, MOON_GLOW: 9, MOON_A: 0.24, MOON_X0: 0.82, MOON_X1: 0.76,
+                HAZE_MIX: 0.22, HAZE_A: 0.32,
+                REFL_AMP0: 0.15, REFL_AMP1: 2.4, SEAM_A: 0.22,
+                SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 3,
+                RIP_MAX: 8, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
+            };
+            const CFG_DEFAULTS = JSON.parse(JSON.stringify(CFG));
+            // 수동 스크럽용 플래그 (debug UI에서 토글)
+            let debugHold = false;    // true면 p 자동 진행을 멈추고 슬라이더 값을 그대로 유지
+            let debugPaused = false;  // true면 update/stepRipples 전체를 멈춤 (렌더는 계속)
 
             // ---------- helpers ----------
             const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -67,8 +91,11 @@
                 };
             }
 
-            // ---------- palettes keyed by scene progress p (0 = noon, 1 = night) ----------
-            const SKY = prep([
+            // ---------- palettes keyed by scene progress p (0 = noon dummy, P_DUSK = dusk idle, 1 = night) ----------
+            // NOTE(더미): p = 0 완전 낮 장면은 현재 초기값으로 쓰지 않지만 삭제하지 않고 남겨둠.
+            const P_NOON_DUMMY = 0;  // 더미: 완전 낮 (미사용, 팔레트 하위 키 유지용)
+            // P_DUSK 초기값은 CFG에서 가져옴 (debug UI로 조절 가능)
+            let SKY_RAW = [
                 [0.00, '#2a64b4', '#6aa0d8', '#dbe9f3'],
                 [0.16, '#2f63ad', '#7ea7d3', '#e8e2d2'],
                 [0.26, '#34518f', '#a98ea8', '#f6c88f'],
@@ -77,19 +104,22 @@
                 [0.52, '#070b22', '#1a1f48', '#4a3f68'],
                 [0.64, '#03050f', '#070d24', '#18264a'],
                 [1.00, '#02040c', '#060b20', '#172848']
-            ]);
-            const MOUNT = prep([
+            ];
+            let SKY = prep(SKY_RAW);
+            let MOUNT_RAW = [
                 [0.00, '#93a8bd'], [0.20, '#8d90a8'], [0.32, '#5b4560'],
                 [0.42, '#2a2038'], [0.56, '#0b0d1c'], [1.00, '#04060d']
-            ]);
+            ];
+            let MOUNT = prep(MOUNT_RAW);
             // torii: vermilion / black / gold, sinking into silhouette as night falls
-            const TORII = prep([
+            let TORII_RAW = [
                 [0.00, '#D9472B', '#2A2522', '#C9A24A'],
                 [0.30, '#c8452c', '#261f1e', '#c99a4a'],
                 [0.42, '#7a2a26', '#1a1418', '#7a6038'],
                 [0.56, '#3a1a20', '#0d0b12', '#3e3428'],
                 [1.00, '#33171d', '#0b0a10', '#3a3126']
-            ]);
+            ];
+            let TORII = prep(TORII_RAW);
             // shapes in the source SVG's 680×450 space; the feet sit on y = 420
             const TORII_RED = new Path2D(
                 'M216 110H244L247 410H213Z M436 110H464L467 410H433Z ' +
@@ -100,41 +130,43 @@
                 'M126 64Q340 108 554 64L548 85Q340 126 132 85Z');
             // SVG-space bounding box (with a little room for the gold stroke)
             const TB = { x: 124, y: 62, w: 432, h: 360, base: 420 };
-            const CLOUD_TINT = prep([
+            let CLOUD_TINT_RAW = [
                 [0.00, '#ffffff', 0], [0.14, '#ffe8c8', 0.10], [0.26, '#ffb07a', 0.42],
                 [0.34, '#ff6f6a', 0.52], [0.42, '#5a3d6e', 0.62], [1.00, '#1a1a30', 0.7]
-            ]);
+            ];
+            let CLOUD_TINT = prep(CLOUD_TINT_RAW);
             // reflection dimming: day and sunset unchanged, stronger only once the sky is night
-            const REFL = [[0, 0.06, 0.20], [0.45, 0.14, 0.34], [0.64, 0.42, 0.60], [1, 0.42, 0.60]];
-            const VIG = [[0, 0.05], [0.6, 0.32], [1, 0.32]];
+            let REFL = [[0, 0.06, 0.20], [0.45, 0.14, 0.34], [0.64, 0.42, 0.60], [1, 0.42, 0.60]];
+            let VIG = [[0, 0.05], [0.6, 0.32], [1, 0.32]];
 
             // ---------- star brightness levels and colours ----------
             // d = star diameter = trail width (css px), al = brightness for both head and trail
-            const LV = [
+            let LV = [
                 { d: 0.9, al: 0.50 },
                 { d: 1.2, al: 0.70 },
                 { d: 1.6, al: 0.88 },
                 { d: 2.2, al: 1.00 }
             ];
-            const COLS = ['#e3ebff', '#ffe7cc', '#b9ccff'].map(hex);
+            let COLS_RAW = ['#e3ebff', '#ffe7cc', '#b9ccff'];
+            let COLS = COLS_RAW.map(hex);
 
             // ---------- state ----------
             let W = 0, H = 0, HZ = 0, dpr = 1, R = 1;
             let pole = { x: 0, y: 0 }, sunR = 20, moonR = 18;
-            let state = 'day', p = 0, tState = 0, tNight = 0;
+            let state = 'dusk', p = CFG.P_DUSK, tState = 0, tNight = 0;
             let phi = 0, phiTail = null, omega = 0, clock = 0;   // phiTail: rotation angle at the trail's tail
             let stars = [], buckets = [];
             let mtn = [], clouds = [];
 
-            const starAlpha = () => ss(0.40, 0.62, p);
+            const starAlpha = () => ss(CFG.STAR_A0, CFG.STAR_A1, p);
 
             // ---------- scene construction ----------
             function buildStars() {
                 const rng = mulberry32(7);
                 const corners = [[0, 0], [W, 0], [0, HZ], [W, HZ]];
                 R = Math.max(...corners.map(([x, y]) => Math.hypot(x - pole.x, y - pole.y)));
-                const dens = 1 / (2400 * clamp(W / 1400, 0.55, 1));
-                const n = Math.min(1600, Math.round(Math.PI * R * R * dens));
+                const dens = 1 / (CFG.STAR_DENS * clamp(W / 1400, 0.55, 1));
+                const n = Math.min(CFG.STAR_MAX, Math.round(Math.PI * R * R * dens));
                 stars = [];
                 buckets = Array.from({ length: 12 }, () => []);
                 for (let i = 0; i < n; i++) {
@@ -149,7 +181,7 @@
                     buckets[lvl * 3 + col].push(s);
                 }
                 // Polaris: a small point almost on the pole, tracing a tiny circle
-                buckets[3].push({ rn: 0, rAbs: 0.7, th: 0, lvl: 1, col: 0, polaris: true });
+                buckets[3].push({ rn: 0, rAbs: CFG.POLARIS_R, th: 0, lvl: 1, col: 0, polaris: true });
             }
 
             function buildMountains() {
@@ -164,8 +196,8 @@
                 mtn = [];
                 for (let i = 0; i <= 320; i++) {
                     const x = i / 320;
-                    const v = 0.62 * sample(a1, x) + 0.28 * sample(a2, x) + 0.10 * sample(a3, x);
-                    mtn.push(Math.pow(Math.max(0, (v - 0.47) / 0.53), 1.15));
+                    const v = CFG.MTN_W0 * sample(a1, x) + CFG.MTN_W1 * sample(a2, x) + CFG.MTN_W2 * sample(a3, x);
+                    mtn.push(Math.pow(Math.max(0, (v - CFG.MTN_TH) / (1 - CFG.MTN_TH)), CFG.MTN_POW));
                 }
             }
 
@@ -201,12 +233,13 @@
             function buildClouds() {
                 const rng = mulberry32(42);
                 clouds = [];
-                for (let i = 0; i < 7; i++) {
+                const n = Math.max(0, Math.round(CFG.CLOUD_N));
+                for (let i = 0; i < n; i++) {
                     clouds.push({
                         spr: makeCloudSprite(rng),
-                        xn: -0.25 + (i / 7) * 1.4 + rng() * 0.08,
-                        yn: 0.5 + rng() * 0.34,
-                        sp: 0.003 + rng() * 0.005
+                        xn: CFG.CLOUD_X0 + (i / Math.max(1, n)) * CFG.CLOUD_SPREAD + rng() * 0.08,
+                        yn: CFG.CLOUD_Y0 + rng() * CFG.CLOUD_YR,
+                        sp: CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1
                     });
                 }
             }
@@ -217,7 +250,7 @@
             function drawStars() {
                 const a = starAlpha();
                 if (a <= 0.003) return;
-                const len = phiTail === null ? 0 : clamp(phi - phiTail, 0, TRAIL_LEN);
+                const len = phiTail === null ? 0 : clamp(phi - phiTail, 0, CFG.TRAIL_LEN);
                 S.globalCompositeOperation = 'lighter';
                 S.lineCap = 'butt';
                 for (let k = 0; k < 12; k++) {
@@ -251,37 +284,37 @@
                     S.fill();
                 }
                 // faint halo so Polaris still reads as the centre
-                const pg = S.createRadialGradient(pole.x, pole.y, 0, pole.x, pole.y, 4);
-                pg.addColorStop(0, `rgba(235,242,255,${0.35 * a})`);
+                const pg = S.createRadialGradient(pole.x, pole.y, 0, pole.x, pole.y, CFG.HALO_R);
+                pg.addColorStop(0, `rgba(235,242,255,${CFG.HALO_A * a})`);
                 pg.addColorStop(1, 'rgba(235,242,255,0)');
                 S.fillStyle = pg;
-                S.beginPath(); S.arc(pole.x, pole.y, 4, 0, Math.PI * 2); S.fill();
+                S.beginPath(); S.arc(pole.x, pole.y, CFG.HALO_R, 0, Math.PI * 2); S.fill();
                 S.globalCompositeOperation = 'source-over';
             }
 
             // ---------- layout ----------
             function resize() {
                 W = window.innerWidth; H = window.innerHeight;
-                dpr = Math.min(2, window.devicePixelRatio || 1);
-                if (W * H * dpr * dpr > 5e6) dpr = Math.max(1, Math.sqrt(5e6 / (W * H)));
-                HZ = Math.round(H * 0.56);
+                dpr = Math.min(CFG.DPR_MAX, window.devicePixelRatio || 1);
+                if (W * H * dpr * dpr > CFG.PIX_BUDGET) dpr = Math.max(1, Math.sqrt(CFG.PIX_BUDGET / (W * H)));
+                HZ = Math.round(H * CFG.HZ_RATIO);
                 cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-                bandH = Math.round((H - HZ) * 0.3);
+                bandH = Math.round((H - HZ) * CFG.BAND_H);
                 band.width = Math.ceil(W * dpr / BAND_SCALE);
-                band.height = Math.ceil((bandH + BAND_PAD * 2) * dpr / BAND_SCALE);
+                band.height = Math.ceil((bandH + CFG.BAND_PAD * 2) * dpr / BAND_SCALE);
                 for (const c of [sky, cloudLayer]) {
                     c.width = Math.round(W * dpr); c.height = Math.round(HZ * dpr);
                 }
-                pole = { x: W * 0.25, y: HZ * 0.27 };
+                pole = { x: W * CFG.POLE_X, y: HZ * CFG.POLE_Y };
                 const m = Math.min(W, H);
-                sunR = clamp(m * 0.03, 14, 34);
-                moonR = clamp(m * 0.026, 12, 28);
+                sunR = clamp(m * CFG.SUN_F, CFG.SUN_MIN, CFG.SUN_MAX);
+                moonR = clamp(m * CFG.MOON_F, CFG.MOON_MIN, CFG.MOON_MAX);
                 // torii: centred under the moon's resting point, standing on the flat with
                 // its base three quarters of the way up from the bottom edge to the horizon
-                torS = 0.7 * Math.min(HZ * 0.30 / 356, W * 0.40 / 428);
+                torS = CFG.TORII_SCALE * Math.min(HZ * 0.30 / 356, W * 0.40 / 428);
                 torW = TB.w * torS; torH = TB.h * torS;
-                torBase = H - 0.75 * (H - HZ);
-                torX = W * 0.76 - (340 - TB.x) * torS;
+                torBase = H - CFG.TORII_BASE * (H - HZ);
+                torX = W * CFG.TORII_X - (340 - TB.x) * torS;
                 torY = torBase - (TB.base - TB.y) * torS;
                 for (const c of [torC, torR]) {
                     c.width = Math.max(1, Math.ceil(torW * dpr));
@@ -294,25 +327,32 @@
 
             // ---------- update ----------
             function update(dt) {
+                if (debugPaused) return;
                 clock += dt;
+                if (!debugHold) {
                 if (state === 'toNight') {
                     tState += dt;
-                    p = Math.min(1, tState / T_NIGHT);
-                    omega = W_FAST * ss(0.46, 0.56, p);
-                    if (p >= 1) { state = 'night'; tNight = 0; }
+                    const k = Math.min(1, tState / CFG.T_NIGHT);
+                    p = CFG.P_DUSK + (1 - CFG.P_DUSK) * k;
+                    omega = CFG.W_FAST * ss(0.46, 0.56, p);
+                    if (k >= 1) { state = 'night'; tNight = 0; p = 1; }
                 } else if (state === 'night') {
                     tNight += dt;
-                    omega = W_SLOW + (W_FAST - W_SLOW) * Math.exp(-tNight / DECAY);
-                } else if (state === 'toDay') {
+                    omega = CFG.W_SLOW + (CFG.W_FAST - CFG.W_SLOW) * Math.exp(-tNight / CFG.DECAY);
+                } else if (state === 'toDusk' || state === 'toDay') {
+                    // 'toDay' 분기는 더미 호환용으로 남겨둠 (완전 낮 p=0으로는 복귀하지 않고 노을로 복귀)
                     tState += dt;
-                    const k = Math.min(1, tState / T_DAY);
-                    p = 1 - ss(0, 1, k);
+                    const k = Math.min(1, tState / CFG.T_DAY);
+                    p = 1 - (1 - CFG.P_DUSK) * ss(0, 1, k);
                     omega *= Math.exp(-dt * 3);
                     if (k >= 1) {
-                        state = 'day'; p = 0; phi = 0; phiTail = null; omega = 0;
+                        state = 'dusk'; p = CFG.P_DUSK; phi = 0; phiTail = null; omega = 0;
                     }
                 } else {
+                    // 'day'(완전 낮, 더미) / 'dusk'(노을 idle) 모두 정지 상태
+                    // p가 P_NOON_DUMMY(0) 근처에 머물러도 렌더 경로는 그대로 유지됨
                     omega = 0;
+                }
                 }
 
                 if (phiTail === null && omega > 0) phiTail = phi;
@@ -320,9 +360,9 @@
                 if (phiTail !== null) {
                     // The tail eases into motion as the trail lengthens, so the move from
                     // "growing" to "fixed length" has no sudden jump in speed.
-                    const g = ss(0.2 * TRAIL_LEN, 1.05 * TRAIL_LEN, phi - phiTail);
+                    const g = ss(0.2 * CFG.TRAIL_LEN, 1.05 * CFG.TRAIL_LEN, phi - phiTail);
                     phiTail += omega * g * dt;
-                    if (phi - phiTail > TRAIL_LEN) phiTail = phi - TRAIL_LEN;
+                    if (phi - phiTail > CFG.TRAIL_LEN) phiTail = phi - CFG.TRAIL_LEN;
                 }
 
                 if (!RM.matches) {
@@ -345,13 +385,13 @@
                 S.fillStyle = g; S.fillRect(0, 0, W, HZ);
 
                 // sun path
-                const sp = clamp(p / 0.38, 0, 1);
-                const sx = lerp(W * 0.27, W * 0.32, sp);
+                const sp = clamp(p / CFG.SUN_PATH, 0, 1);
+                const sx = lerp(W * CFG.SUN_X0, W * CFG.SUN_X1, sp);
                 const sy0 = HZ * 0.3;
-                const sy = lerp(sy0, HZ + sunR * 2.4, sp * sp);
+                const sy = lerp(sy0, HZ + sunR * CFG.SUN_DROP, sp * sp);
 
                 // afterglow along the horizon (brief)
-                const glowA = ss(0.18, 0.32, p) * (1 - ss(0.4, 0.56, p));
+                const glowA = ss(CFG.SUN_G0, CFG.SUN_G1, p) * (1 - ss(CFG.SUN_G2, CFG.SUN_G3, p));
                 if (glowA > 0.005) {
                     S.save();
                     S.translate(W * 0.32, HZ);
@@ -366,7 +406,7 @@
                 }
 
                 // sun
-                const sunFade = 1 - ss(0.34, 0.46, p);
+                const sunFade = 1 - ss(CFG.SUN_F0, CFG.SUN_F1, p);
                 if (sy < HZ + sunR * 3 && sunFade > 0.001) {
                     const hgt = clamp((HZ - sy) / (HZ - sy0), 0, 1);
                     const sc = hgt > 0.35
@@ -383,7 +423,7 @@
                 }
 
                 // clouds
-                const ca = 1 - ss(0.2, 0.48, p);
+                const ca = 1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, p);
                 if (ca > 0.01) {
                     CL.setTransform(1, 0, 0, 1, 0, 0);
                     CL.globalCompositeOperation = 'source-over';
@@ -391,7 +431,7 @@
                     CL.setTransform(dpr, 0, 0, dpr, 0, 0);
                     const base = clamp(W / 1400, 0.5, 1.1);
                     for (const c of clouds) {
-                        const k = base * lerp(1, 0.4, (c.yn - 0.5) / 0.34);
+                        const k = base * lerp(1, 0.4, (c.yn - CFG.CLOUD_Y0) / CFG.CLOUD_YR);
                         const cw = 560 * k, ch = 220 * k;
                         CL.drawImage(c.spr, c.xn * W, c.yn * HZ - ch * 0.7, cw, ch);
                     }
@@ -412,16 +452,16 @@
                 drawStars();
 
                 // moon
-                const m = ss(0.46, 0.92, p);
+                const m = ss(CFG.MOON_A0, CFG.MOON_A1, p);
                 if (m > 0.001) {
                     const mt = 1 - Math.pow(1 - m, 3);
-                    const mx = lerp(W * 0.82, W * 0.76, mt);
+                    const mx = lerp(W * CFG.MOON_X0, W * CFG.MOON_X1, mt);
                     const my = lerp(HZ + moonR * 2.2, HZ * 0.34, mt);
-                    const mg = S.createRadialGradient(mx, my, moonR * 0.8, mx, my, moonR * 9);
-                    mg.addColorStop(0, `rgba(200,215,255,${0.24 * m})`);
+                    const mg = S.createRadialGradient(mx, my, moonR * 0.8, mx, my, moonR * CFG.MOON_GLOW);
+                    mg.addColorStop(0, `rgba(200,215,255,${CFG.MOON_A * m})`);
                     mg.addColorStop(1, 'rgba(200,215,255,0)');
                     S.fillStyle = mg;
-                    S.beginPath(); S.arc(mx, my, moonR * 9, 0, Math.PI * 2); S.fill();
+                    S.beginPath(); S.arc(mx, my, moonR * CFG.MOON_GLOW, 0, Math.PI * 2); S.fill();
                     const md = S.createRadialGradient(mx - moonR * 0.35, my - moonR * 0.35, moonR * 0.1, mx, my, moonR);
                     md.addColorStop(0, '#fbf8ec'); md.addColorStop(1, '#d6d3c6');
                     S.fillStyle = md;
@@ -433,13 +473,13 @@
                 }
 
                 // horizon haze
-                const hl = mix(hor, [255, 255, 255], 0.22);
+                const hl = mix(hor, [255, 255, 255], CFG.HAZE_MIX);
                 const hg = S.createLinearGradient(0, HZ * 0.86, 0, HZ);
-                hg.addColorStop(0, rgba(hl, 0)); hg.addColorStop(1, rgba(hl, 0.32));
+                hg.addColorStop(0, rgba(hl, 0)); hg.addColorStop(1, rgba(hl, CFG.HAZE_A));
                 S.fillStyle = hg; S.fillRect(0, HZ * 0.86, W, HZ * 0.14);
 
                 // distant ranges on the horizon
-                const mh = clamp(H * 0.022, 6, 20);
+                const mh = clamp(H * CFG.MTN_H, CFG.MTN_MIN, CFG.MTN_MAX);
                 S.fillStyle = rgba(keyed(MOUNT, p)[0]);
                 S.beginPath();
                 S.moveTo(0, HZ);
@@ -484,14 +524,14 @@
                 if (RM.matches) {
                     ctx.drawImage(torR, torX, top, torW, torH);
                 } else {
-                    const step = 3;
+                    const step = CFG.ROW_STEP;
                     for (let r = 0; r < torH; r += step) {
                         const sh = Math.min(step, torH - r);
                         const y = top + r;
                         if (y > H) break;
                         const d = y - HZ, kk = d / reflH;
-                        const amp = 0.15 + 2.4 * kk * kk;
-                        const dx = amp * (0.7 * Math.sin(d * 0.11 + clock * 1.1) + 0.3 * Math.sin(d * 0.037 - clock * 0.7));
+                        const amp = CFG.REFL_AMP0 + CFG.REFL_AMP1 * kk * kk;
+                        const dx = amp * (0.7 * Math.sin(d * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(d * CFG.SL_F2 - clock * CFG.SL_F3));
                         ctx.drawImage(torR, 0, r * dpr, torR.width, sh * dpr, torX + dx, y, torW, sh + 0.5);
                     }
                 }
@@ -514,14 +554,14 @@
                     ctx.drawImage(sky, 0, Math.max(0, HZ - reflH) * dpr, sky.width, Math.min(HZ, reflH) * dpr,
                         0, HZ - Math.min(HZ, reflH), W, Math.min(HZ, reflH));
                 } else {
-                    const step = 3;
+                    const step = CFG.ROW_STEP;
                     for (let d = 0; d < reflH; d += step) {
                         const sh = Math.min(step, reflH - d);
                         const srcY = HZ - d - sh;
                         if (srcY < 0) break;
                         const k = d / reflH;
-                        const amp = 0.15 + 2.4 * k * k;
-                        const dx = amp * (0.7 * Math.sin(d * 0.11 + clock * 1.1) + 0.3 * Math.sin(d * 0.037 - clock * 0.7));
+                        const amp = CFG.REFL_AMP0 + CFG.REFL_AMP1 * k * k;
+                        const dx = amp * (0.7 * Math.sin(d * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(d * CFG.SL_F2 - clock * CFG.SL_F3));
                         ctx.setTransform(dpr, 0, 0, -dpr, dx * dpr, (HZ + d + sh) * dpr);
                         ctx.drawImage(sky, 0, srcY * dpr, sky.width, sh * dpr, -3, -0.5, W + 6, sh + 0.5);
                     }
@@ -530,14 +570,14 @@
                 // soften the reflection near the horizon; the real ranges above stay sharp
                 // because only rows from the horizon downward are pasted back
                 {
-                    const srcY = (HZ - BAND_PAD) * dpr, srcH = (bandH + BAND_PAD * 2) * dpr;
+                    const srcY = (HZ - CFG.BAND_PAD) * dpr, srcH = (bandH + CFG.BAND_PAD * 2) * dpr;
                     BD.setTransform(1, 0, 0, 1, 0, 0);
                     BD.globalCompositeOperation = 'source-over';
                     BD.clearRect(0, 0, band.width, band.height);
-                    if (FILTER_OK) BD.filter = `blur(${(BLUR_PX * dpr / BAND_SCALE).toFixed(2)}px)`;
+                    if (FILTER_OK) BD.filter = `blur(${(CFG.BLUR_PX * dpr / BAND_SCALE).toFixed(2)}px)`;
                     BD.drawImage(cv, 0, srcY, cv.width, srcH, 0, 0, band.width, band.height);
                     BD.filter = 'none';
-                    const y0 = BAND_PAD * dpr / BAND_SCALE, y1 = (BAND_PAD + bandH) * dpr / BAND_SCALE;
+                    const y0 = CFG.BAND_PAD * dpr / BAND_SCALE, y1 = (CFG.BAND_PAD + bandH) * dpr / BAND_SCALE;
                     const mg = BD.createLinearGradient(0, y0, 0, y1);
                     mg.addColorStop(0, 'rgba(0,0,0,1)');
                     mg.addColorStop(0.35, 'rgba(0,0,0,0.6)');
@@ -561,7 +601,7 @@
                 const hor = keyed(SKY, p)[2];
                 const hl = mix(hor, [255, 255, 255], 0.3);
                 const sg = ctx.createLinearGradient(0, HZ - 6, 0, HZ + 14);
-                sg.addColorStop(0, rgba(hl, 0)); sg.addColorStop(0.3, rgba(hl, 0.22)); sg.addColorStop(1, rgba(hl, 0));
+                sg.addColorStop(0, rgba(hl, 0)); sg.addColorStop(0.3, rgba(hl, CFG.SEAM_A)); sg.addColorStop(1, rgba(hl, 0));
                 ctx.fillStyle = sg; ctx.fillRect(0, HZ - 6, W, 20);
 
                 FG.setTransform(1, 0, 0, 1, 0, 0);
@@ -585,14 +625,9 @@
             const glc = document.getElementById('ripple');
             const floorC = document.createElement('canvas');
             const FL = floorC.getContext('2d');
-            const RIP_MAX = 8;        // simultaneous ripples (oldest dropped)
-            const RIP_V = 0.42;       // ring speed, ground units (camera heights) per second
-            const RIP_MAX_R = 0.95;   // hard limit on ring radius; amplitude is 0 there
-            const RIP_K = 80;         // wavenumber (wavelength ≈ 0.079 ground units)
-            const RIP_STR = 0.04;     // surface slope → screen offset
-            const FOCAL = 0.9;        // focal length as a fraction of the viewport height
+            const RIP_SLOTS = 8;    // 셰이더 슬롯 고정값 (CFG.RIP_MAX는 1..RIP_SLOTS 범위에서 동작)
             const ripples = [];
-            const ripU = new Float32Array(RIP_MAX * 4);
+            const ripU = new Float32Array(RIP_SLOTS * 4);
             let gl = null, glU = null, glTex = null, glOn = false;
             let floorTop = 0, floorH = 1, texW = 0, texH = 0;
 
@@ -611,7 +646,7 @@ uniform float uF;        // focal length, css px
 uniform float uStr;
 uniform float uK;
 uniform int uN;
-uniform vec4 uRip[${RIP_MAX}];   // ground x, ground z, ring radius, amplitude
+uniform vec4 uRip[${RIP_SLOTS}];   // ground x, ground z, ring radius, amplitude
 void main() {
   vec2 fc = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
   vec2 p = fc / uDpr;                       // css px; p.y = depth below the horizon
@@ -619,7 +654,7 @@ void main() {
   vec2 g = vec2((p.x - uCx) / s, uF / s);   // position on the ground plane
   vec2 slope = vec2(0.0);
   float glint = 0.0;
-  for (int i = 0; i < ${RIP_MAX}; i++) {
+  for (int i = 0; i < ${RIP_SLOTS}; i++) {
     if (i >= uN) break;
     vec4 r = uRip[i];
     vec2 d = g - r.xy;
@@ -684,8 +719,8 @@ void main() {
                     for (const k of ['uTex', 'uRes', 'uDpr', 'uCx', 'uF', 'uStr', 'uK', 'uN']) glU[k] = g.getUniformLocation(prog, k);
                     glU.uRip = g.getUniformLocation(prog, 'uRip[0]');
                     g.uniform1i(glU.uTex, 0);
-                    g.uniform1f(glU.uStr, RIP_STR);
-                    g.uniform1f(glU.uK, RIP_K);
+                    g.uniform1f(glU.uStr, CFG.RIP_STR);
+                    g.uniform1f(glU.uK, CFG.RIP_K);
                     texW = texH = 0;
                     gl = g;
                 } catch (e) {
@@ -707,18 +742,19 @@ void main() {
 
             window.addEventListener('pointerdown', e => {
                 if (!gl || RM.matches || e.button > 0) return;
-                if (e.target instanceof Element && e.target.closest('.panel')) return;
+                if (e.target instanceof Element && e.target.closest('.panel,.tsd-panel,#tsdFab')) return;
                 const fh = floorH / dpr;
                 const s = e.clientY - floorTop / dpr;
                 if (s < 6 || s > fh) return;
-                if (ripples.length >= RIP_MAX) ripples.shift();
+                if (ripples.length >= Math.min(RIP_SLOTS, Math.max(1, Math.round(CFG.RIP_MAX)))) ripples.shift();
                 ripples.push({ xn: e.clientX / W, sn: s / fh, t: 0 });
             });
 
             function stepRipples(dt) {
+                if (debugPaused) return;
                 for (let i = ripples.length - 1; i >= 0; i--) {
                     ripples[i].t += dt;
-                    if (RIP_V * ripples[i].t >= RIP_MAX_R) ripples.splice(i, 1);
+                    if (CFG.RIP_V * ripples[i].t >= CFG.RIP_MAX_R) ripples.splice(i, 1);
                 }
             }
 
@@ -735,13 +771,13 @@ void main() {
                 } else {
                     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, floorC);
                 }
-                const foc = FOCAL * H, fh = floorH / dpr;
+                const foc = CFG.FOCAL * H, fh = floorH / dpr;
                 ripU.fill(0);
                 ripples.forEach((r, i) => {
                     const s = Math.max(1, r.sn * fh);
-                    const R = RIP_V * r.t;
+                    const R = CFG.RIP_V * r.t;
                     // quick attack, steady decay, and a fade that reaches zero at the radius cap
-                    const a = ss(0, 0.06, r.t) * Math.exp(-0.8 * r.t) * (1 - ss(0.45 * RIP_MAX_R, RIP_MAX_R, R));
+                    const a = ss(0, 0.06, r.t) * Math.exp(-0.8 * r.t) * (1 - ss(0.45 * CFG.RIP_MAX_R, CFG.RIP_MAX_R, R));
                     ripU[i * 4] = (r.xn * W - W / 2) / s;
                     ripU[i * 4 + 1] = foc / s;
                     ripU[i * 4 + 2] = R;
@@ -752,6 +788,8 @@ void main() {
                 gl.uniform1f(glU.uDpr, dpr);
                 gl.uniform1f(glU.uCx, W / 2);
                 gl.uniform1f(glU.uF, foc);
+                gl.uniform1f(glU.uStr, CFG.RIP_STR);
+                gl.uniform1f(glU.uK, CFG.RIP_K);
                 gl.uniform1i(glU.uN, ripples.length);
                 gl.uniform4fv(glU.uRip, ripU);
                 gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -759,16 +797,21 @@ void main() {
 
             // ---------- UI ----------
             let uiKey = '', lastPct = -1, lastNight = null;
+            const progOf = v => clamp((v - CFG.P_DUSK) / (1 - CFG.P_DUSK), 0, 1);
             function updateUI() {
                 let status, label, disabled = false, prog = 0;
                 if (state === 'day') {
-                    status = '낮'; label = '해 지게 하기';
+                    // 더미 분기: 완전 낮 idle (현재 진입 불가, 기존 문자열 호환용)
+                    status = '낮'; label = '해 지게 하기'; prog = 0;
+                } else if (state === 'dusk') {
+                    status = '노을'; label = '해 지게 하기';
                 } else if (state === 'toNight') {
-                    status = '밤으로 전환 중'; label = '전환 중'; disabled = true; prog = p;
+                    status = '밤으로 전환 중'; label = '전환 중'; disabled = true; prog = progOf(p);
                 } else if (state === 'night') {
-                    status = '밤'; label = '낮으로 돌아가기'; prog = 1;
+                    status = '밤'; label = '노을로 돌아가기'; prog = 1;
                 } else {
-                    status = '낮으로 전환 중'; label = '전환 중'; disabled = true; prog = p;
+                    // 'toDusk' + 더미 'toDay'
+                    status = '노을로 전환 중'; label = '전환 중'; disabled = true; prog = progOf(p);
                 }
                 const key = status + '|' + label;
                 if (key !== uiKey) {
@@ -786,13 +829,65 @@ void main() {
             }
 
             elBtn.addEventListener('click', () => {
-                if (state === 'day') {
-                    state = 'toNight'; tState = 0; p = 0;
+                if (state === 'dusk' || state === 'day') {
+                    // 'day'는 더미 호환: 실제 시작점은 항상 노을(P_DUSK)
+                    state = 'toNight'; tState = 0; p = CFG.P_DUSK;
                     phi = 0; phiTail = null;
                 } else if (state === 'night') {
-                    state = 'toDay'; tState = 0;
+                    state = 'toDusk'; tState = 0;
                 }
             });
+
+            // ---------- debug bridge (F12 패널용) ----------
+            // tsukuyomi.debug.js가 이 객체를 통해 모든 파라미터를 수동 조절한다.
+            // CFG(수치) + 팔레트(색) + 상태(p/phi/state) + 재빌드 액션을 노출.
+            window.__TSUKUYOMI__ = {
+                cfg: CFG,
+                defaults: CFG_DEFAULTS,
+                get state() { return state; }, set state(v) { state = v; },
+                get p() { return p; }, set p(v) { p = clamp(Number(v) || 0, 0, 1); },
+                get phi() { return phi; }, set phi(v) { phi = Number(v) || 0; },
+                get phiTail() { return phiTail; }, set phiTail(v) { phiTail = v; },
+                get omega() { return omega; }, set omega(v) { omega = Number(v) || 0; },
+                get clock() { return clock; },
+                get tState() { return tState; }, set tState(v) { tState = Number(v) || 0; },
+                get tNight() { return tNight; }, set tNight(v) { tNight = Number(v) || 0; },
+                get hold() { return debugHold; }, set hold(v) { debugHold = !!v; },
+                get paused() { return debugPaused; }, set paused(v) { debugPaused = !!v; },
+                get palettes() {
+                    return { SKY: SKY_RAW, MOUNT: MOUNT_RAW, TORII: TORII_RAW, CLOUD_TINT: CLOUD_TINT_RAW, REFL, VIG, LV, COLS: COLS_RAW };
+                },
+                setPalette(name, raw) {
+                    const parsed = JSON.parse(JSON.stringify(raw));
+                    if (name === 'SKY') { SKY_RAW = parsed; SKY = prep(SKY_RAW); }
+                    else if (name === 'MOUNT') { MOUNT_RAW = parsed; MOUNT = prep(MOUNT_RAW); }
+                    else if (name === 'TORII') { TORII_RAW = parsed; TORII = prep(TORII_RAW); }
+                    else if (name === 'CLOUD_TINT') { CLOUD_TINT_RAW = parsed; CLOUD_TINT = prep(CLOUD_TINT_RAW); }
+                    else if (name === 'REFL') { REFL = parsed; }
+                    else if (name === 'VIG') { VIG = parsed; }
+                    else if (name === 'LV') { LV = parsed; }
+                    else if (name === 'COLS') { COLS_RAW = parsed; COLS = COLS_RAW.map(hex); }
+                    else throw new Error('unknown palette: ' + name);
+                },
+                resetPalette(name, defaults) { this.setPalette(name, defaults); },
+                actions: {
+                    resize, buildStars, buildMountains, buildClouds,
+                    toNight() { state = 'toNight'; tState = 0; p = CFG.P_DUSK; phi = 0; phiTail = null; },
+                    toDusk() { state = 'toDusk'; tState = 0; },
+                    reset() {
+                        Object.assign(CFG, JSON.parse(JSON.stringify(CFG_DEFAULTS)));
+                        state = 'dusk'; p = CFG.P_DUSK; tState = 0; tNight = 0;
+                        phi = 0; phiTail = null; omega = 0; debugHold = false; debugPaused = false;
+                        buildMountains(); buildClouds(); resize();
+                    },
+                    ripple(xn = 0.5, sn = 0.5) {
+                        const cap = Math.min(RIP_SLOTS, Math.max(1, Math.round(CFG.RIP_MAX)));
+                        if (ripples.length >= cap) ripples.shift();
+                        ripples.push({ xn: clamp(xn, 0, 1), sn: clamp(sn, 0.02, 1), t: 0 });
+                    },
+                    clearRipples() { ripples.length = 0; },
+                },
+            };
 
             // ---------- loop ----------
             let lastT = performance.now();

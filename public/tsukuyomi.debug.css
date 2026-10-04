@@ -1,0 +1,156 @@
+/* Tsukuyomi F12 debug panel. Dark, compact, independent of the main .panel styles. */
+.tsd-panel {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    width: min(360px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px);
+    display: flex;
+    flex-direction: column;
+    background: rgba(16, 19, 26, 0.94);
+    color: #dfe5ee;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    z-index: 9999;
+    overflow: hidden;
+}
+
+.tsd-panel[hidden] { display: none; }
+
+.tsd-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.03);
+    user-select: none;
+}
+
+.tsd-head strong { font-size: 12px; letter-spacing: 0.06em; }
+
+.tsd-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #666;
+    flex: 0 0 auto;
+}
+
+.tsd-dot.on { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+.tsd-dot.off { background: #f59e0b; }
+
+.tsd-src { color: #8b93a5; font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tsd-head button,
+.tsd-body button {
+    background: #232936;
+    color: #dfe5ee;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 7px;
+    padding: 3px 8px;
+    font: inherit;
+    cursor: pointer;
+}
+
+.tsd-head button:hover,
+.tsd-body button:hover { background: #2e3646; }
+
+.tsd-body {
+    overflow-y: auto;
+    padding: 8px 10px 12px;
+    overscroll-behavior: contain;
+}
+
+.tsd-status {
+    background: #0d1117;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 6px 8px;
+    margin-bottom: 8px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: #aeb8cc;
+    min-height: 3.2em;
+}
+
+.tsd-body details {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    margin-bottom: 6px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.tsd-body summary {
+    cursor: pointer;
+    padding: 6px 8px;
+    font-weight: 700;
+    color: #fff;
+}
+
+.tsd-sec { padding: 2px 8px 8px; }
+
+.tsd-row {
+    display: grid;
+    grid-template-columns: 118px 1fr 62px;
+    align-items: center;
+    gap: 6px;
+    margin: 5px 0;
+}
+
+.tsd-row label { color: #c3cbdb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsd-row output { text-align: right; color: #fff; }
+
+.tsd-row input[type="range"] { width: 100%; accent-color: #4b70e2; }
+.tsd-row input[type="number"] {
+    width: 100%;
+    background: #0d1117;
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    padding: 2px 4px;
+    font: inherit;
+}
+
+.tsd-check { display: flex; align-items: center; gap: 6px; margin: 5px 0; color: #c3cbdb; }
+.tsd-check input { accent-color: #4b70e2; }
+
+.tsd-btnrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+
+.tsd-body textarea {
+    width: 100%;
+    min-height: 74px;
+    background: #0d1117;
+    color: #dfe5ee;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    font: 11px/1.5 ui-monospace, Menlo, Consolas, monospace;
+    padding: 6px;
+    resize: vertical;
+}
+
+.tsd-hint { color: #8b93a5; font-size: 11px; margin: 4px 0; }
+.tsd-err { color: #f87171; font-size: 11px; margin: 4px 0; min-height: 1em; }
+
+#tsdFab {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 9999;
+    background: rgba(16, 19, 26, 0.92);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font: 700 12px/1 ui-monospace, Menlo, Consolas, monospace;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+}
+
+#tsdFab[hidden] { display: none; }
+
+@media (max-width: 460px) {
+    .tsd-panel { top: 8px; right: 8px; width: calc(100vw - 16px); }
+}

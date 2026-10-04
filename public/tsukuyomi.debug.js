@@ -1,0 +1,519 @@
+/* Tsukuyomi F12 debug panel.
+ * 개발자도구(F12) 활성화 감지 시 모든 파라미터를 수동 조절하는 테스트 UI.
+ * window.__TSUKUYOMI__ 브릿지(tsukuyomi.js)가 있어야 동작한다.
+ */
+(() => {
+    'use strict';
+
+    // ---------- DevTools 감지 + 패널 표시 ----------
+    const QS_DEBUG = (() => {
+        try { return new URLSearchParams(location.search).get('debug') === '1'; } catch (e) { return false; }
+    })();
+    const LS_KEY = 'tsukuyomi.debug';
+    const lsForced = (() => {
+        try { return localStorage.getItem(LS_KEY) === '1' || QS_DEBUG; } catch (e) { return QS_DEBUG; }
+    })();
+
+    let detectSrc = lsForced ? (QS_DEBUG ? 'query ?debug=1' : 'localStorage') : '';
+    let sizeOpen = false;
+    let panelVisible = false;
+
+    // ---------- CFG 슬라이더 스키마 ----------
+    // rebuild: 변경 후 호출할 액션 (resize는 별/구름/밴드까지 재계산)
+    const GROUPS = [
+        { title: '전환 타이밍', keys: [
+            ['T_NIGHT', 1, 40, 0.1], ['T_DAY', 0.5, 10, 0.1],
+            ['W_FAST', 0, 1, 0.005], ['W_SLOW', 0, 0.1, 0.001],
+            ['TRAIL_LEN', 0, 2, 0.01], ['DECAY', 0.1, 5, 0.05],
+            ['P_DUSK', 0, 0.9, 0.005],
+        ]},
+        { title: '레이아웃', keys: [
+            ['HZ_RATIO', 0.3, 0.8, 0.005, 'resize'], ['DPR_MAX', 1, 2, 0.25, 'resize'],
+            ['PIX_BUDGET', 1000000, 12000000, 250000, 'resize'],
+            ['POLE_X', 0, 1, 0.005, 'resize'], ['POLE_Y', 0, 1, 0.005, 'resize'],
+            ['SUN_F', 0.005, 0.08, 0.001, 'resize'], ['SUN_MIN', 4, 30, 1, 'resize'], ['SUN_MAX', 10, 60, 1, 'resize'],
+            ['MOON_F', 0.005, 0.07, 0.001, 'resize'], ['MOON_MIN', 4, 30, 1, 'resize'], ['MOON_MAX', 10, 60, 1, 'resize'],
+            ['TORII_SCALE', 0.2, 2, 0.01, 'resize'], ['TORII_X', 0, 1, 0.005, 'resize'], ['TORII_BASE', 0, 1, 0.01, 'resize'],
+        ]},
+        { title: '별', keys: [
+            ['STAR_DENS', 500, 8000, 50, 'stars'], ['STAR_MAX', 100, 3000, 10, 'stars'],
+            ['STAR_A0', 0, 1, 0.01], ['STAR_A1', 0, 1, 0.01],
+            ['POLARIS_R', 0, 5, 0.05, 'stars'], ['HALO_R', 0, 12, 0.1], ['HALO_A', 0, 1, 0.01],
+        ]},
+        { title: '산', keys: [
+            ['MTN_H', 0, 0.06, 0.001], ['MTN_MIN', 0, 20, 0.5], ['MTN_MAX', 4, 40, 0.5],
+            ['MTN_TH', 0, 0.8, 0.005, 'mountains'], ['MTN_POW', 0.3, 3, 0.01, 'mountains'],
+            ['MTN_W0', 0, 1, 0.01, 'mountains'], ['MTN_W1', 0, 1, 0.01, 'mountains'], ['MTN_W2', 0, 1, 0.01, 'mountains'],
+        ]},
+        { title: '구름', keys: [
+            ['CLOUD_N', 0, 14, 1, 'clouds'], ['CLOUD_SP0', 0, 0.02, 0.0005, 'clouds'], ['CLOUD_SP1', 0, 0.02, 0.0005, 'clouds'],
+            ['CLOUD_Y0', 0, 1, 0.01, 'clouds'], ['CLOUD_YR', 0, 0.6, 0.01, 'clouds'],
+            ['CLOUD_X0', -1, 0.5, 0.01, 'clouds'], ['CLOUD_SPREAD', 0, 2.5, 0.01, 'clouds'],
+            ['CLOUD_F0', 0, 1, 0.01], ['CLOUD_F1', 0, 1, 0.01],
+        ]},
+        { title: '태양', keys: [
+            ['SUN_PATH', 0.1, 1, 0.005], ['SUN_X0', 0, 1, 0.005], ['SUN_X1', 0, 1, 0.005],
+            ['SUN_DROP', 0, 5, 0.05], ['SUN_F0', 0, 1, 0.005], ['SUN_F1', 0, 1, 0.005],
+            ['SUN_G0', 0, 1, 0.005], ['SUN_G1', 0, 1, 0.005], ['SUN_G2', 0, 1, 0.005], ['SUN_G3', 0, 1, 0.005],
+        ]},
+        { title: '달 / 안개', keys: [
+            ['MOON_A0', 0, 1, 0.005], ['MOON_A1', 0, 1, 0.005],
+            ['MOON_GLOW', 2, 16, 0.1], ['MOON_A', 0, 1, 0.005],
+            ['MOON_X0', 0, 1, 0.005], ['MOON_X1', 0, 1, 0.005],
+            ['HAZE_MIX', 0, 1, 0.005], ['HAZE_A', 0, 1, 0.005],
+        ]},
+        { title: '반사', keys: [
+            ['BAND_PAD', 0, 40, 1, 'resize'], ['BLUR_PX', 0, 10, 0.1], ['BAND_H', 0, 0.6, 0.01, 'resize'],
+            ['REFL_AMP0', 0, 1, 0.01], ['REFL_AMP1', 0, 6, 0.05],
+            ['SL_F0', 0, 0.5, 0.001], ['SL_F1', 0, 3, 0.01], ['SL_F2', 0, 0.2, 0.001], ['SL_F3', 0, 3, 0.01],
+            ['ROW_STEP', 1, 8, 1], ['SEAM_A', 0, 1, 0.005],
+        ]},
+        { title: '물결', keys: [
+            ['RIP_MAX', 1, 8, 1], ['RIP_V', 0.05, 1.5, 0.005],
+            ['RIP_MAX_R', 0.2, 2, 0.005], ['RIP_K', 10, 200, 1],
+            ['RIP_STR', 0, 0.15, 0.001], ['FOCAL', 0.3, 2, 0.01],
+        ]},
+    ];
+    const PALETTES = ['SKY', 'MOUNT', 'TORII', 'CLOUD_TINT', 'REFL', 'VIG', 'LV', 'COLS'];
+
+    const fmt = v => {
+        if (!isFinite(v)) return String(v);
+        const s = Number(v).toFixed(4);
+        return s.replace(/\.?0+$/, '') || '0';
+    };
+
+    function bridge() { return window.__TSUKUYOMI__ || null; }
+    function waitBridge(cb) {
+        let n = 0;
+        const t = setInterval(() => {
+            if (bridge() || ++n > 100) { clearInterval(t); cb(bridge()); }
+        }, 50);
+    }
+
+    // ---------- DOM ----------
+    const panel = document.createElement('div');
+    panel.id = 'tsd';
+    panel.className = 'tsd-panel';
+    panel.hidden = true;
+    panel.setAttribute('aria-label', 'Tsukuyomi 파라미터 테스트 패널');
+    panel.innerHTML =
+        '<div class="tsd-head">' +
+        '<span class="tsd-dot off" id="tsdDot"></span>' +
+        '<strong>TSUKUYOMI DEBUG</strong>' +
+        '<span class="tsd-src" id="tsdSrc"></span>' +
+        '<button type="button" data-act="collapse" title="접기/펼치기">접기</button>' +
+        '<button type="button" data-act="close" title="패널 닫기">닫기</button>' +
+        '</div>' +
+        '<div class="tsd-body" id="tsdBody">' +
+        '<div class="tsd-status" id="tsdStatus">bridge 대기 중…</div>' +
+        '<details open><summary>장면 상태 (수동 스크럽)</summary><div class="tsd-sec" id="tsdScene"></div></details>' +
+        '<div id="tsdGroups"></div>' +
+        '<details><summary>팔레트 (색/레벨 JSON)</summary><div class="tsd-sec" id="tsdPal"></div></details>' +
+        '<details><summary>가져오기 / 내보내기</summary><div class="tsd-sec" id="tsdIO"></div></details>' +
+        '</div>';
+
+    const fab = document.createElement('button');
+    fab.id = 'tsdFab';
+    fab.type = 'button';
+    fab.textContent = 'DEBUG';
+    fab.title = '디버그 패널 열기 (?debug=1 로 항상 표시 가능)';
+    fab.hidden = true;
+
+    function show(src) {
+        if (src) detectSrc = src;
+        panel.hidden = false;
+        fab.hidden = true;
+        panelVisible = true;
+        renderSrc();
+    }
+    function hide() {
+        panel.hidden = true;
+        fab.hidden = false;
+        panelVisible = false;
+    }
+
+    function renderSrc() {
+        const el = document.getElementById('tsdSrc');
+        const dot = document.getElementById('tsdDot');
+        if (!el || !dot) return;
+        el.textContent = detectSrc ? ('감지: ' + detectSrc) : '수동 표시';
+        const on = sizeOpen || !!detectSrc;
+        dot.className = 'tsd-dot ' + (on ? 'on' : 'off');
+    }
+
+    // ---------- 장면 상태 섹션 ----------
+    function buildScene(b) {
+        const host = document.getElementById('tsdScene');
+        host.innerHTML = '';
+        const hint = document.createElement('div');
+        hint.className = 'tsd-hint';
+        hint.textContent = 'p 슬라이더를 움직이면 자동 진행이 멈춤(hold) 상태가 된다. 되돌리려면 hold를 끄거나 장면 버튼을 누른다.';
+        host.appendChild(hint);
+
+        // p scrub
+        const pRow = document.createElement('div');
+        pRow.className = 'tsd-row';
+        pRow.innerHTML = '<label title="scene progress 0..1">p (장면진행)</label>';
+        const pRange = document.createElement('input');
+        pRange.type = 'range'; pRange.min = '0'; pRange.max = '1'; pRange.step = '0.001'; pRange.value = String(b.p);
+        const pNum = document.createElement('input');
+        pNum.type = 'number'; pNum.min = '0'; pNum.max = '1'; pNum.step = '0.001'; pNum.value = String(b.p);
+        pRow.appendChild(pRange); pRow.appendChild(pNum);
+        host.appendChild(pRow);
+        const setP = v => {
+            v = Math.min(1, Math.max(0, Number(v) || 0));
+            b.p = v; b.hold = true;
+            syncHoldChk();
+            pRange.value = String(v); pNum.value = String(v);
+        };
+        pRange.addEventListener('input', () => setP(pRange.value));
+        pNum.addEventListener('change', () => setP(pNum.value));
+        host._pRange = pRange; host._pNum = pNum;
+
+        // hold / paused
+        const holdLbl = document.createElement('label');
+        holdLbl.className = 'tsd-check';
+        const holdChk = document.createElement('input');
+        holdChk.type = 'checkbox'; holdChk.checked = !!b.hold;
+        holdLbl.appendChild(holdChk);
+        holdLbl.appendChild(document.createTextNode('hold — p 자동 진행 멈춤 (수동 스크럽용)'));
+        host.appendChild(holdLbl);
+        holdChk.addEventListener('change', () => { b.hold = holdChk.checked; });
+        const pauseLbl = document.createElement('label');
+        pauseLbl.className = 'tsd-check';
+        const pauseChk = document.createElement('input');
+        pauseChk.type = 'checkbox'; pauseChk.checked = !!b.paused;
+        pauseLbl.appendChild(pauseChk);
+        pauseLbl.appendChild(document.createTextNode('paused — 시간 전체 정지 (렌더는 계속)'));
+        host.appendChild(pauseLbl);
+        pauseChk.addEventListener('change', () => { b.paused = pauseChk.checked; });
+        function syncHoldChk() { holdChk.checked = !!b.hold; }
+        host._syncHold = syncHoldChk;
+        host._syncPaused = () => { pauseChk.checked = !!b.paused; };
+
+        // state buttons
+        const btns = document.createElement('div');
+        btns.className = 'tsd-btnrow';
+        const states = ['dusk', 'toNight', 'night', 'toDusk'];
+        for (const s of states) {
+            const btn = document.createElement('button');
+            btn.type = 'button'; btn.textContent = s; btn.dataset.state = s;
+            btn.addEventListener('click', () => {
+                b.state = s; b.hold = false;
+                if (s === 'dusk') { b.p = b.cfg.P_DUSK; b.phiTail = null; b.omega = 0; }
+                if (s === 'night') { b.p = 1; }
+                syncHoldChk(); syncSceneUI();
+            });
+            btns.appendChild(btn);
+        }
+        const goNight = document.createElement('button');
+        goNight.type = 'button'; goNight.textContent = '해 지게 하기 ▶';
+        goNight.addEventListener('click', () => { b.actions.toNight(); b.hold = false; syncHoldChk(); });
+        btns.appendChild(goNight);
+        const goDusk = document.createElement('button');
+        goDusk.type = 'button'; goDusk.textContent = '◀ 노을로';
+        goDusk.addEventListener('click', () => { b.actions.toDusk(); b.hold = false; syncHoldChk(); });
+        btns.appendChild(goDusk);
+        host.appendChild(btns);
+
+        // phi
+        const phiRow = document.createElement('div');
+        phiRow.className = 'tsd-row';
+        phiRow.innerHTML = '<label title="star rotation angle (rad)">phi (회전각)</label>';
+        const phiNum = document.createElement('input');
+        phiNum.type = 'number'; phiNum.step = '0.01'; phiNum.value = fmt(b.phi);
+        phiRow.appendChild(phiNum);
+        const phiZero = document.createElement('button');
+        phiZero.type = 'button'; phiZero.textContent = '0으로';
+        phiZero.addEventListener('click', () => { b.phi = 0; b.phiTail = null; phiNum.value = '0'; });
+        const phiWrap = document.createElement('div');
+        phiWrap.appendChild(phiNum);
+        phiRow.appendChild(phiZero);
+        host.appendChild(phiRow);
+        phiNum.addEventListener('change', () => { b.phi = Number(phiNum.value) || 0; });
+        host._phiNum = phiNum;
+
+        // ripple test
+        const ripRow = document.createElement('div');
+        ripRow.className = 'tsd-btnrow';
+        const mkRip = (label, fn) => {
+            const btn = document.createElement('button');
+            btn.type = 'button'; btn.textContent = label;
+            btn.addEventListener('click', fn);
+            ripRow.appendChild(btn);
+        };
+        mkRip('물결: 중앙', () => b.actions.ripple(0.5, 0.55));
+        mkRip('물결: 랜덤 3개', () => {
+            for (let i = 0; i < 3; i++) b.actions.ripple(0.2 + Math.random() * 0.6, 0.3 + Math.random() * 0.6);
+        });
+        mkRip('물결 지우기', () => b.actions.clearRipples());
+        mkRip('별 재생성', () => b.actions.buildStars());
+        mkRip('산 재생성', () => b.actions.buildMountains());
+        mkRip('구름 재생성', () => b.actions.buildClouds());
+        mkRip('리사이즈', () => b.actions.resize());
+        mkRip('전체 리셋', () => {
+            b.actions.reset();
+            refreshAll();
+        });
+        host.appendChild(ripRow);
+    }
+
+    function syncSceneUI() {
+        const b = bridge(); if (!b) return;
+        const host = document.getElementById('tsdScene'); if (!host) return;
+        if (host._pRange && document.activeElement !== host._pRange) host._pRange.value = String(b.p);
+        if (host._pNum && document.activeElement !== host._pNum) host._pNum.value = String(b.p);
+        if (host._phiNum && document.activeElement !== host._phiNum) host._phiNum.value = fmt(b.phi);
+        if (host._syncHold) host._syncHold();
+        if (host._syncPaused) host._syncPaused();
+    }
+
+    // ---------- CFG 그룹 ----------
+    const rowRefs = [];
+    function buildGroups(b) {
+        const host = document.getElementById('tsdGroups');
+        host.innerHTML = '';
+        rowRefs.length = 0;
+        for (const g of GROUPS) {
+            const det = document.createElement('details');
+            const sum = document.createElement('summary');
+            sum.textContent = g.title;
+            det.appendChild(sum);
+            const sec = document.createElement('div');
+            sec.className = 'tsd-sec';
+            for (const [key, min, max, step, rebuild] of g.keys) {
+                if (!(key in b.cfg)) continue;
+                const row = document.createElement('div');
+                row.className = 'tsd-row';
+                const lab = document.createElement('label');
+                lab.textContent = key; lab.title = '기본값 ' + fmt(b.defaults[key]);
+                const range = document.createElement('input');
+                range.type = 'range';
+                range.min = String(min); range.max = String(max); range.step = String(step);
+                range.value = String(b.cfg[key]);
+                const num = document.createElement('input');
+                num.type = 'number';
+                num.min = String(min); num.max = String(max); num.step = String(step);
+                num.value = String(b.cfg[key]);
+                const apply = (v, from) => {
+                    let n = Number(v);
+                    if (!isFinite(n)) return;
+                    b.cfg[key] = n;
+                    if (from !== range) range.value = String(Math.min(max, Math.max(min, n)));
+                    if (from !== num) num.value = String(n);
+                    if (rebuild === 'resize') b.actions.resize();
+                    else if (rebuild === 'stars') b.actions.buildStars();
+                    else if (rebuild === 'mountains') b.actions.buildMountains();
+                    else if (rebuild === 'clouds') b.actions.buildClouds();
+                };
+                range.addEventListener('input', () => apply(range.value, range));
+                num.addEventListener('change', () => apply(num.value, num));
+                row.appendChild(lab); row.appendChild(range); row.appendChild(num);
+                sec.appendChild(row);
+                rowRefs.push({ key, range, num, min, max });
+            }
+            det.appendChild(sec);
+            host.appendChild(det);
+        }
+    }
+
+    function refreshAll() {
+        const b = bridge(); if (!b) return;
+        for (const r of rowRefs) {
+            r.range.value = String(b.cfg[r.key]);
+            r.num.value = String(b.cfg[r.key]);
+        }
+        syncSceneUI();
+        buildPaletteEditors(b, true);
+    }
+
+    // ---------- 팔레트 ----------
+    let palDefaults = null;
+    function buildPaletteEditors(b, refreshOnly) {
+        const host = document.getElementById('tsdPal');
+        if (!palDefaults) palDefaults = JSON.parse(JSON.stringify(b.palettes));
+        if (refreshOnly && host.dataset.built === '1') {
+            for (const name of PALETTES) {
+                const ta = host.querySelector('textarea[data-pal="' + name + '"]');
+                if (ta && document.activeElement !== ta) ta.value = JSON.stringify(b.palettes[name]);
+            }
+            return;
+        }
+        host.innerHTML = '';
+        host.dataset.built = '1';
+        const hint = document.createElement('div');
+        hint.className = 'tsd-hint';
+        hint.textContent = 'JSON 배열로 직접 수정 후 적용. 잘못된 JSON은 적용되지 않는다.';
+        host.appendChild(hint);
+        for (const name of PALETTES) {
+            const det = document.createElement('details');
+            const sum = document.createElement('summary');
+            sum.textContent = name;
+            det.appendChild(sum);
+            const ta = document.createElement('textarea');
+            ta.dataset.pal = name;
+            ta.value = JSON.stringify(b.palettes[name]);
+            ta.spellcheck = false;
+            const err = document.createElement('div');
+            err.className = 'tsd-err';
+            const row = document.createElement('div');
+            row.className = 'tsd-btnrow';
+            const ap = document.createElement('button');
+            ap.type = 'button'; ap.textContent = '적용';
+            ap.addEventListener('click', () => {
+                try {
+                    const v = JSON.parse(ta.value);
+                    b.setPalette(name, v);
+                    err.textContent = '';
+                } catch (e) { err.textContent = 'JSON 오류: ' + e.message; }
+            });
+            const rs = document.createElement('button');
+            rs.type = 'button'; rs.textContent = '리셋';
+            rs.addEventListener('click', () => {
+                b.setPalette(name, palDefaults[name]);
+                ta.value = JSON.stringify(palDefaults[name]);
+                err.textContent = '';
+            });
+            row.appendChild(ap); row.appendChild(rs);
+            det.appendChild(ta); det.appendChild(err); det.appendChild(row);
+            host.appendChild(det);
+        }
+    }
+
+    // ---------- IO ----------
+    function buildIO(b) {
+        const host = document.getElementById('tsdIO');
+        host.innerHTML = '';
+        const ta = document.createElement('textarea');
+        ta.id = 'tsdIOText';
+        ta.placeholder = '내보내기 결과가 여기에 표시된다. JSON을 붙여넣고 가져오기로 적용.';
+        ta.spellcheck = false;
+        const err = document.createElement('div');
+        err.className = 'tsd-err';
+        const row = document.createElement('div');
+        row.className = 'tsd-btnrow';
+        const exp = document.createElement('button');
+        exp.type = 'button'; exp.textContent = '내보내기';
+        exp.addEventListener('click', () => {
+            const snap = {
+                cfg: b.cfg,
+                palettes: b.palettes,
+                scene: { state: b.state, p: b.p, phi: b.phi, hold: b.hold, paused: b.paused },
+            };
+            ta.value = JSON.stringify(snap, null, 1);
+            err.textContent = '';
+            try {
+                if (navigator.clipboard) navigator.clipboard.writeText(ta.value).catch(() => {});
+            } catch (e) { /* clipboard는 보조 수단 */ }
+        });
+        const imp = document.createElement('button');
+        imp.type = 'button'; imp.textContent = '가져오기(적용)';
+        imp.addEventListener('click', () => {
+            try {
+                const snap = JSON.parse(ta.value);
+                if (snap.cfg) Object.assign(b.cfg, snap.cfg);
+                if (snap.palettes) for (const k of Object.keys(snap.palettes)) {
+                    try { b.setPalette(k, snap.palettes[k]); } catch (e) { /* 개별 실패 무시 */ }
+                }
+                if (snap.scene) {
+                    if (typeof snap.scene.state === 'string') b.state = snap.scene.state;
+                    if (isFinite(snap.scene.p)) b.p = snap.scene.p;
+                    if (isFinite(snap.scene.phi)) b.phi = snap.scene.phi;
+                    if (typeof snap.scene.hold === 'boolean') b.hold = snap.scene.hold;
+                    if (typeof snap.scene.paused === 'boolean') b.paused = snap.scene.paused;
+                }
+                b.actions.resize();
+                refreshAll();
+                err.textContent = '';
+            } catch (e) { err.textContent = 'JSON 오류: ' + e.message; }
+        });
+        const forceRow = document.createElement('div');
+        forceRow.className = 'tsd-check';
+        const forceChk = document.createElement('input');
+        forceChk.type = 'checkbox'; forceChk.checked = lsForced;
+        forceChk.addEventListener('change', () => {
+            try {
+                if (forceChk.checked) localStorage.setItem(LS_KEY, '1');
+                else localStorage.removeItem(LS_KEY);
+            } catch (e) { /* 저장 실패 무시 */ }
+        });
+        forceRow.appendChild(forceChk);
+        forceRow.appendChild(document.createTextNode('이 브라우저에서 항상 패널 표시 (localStorage)'));
+        row.appendChild(exp); row.appendChild(imp);
+        host.appendChild(ta); host.appendChild(err); host.appendChild(row); host.appendChild(forceRow);
+    }
+
+    // ---------- 상태 읽기 ----------
+    function tickStatus() {
+        const b = bridge();
+        const el = document.getElementById('tsdStatus');
+        if (!el) return;
+        if (!b) { el.textContent = 'bridge 없음: tsukuyomi.js가 먼저 로드되어야 한다.'; return; }
+        el.textContent =
+            'state=' + b.state + '  p=' + fmt(b.p) +
+            '\nphi=' + fmt(b.phi) + '  omega=' + fmt(b.omega) +
+            '  clock=' + fmt(b.clock) +
+            '\nhold=' + (b.hold ? 'on' : 'off') + '  paused=' + (b.paused ? 'on' : 'off');
+    }
+
+    // ---------- 감지 ----------
+    function checkSize() {
+        let open = false;
+        try {
+            const dw = window.outerWidth - window.innerWidth;
+            const dh = window.outerHeight - window.innerHeight;
+            open = dw > 160 || dh > 160;
+        } catch (e) { open = false; }
+        if (open && !sizeOpen) {
+            sizeOpen = true;
+            show('devtools(도크 감지)');
+        } else if (!open && sizeOpen) {
+            sizeOpen = false;
+            renderSrc();
+        }
+    }
+
+    window.addEventListener('keydown', e => {
+        const k = e.key || '';
+        const mod = e.ctrlKey || e.metaKey;
+        const devShortcut =
+            k === 'F12' ||
+            (mod && e.shiftKey && (k === 'I' || k === 'J' || k === 'C' || k === 'i' || k === 'j' || k === 'c')) ||
+            (e.metaKey && e.altKey && (k === 'I' || k === 'i'));
+        if (devShortcut) show('단축키(' + (k === 'F12' ? 'F12' : k) + ')');
+    });
+
+    // ---------- 배선 ----------
+    document.addEventListener('DOMContentLoaded', () => {
+        document.body.appendChild(panel);
+        document.body.appendChild(fab);
+        panel.querySelector('[data-act="close"]').addEventListener('click', hide);
+        fab.addEventListener('click', () => show('수동(FAB)'));
+        panel.querySelector('[data-act="collapse"]').addEventListener('click', ev => {
+            const body = document.getElementById('tsdBody');
+            const hidden = body.style.display === 'none';
+            body.style.display = hidden ? '' : 'none';
+            ev.target.textContent = hidden ? '접기' : '펼치기';
+        });
+        if (lsForced) show(detectSrc);
+        setInterval(checkSize, 800);
+        checkSize();
+        waitBridge(b => {
+            if (!b) return;
+            buildScene(b);
+            buildGroups(b);
+            buildPaletteEditors(b, false);
+            buildIO(b);
+            renderSrc();
+            setInterval(() => { tickStatus(); syncSceneUI(); }, 300);
+            tickStatus();
+        });
+    });
+
+    window.__TSUKUYOMI_DEBUG__ = {
+        show: (src) => show(src || '수동(console)'),
+        hide, toggle: () => (panel.hidden ? show('수동(toggle)') : hide()),
+        get visible() { return panelVisible; },
+        get detectSource() { return detectSrc; },
+    };
+})();
