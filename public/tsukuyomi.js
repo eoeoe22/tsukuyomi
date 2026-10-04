@@ -575,7 +575,8 @@
             }
 
             // ---------- update ----------
-            // 고속 회전 단계 없음: 별 회전/궤적은 달 상승 보간(mt)에 직접 동기화된다.
+            // 고속 회전 단계 없음: 별 궤적 길이는 달 상승 보간(mt)에 동기화되고,
+            // 궤적 성장 중에도 꼬리가 W_SLOW로 항상 전진하므로 완료 시점에 멈춤이 없다.
             // 궤적 생성 시작(mt > 0) = 달이 뜨기 시작(p > MOON_A0),
             // 궤적 생성 완료(mt = 1) = 달이 최대 고도 도착(p >= MOON_A1).
             // 최종 궤적 길이는 TRAIL_LEN 그대로 유지된다.
@@ -612,7 +613,10 @@
                 }
                 }
 
-                // 별 회전 / 궤적: p 기반이라 hold(수동 스크럽) 중에도 현재 p를 그대로 반영한다.
+                // 별 회전 / 궤적: 궤적 성장 중에도 기본 회전(W_SLOW)은 항상 진행한다.
+                // phiTail(꼬리)이 W_SLOW로 전진하면서 head = phiTail + TRAIL_LEN*mt로 성장하므로
+                // 성장 완료 시점(mt=1)의 속도가 W_SLOW로 자연스럽게 이어지고 멈춤 구간이 없다.
+                // hold(수동 스크럽) 중에는 꼬리를 고정해 p에 대한 결정성을 유지한다.
                 if (state === 'toNight') {
                     const m = ss(CFG.MOON_A0, CFG.MOON_A1, p);
                     const mt = 1 - Math.pow(1 - m, 3);
@@ -620,11 +624,12 @@
                         phi = 0; phiTail = null; omega = 0;
                     } else if (m < 1) {
                         const prev = phi;
-                        phi = CFG.TRAIL_LEN * mt;
-                        phiTail = 0;
+                        if (phiTail === null) phiTail = 0;
+                        else if (!debugHold) phiTail += CFG.W_SLOW * dt;
+                        phi = phiTail + CFG.TRAIL_LEN * mt;
                         omega = dt > 0 ? Math.max(0, (phi - prev) / dt) : 0;
                     } else {
-                        if (phiTail === null || phi < CFG.TRAIL_LEN) { phi = CFG.TRAIL_LEN; phiTail = 0; }
+                        if (phiTail === null) { phi = Math.max(phi, CFG.TRAIL_LEN); phiTail = phi - CFG.TRAIL_LEN; }
                         omega = CFG.W_SLOW;
                         phi += omega * dt;
                         phiTail = phi - CFG.TRAIL_LEN;
