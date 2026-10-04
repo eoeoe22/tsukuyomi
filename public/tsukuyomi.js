@@ -1137,25 +1137,33 @@ void main() {
   vec2 fc = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
   vec2 p = fc / uDpr;                       // css px; p.y = depth below the horizon
   float s = max(p.y, 0.5);
-  vec2 g = vec2((p.x - uCx) / s, uF / s);   // position on the ground plane
+  float gz = uF / s;                        // fore-aft position on the ground plane
   vec2 slope = vec2(0.0);
+  vec2 off = vec2(0.0);
   float glint = 0.0;
   for (int i = 0; i < ${RIP_SLOTS}; i++) {
     if (i >= uN) break;
     vec4 r = uRip[i];
-    vec2 d = g - r.xy;
+    // NOTE: x는 클릭 깊이(s0) 기준으로 정규화한다. 기존처럼 현재 픽셀 깊이(s)로
+    // 나누면 중심이 화면 중앙-클릭점을 잇는 사선 위를 움직여 중앙 외 클릭에서
+    // 파문이 사선으로 기울어진다. s0 기준이면 중심이 항상 x=cx 수직선 위에 있어
+    // 파문이 항상 수평(가로 타원)을 유지한다. y(앞뒤) 원근 압축은 그대로 둔다.
+    float s0 = uF / max(r.y, 1e-3);         // clicked depth, css px
+    vec2 d = vec2((p.x - uCx) / s0 - r.x, gz - r.y);
     if (max(abs(d.x), abs(d.y)) > 1.5) continue;
     float dist = length(d);
     vec2 dir = d / max(dist, 1e-4);
     float e = dist - r.z;                   // > 0 ahead of the ring, < 0 behind it
     float w = e > 0.0 ? 0.02 : 0.1;         // sharp front, a few trailing crests
     // crest spacing on screen; fade where it would alias (thin rings near the horizon)
-    float px = 6.2832 / uK / length(vec2(dir.x / s, dir.y * uF / (s * s)));
+    float px = 6.2832 / uK / length(vec2(dir.x / s0, dir.y * uF / (s * s)));
     float env = exp(-(e * e) / (w * w)) * r.w * smoothstep(2.0, 5.0, px) * smoothstep(0.0, 0.03, dist);
-    slope += cos(uK * e) * env * dir;
+    float c = cos(uK * e) * env;
+    slope += c * dir;
+    off += c * vec2(dir.x * s0, -dir.y * s * s / uF);
     glint += max(0.0, sin(uK * e)) * env;
   }
-  vec2 o = vec2(slope.x * s, -slope.y * s * s / uF) * uStr;
+  vec2 o = off * uStr;
   vec2 uv = (fc + o * uDpr) / uRes;
   uv.y = max(uv.y, 0.5 / uRes.y);
   vec3 col = texture2D(uTex, uv).rgb;
@@ -1226,15 +1234,50 @@ void main() {
                 glc.style.height = (floorH / dpr) + 'px';
             }
 
+            // touch drags must reach us as pointermove (no scroll/zoom hijack on the canvases)
+            for (const c of [cv, glc, fg]) { try { c.style.touchAction = 'none'; } catch (e) {} }
+
+            function spawnRipple(clientX, clientY) {
+                const fh = floorH / dpr;
+                const s = clientY - floorTop / dpr;
+                if (s < 6 || s > fh) return false;
+                if (ripples.length >= Math.min(RIP_SLOTS, Math.max(1, Math.round(CFG.RIP_MAX)))) ripples.shift();
+                ripples.push({ xn: clientX / W, sn: s / fh, t: 0 });
+                return true;
+            }
+            // press-and-drag spawns continuously on move (mouse/touch/pen = Pointer Events).
+            // press-and-hold without moving spawns only the initial pointerdown ripple:
+            // spawns below are move-driven only, never timer-driven.
+            const dragPts = new Map();   // pointerId -> { x, y, t } (anchor of last spawned ripple)
+            const DRAG_MIN_DIST = 24;    // css px between spawned ripples
+            const DRAG_MIN_DT = 0.06;    // seconds between spawned ripples
+            const overUI = t => (t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab');
+
             window.addEventListener('pointerdown', e => {
                 if (!gl || RM.matches || e.button > 0) return;
-                if (e.target instanceof Element && e.target.closest('.panel,.tsd-panel,#tsdFab')) return;
+                if (overUI(e.target)) return;
+                if (spawnRipple(e.clientX, e.clientY)) {
+                    dragPts.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now() / 1000 });
+                }
+            });
+            window.addEventListener('pointermove', e => {
+                const st = dragPts.get(e.pointerId);
+                if (!st || !gl || RM.matches) return;
+                if (overUI(e.target)) { st.x = e.clientX; st.y = e.clientY; return; }
                 const fh = floorH / dpr;
                 const s = e.clientY - floorTop / dpr;
-                if (s < 6 || s > fh) return;
-                if (ripples.length >= Math.min(RIP_SLOTS, Math.max(1, Math.round(CFG.RIP_MAX)))) ripples.shift();
-                ripples.push({ xn: e.clientX / W, sn: s / fh, t: 0 });
+                if (s < 6 || s > fh) { st.x = e.clientX; st.y = e.clientY; return; }
+                const dx = e.clientX - st.x, dy = e.clientY - st.y;
+                if (dx * dx + dy * dy < DRAG_MIN_DIST * DRAG_MIN_DIST) return;
+                const now = performance.now() / 1000;
+                if (now - st.t < DRAG_MIN_DT) return;
+                st.x = e.clientX; st.y = e.clientY;
+                if (spawnRipple(e.clientX, e.clientY)) st.t = now;
             });
+            const endDrag = e => { dragPts.delete(e.pointerId); };
+            window.addEventListener('pointerup', endDrag);
+            window.addEventListener('pointercancel', endDrag);
+            window.addEventListener('blur', () => dragPts.clear());
 
             function stepRipples(dt) {
                 if (debugPaused) return;
