@@ -71,10 +71,10 @@
                 // DC_CB_N: 적란운 최대 개수(실제 개수는 시드 기반 1~N 랜덤). DC_LX/LY: 화면 밖 좌상단 광원 위치.
                 DC_SEED: 5, DC_N: 9, DC_Y0: 0.93, DC_YR: 0.07,
                 DC_CB_N: 3, DC_CB_S0: 0.95, DC_CB_S1: 1.5,
-                DC_W0: 0.12, DC_W1: 0.28, DC_F0: 0.36, DC_F1: 0.58,
-                DC_LX: 0.16, DC_LY: -0.12, DC_LIGHT: 0.5,
+                DC_W0: 0.12, DC_W1: 0.17, DC_F0: 0.36, DC_F1: 0.58,
+                DC_LX: 0.16, DC_LY: -0.12, DC_LIGHT: 0.34,
                 // 황혼 구름 질감(적운 셰이더 랩 파라미터): 덮임 정도, 윗면/아랫면 경계 폭, 덩어리 크기, 그림자 깊이, 빛 방향(°, y-up)
-                DC_COV: 0.29, DC_SHARP: 0.01, DC_SOFT: 0.05, DC_SCALE: 8, DC_ABSORB: 0.2, DC_SUN: 70,
+                DC_COV: 0.52, DC_SHARP: 0.105, DC_SOFT: 0.15, DC_SCALE: 8.1, DC_ABSORB: 1.25, DC_SUN: 160,
                 SUN_PATH: 0.42, SUN_X0: 0.27, SUN_X1: 0.32, SUN_DROP: 2.4,
                 SUN_F0: 0.34, SUN_F1: 0.46,
                 SUN_G0: 0.18, SUN_G1: 0.32, SUN_G2: 0.4, SUN_G3: 0.56,
