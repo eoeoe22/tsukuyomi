@@ -12,12 +12,19 @@
             const BAND_SCALE = FILTER_OK ? 2 : 5;   // work at reduced resolution; without filter support the downscale itself blurs
             // NOTE: BAND_PAD/BLUR_PX/BAND_H 실값은 CFG에서 관리 (debug UI로 조절). 아래 구형 상수는 삭제됨.
             let bandH = 0;
+            // band blur cache: 비싼 blur+복사는 BAND_EVERY 프레임마다만 갱신, 사이엔 blit만
+            let bandTick = 0, bandValid = false, bandLastP = -1, bandBuilds = 0;
             // torii sprite and its flipped, darkened copy for the reflection
             const torC = document.createElement('canvas');
             const TC = torC.getContext('2d');
             const torR = document.createElement('canvas');
             const TR = torR.getContext('2d');
             let torS = 1, torX = 0, torY = 0, torW = 0, torH = 0, torBase = 0;
+            // torii sprite cache: 색(p)/크기(dpr)가 바뀔 때만 torC/torR 재래스터
+            let torKey = '', torRKey = '', torBuilds = 0;
+            // sky-mirror downscale buffer (REFL_SCALE < 1일 때만 사용)
+            const reflC = document.createElement('canvas');
+            const RC = reflC.getContext('2d');
             const RM = window.matchMedia('(prefers-reduced-motion: reduce)');
             // real torii and vignette live on their own layer above the ripple copy,
             // so only the mirror image bends
@@ -37,7 +44,7 @@
                 T_NIGHT: 9.5, T_DAY: 2.4, W_FAST: 0.28, W_SLOW: 0.009, TRAIL_LEN: 0.6, DECAY: 0.45, FAST_HOLD: 2.0,
                 P_DUSK: 0.32,
                 HZ_RATIO: 0.56, DPR_MAX: 2, PIX_BUDGET: 5e6,
-                BAND_PAD: 12, BLUR_PX: 3, BAND_H: 0.3,
+                BAND_PAD: 12, BLUR_PX: 3, BAND_H: 0.3, BAND_EVERY: 3,
                 POLE_X: 0.25, POLE_Y: 0.27,
                 SUN_F: 0.03, SUN_MIN: 14, SUN_MAX: 34,
                 MOON_F: 0.026, MOON_MIN: 12, MOON_MAX: 28,
@@ -58,6 +65,7 @@
                 HAZE_MIX: 0.22, HAZE_A: 0.32,
                 REFL_AMP0: 0.15, REFL_AMP1: 2.4, SEAM_A: 0.22,
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 3,
+                REFL_SCALE: 0.5, REFL_AUTO: 1, REFL_MAX_STEP: 6,
                 RIP_MAX: 8, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
                 LANTERN_N: 64, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
                 LANTERN_TX: 0.62, LANTERN_PAD: 2, LANTERN_SN_POW: 1.25,
@@ -167,6 +175,12 @@
             let mtn = [], clouds = [];
             // stone lanterns on the flat (lantern-front.svg, all facing the viewer)
             let lanterns = [], lanImg = null, lanReady = false;
+            // lantern raster cache: SVG를 1회 비트맵으로 구워 매 프레임 벡터 재래스터 방지
+            const lanC = document.createElement('canvas');
+            const LC = lanC.getContext('2d');
+            let lanCW = 0, lanCH = 0, lanBodyH = 0;
+            // reflection adaptive step governor (ROW_STEP=최소, REFL_MAX_STEP=상한)
+            let reflStep = 3, reflLastBase = 3, reflEMA = 16, reflCool = 0;
 
             const starAlpha = () => ss(CFG.STAR_A0, CFG.STAR_A1, p);
 
@@ -439,7 +453,21 @@
                 try {
                     lanImg = new Image();
                     lanImg.decoding = 'async';
-                    lanImg.onload = () => { lanReady = true; };
+                    lanImg.onload = () => {
+                        try {
+                            const nw = lanImg.naturalWidth || 416;
+                            const nh = lanImg.naturalHeight || 509;
+                            lanC.width = nw; lanC.height = nh;
+                            LC.setTransform(1, 0, 0, 1, 0, 0);
+                            LC.globalCompositeOperation = 'source-over';
+                            LC.globalAlpha = 1;
+                            LC.clearRect(0, 0, nw, nh);
+                            LC.drawImage(lanImg, 0, 0, nw, nh);
+                            lanCW = nw; lanCH = nh;
+                            lanBodyH = nh * LAN_FEET;
+                            lanReady = true;
+                        } catch (e) { lanReady = false; }
+                    };
                     lanImg.onerror = () => { lanReady = false; };
                     lanImg.src = 'lantern-front.svg';
                 } catch (e) { lanReady = false; }
@@ -503,6 +531,7 @@
                 bandH = Math.round((H - HZ) * CFG.BAND_H);
                 band.width = Math.ceil(W * dpr / BAND_SCALE);
                 band.height = Math.ceil((bandH + CFG.BAND_PAD * 2) * dpr / BAND_SCALE);
+                bandValid = false;   // 크기 변경 시 블러 캐시 무효
                 for (const c of [sky, cloudLayer]) {
                     c.width = Math.round(W * dpr); c.height = Math.round(HZ * dpr);
                 }
@@ -716,32 +745,67 @@
                 S.fill();
             }
 
+            // ---------- reflection adaptive step ----------
+            // ROW_STEP=최소 간격(화질 하한), REFL_MAX_STEP=상한. 부하 시 상한까지 자동 증가.
+            // 해상도 하한도 함께 적용: 키가 큰 화면에서도 반사 row 수가 ~220개를 넘지 않게.
+            function effReflStep(reflHPx) {
+                const base = Math.max(1, Math.round(CFG.ROW_STEP));
+                if (reflLastBase !== base) { reflLastBase = base; reflStep = base; }
+                const maxS = clamp(Math.round(CFG.REFL_MAX_STEP ?? 6), base, 8);
+                reflStep = clamp(reflStep, base, maxS);
+                const resFloor = Math.max(1, Math.ceil((reflHPx || 1) / 220));
+                return Math.max(reflStep, resFloor);
+            }
+            function tickReflGovernor(costMs) {
+                reflEMA = reflEMA * 0.92 + costMs * 0.08;
+                reflCool++;
+                if (!(CFG.REFL_AUTO ?? 1)) { reflCool = 0; return; }
+                if (reflCool < 90) return;
+                reflCool = 0;
+                const base = Math.max(1, Math.round(CFG.ROW_STEP));
+                const maxS = clamp(Math.round(CFG.REFL_MAX_STEP ?? 6), base, 8);
+                if (reflEMA > 19 && reflStep < maxS) reflStep++;
+                else if (reflEMA < 11 && reflStep > base) reflStep--;
+            }
+
             // torii standing on the flat in front of the ranges, with its own mirror image
+            // torC(본체)/torR(뒤집힌 반사체)은 색·크기가 바뀔 때만 재래스터 (idle 시 60fps 재빌드 제거)
             function drawTorii(r0, r1) {
                 const [red, blk, gold] = keyed(TORII, p);
                 const k = torS * dpr;
-                TC.setTransform(1, 0, 0, 1, 0, 0);
-                TC.clearRect(0, 0, torC.width, torC.height);
-                TC.setTransform(k, 0, 0, k, -TB.x * k, -TB.y * k);
-                TC.fillStyle = rgba(red); TC.fill(TORII_RED);
-                TC.fillStyle = rgba(blk); TC.fill(TORII_BLK);
-                TC.strokeStyle = rgba(gold);
-                TC.lineWidth = 2; TC.strokeRect(314, 134, 52, 46);
-                TC.lineWidth = 1; TC.strokeRect(322, 142, 36, 30);
+                const key = torC.width + 'x' + torC.height + '|' + k.toFixed(3) + '|' +
+                    (red[0] | 0) + ',' + (red[1] | 0) + ',' + (red[2] | 0) + '|' +
+                    (blk[0] | 0) + ',' + (blk[1] | 0) + ',' + (blk[2] | 0) + '|' +
+                    (gold[0] | 0) + ',' + (gold[1] | 0) + ',' + (gold[2] | 0);
+                if (key !== torKey) {
+                    torKey = key; torRKey = ''; torBuilds++;
+                    TC.setTransform(1, 0, 0, 1, 0, 0);
+                    TC.clearRect(0, 0, torC.width, torC.height);
+                    TC.setTransform(k, 0, 0, k, -TB.x * k, -TB.y * k);
+                    TC.fillStyle = rgba(red); TC.fill(TORII_RED);
+                    TC.fillStyle = rgba(blk); TC.fill(TORII_BLK);
+                    TC.strokeStyle = rgba(gold);
+                    TC.lineWidth = 2; TC.strokeRect(314, 134, 52, 46);
+                    TC.lineWidth = 1; TC.strokeRect(322, 142, 36, 30);
+                }
 
                 // flipped copy, dimmed the same way as the rest of the reflection
                 const reflH = H - HZ;
                 const rd = lerp(r0, r1, clamp((torBase - HZ) / reflH + 0.15, 0, 1));
-                TR.setTransform(1, 0, 0, 1, 0, 0);
-                TR.globalCompositeOperation = 'source-over';
-                TR.clearRect(0, 0, torR.width, torR.height);
-                TR.setTransform(1, 0, 0, -1, 0, torR.height);
-                TR.drawImage(torC, 0, 0);
-                TR.setTransform(1, 0, 0, 1, 0, 0);
-                TR.globalCompositeOperation = 'source-atop';
-                TR.fillStyle = `rgba(10,18,32,${rd})`;
-                TR.fillRect(0, 0, torR.width, torR.height);
-                TR.globalCompositeOperation = 'source-over';
+                const rkey = torR.width + 'x' + torR.height + '|' + rd.toFixed(3) + '|' + torKey;
+                if (rkey !== torRKey) {
+                    torRKey = rkey;
+                    TR.setTransform(1, 0, 0, 1, 0, 0);
+                    TR.globalCompositeOperation = 'source-over';
+                    TR.clearRect(0, 0, torR.width, torR.height);
+                    TR.setTransform(1, 0, 0, -1, 0, torR.height);
+                    TR.drawImage(torC, 0, 0);
+                    TR.setTransform(1, 0, 0, 1, 0, 0);
+                    TR.globalCompositeOperation = 'source-atop';
+                    TR.fillStyle = `rgba(10,18,32,${rd})`;
+                    TR.fillRect(0, 0, torR.width, torR.height);
+                    TR.globalCompositeOperation = 'source-over';
+                }
 
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 // row r of the flipped copy lands at torBase + r - pad, where pad is the
@@ -751,7 +815,7 @@
                 if (RM.matches) {
                     ctx.drawImage(torR, torX, top, torW, torH);
                 } else {
-                    const step = CFG.ROW_STEP;
+                    const step = effReflStep(H - HZ);
                     for (let r = 0; r < torH; r += step) {
                         const sh = Math.min(step, torH - r);
                         const y = top + r;
@@ -770,12 +834,12 @@
             // Reflections ride on the scene canvas with the same ripple as the torii;
             // bodies + night glow ride on FG above the ripple copy.
             function drawLanterns(r0, r1) {
-                if (!lanReady || !lanterns.length || !lanImg.naturalWidth) return;
+                if (!lanReady || !lanterns.length || !lanCW) return;
                 const reflH = Math.max(1, H - HZ);
                 const night = ss(CFG.MOON_A0, CFG.MOON_A1, p);
-                const sw = lanImg.naturalWidth, shFull = lanImg.naturalHeight;
-                const shBody = shFull * LAN_FEET;
-                const step = Math.max(1, Math.round(CFG.ROW_STEP));
+                const sw = lanCW, shFull = lanCH;
+                const shBody = lanBodyH || shFull * LAN_FEET;
+                const step = effReflStep(reflH);
 
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 ctx.globalCompositeOperation = 'source-over';
@@ -792,7 +856,7 @@
                         ctx.globalAlpha = (1 - rd) * 0.9;
                         ctx.translate(0, 2 * L.y);
                         ctx.scale(1, -1);
-                        ctx.drawImage(lanImg, 0, 0, sw, shBody, L.x - L.w / 2, L.y - dh, L.w, dh);
+                        ctx.drawImage(lanC, 0, 0, sw, shBody, L.x - L.w / 2, L.y - dh, L.w, dh);
                         ctx.restore();
                     } else {
                         ctx.globalAlpha = (1 - rd) * 0.9;
@@ -806,7 +870,7 @@
                             const srcH = shD / dh * shBody;
                             const srcY = shBody - (r + shD) / dh * shBody;
                             if (srcY < 0 || srcH <= 0) continue;
-                            ctx.drawImage(lanImg, 0, srcY, sw, srcH, L.x - L.w / 2 + dx, y, L.w, shD + 0.5);
+                            ctx.drawImage(lanC, 0, srcY, sw, srcH, L.x - L.w / 2 + dx, y, L.w, shD + 0.5);
                         }
                         ctx.globalAlpha = 1;
                     }
@@ -821,7 +885,7 @@
                     if (L.w < 2 || L.h < 3) continue;
                     if (L.x + L.w / 2 < -L.w || L.x - L.w / 2 > W + L.w) continue;
                     const top = L.y - L.h * LAN_FEET;
-                    FG.drawImage(lanImg, L.x - L.w / 2, top, L.w, L.h);
+                    FG.drawImage(lanC, L.x - L.w / 2, top, L.w, L.h);
                     if (night > 0.01) {
                         const gx = L.x, gy = L.y - L.h * 0.52;
                         FG.globalCompositeOperation = 'lighter';
@@ -872,7 +936,34 @@
                     ctx.drawImage(sky, 0, Math.max(0, HZ - reflH) * dpr, sky.width, Math.min(HZ, reflH) * dpr,
                         0, HZ - Math.min(HZ, reflH), W, Math.min(HZ, reflH));
                 } else {
-                    const step = CFG.ROW_STEP;
+                    const step = effReflStep(reflH);
+                    const scale = clamp(Number(CFG.REFL_SCALE ?? 0.5) || 0.5, 0.25, 1);
+                    if (scale < 0.99 && reflH > 0) {
+                        // downscale path: 작은 버퍼에 row-slice 후 1회 업스케일 합성
+                        const rw = Math.max(1, Math.round(cv.width * scale));
+                        const rh = Math.max(1, Math.round((cv.height - floorTop) * scale));
+                        if (reflC.width !== rw || reflC.height !== rh) { reflC.width = rw; reflC.height = rh; }
+                        RC.setTransform(1, 0, 0, 1, 0, 0);
+                        RC.globalCompositeOperation = 'source-over';
+                        RC.globalAlpha = 1;
+                        RC.clearRect(0, 0, rw, rh);
+                        const k2 = dpr * scale;
+                        for (let d = 0; d < reflH; d += step) {
+                            const sh = Math.min(step, reflH - d);
+                            const srcY = HZ - d - sh;
+                            if (srcY < 0) break;
+                            const k = d / reflH;
+                            const amp = CFG.REFL_AMP0 + CFG.REFL_AMP1 * k * k;
+                            const dx = amp * (0.7 * Math.sin(d * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(d * CFG.SL_F2 - clock * CFG.SL_F3));
+                            RC.setTransform(k2, 0, 0, -k2, dx * k2, (d + sh) * k2);
+                            RC.drawImage(sky, 0, srcY * dpr, sky.width, sh * dpr, -3, -0.5, W + 6, sh + 0.5);
+                        }
+                        ctx.setTransform(1, 0, 0, 1, 0, 0);
+                        ctx.globalCompositeOperation = 'source-over';
+                        ctx.globalAlpha = 1;
+                        ctx.imageSmoothingEnabled = true;
+                        ctx.drawImage(reflC, 0, 0, rw, rh, 0, floorTop, cv.width, cv.height - floorTop);
+                    } else {
                     for (let d = 0; d < reflH; d += step) {
                         const sh = Math.min(step, reflH - d);
                         const srcY = HZ - d - sh;
@@ -883,27 +974,38 @@
                         ctx.setTransform(dpr, 0, 0, -dpr, dx * dpr, (HZ + d + sh) * dpr);
                         ctx.drawImage(sky, 0, srcY * dpr, sky.width, sh * dpr, -3, -0.5, W + 6, sh + 0.5);
                     }
+                    }
                 }
 
                 // soften the reflection near the horizon; the real ranges above stay sharp
-                // because only rows from the horizon downward are pasted back
-                {
-                    const srcY = (HZ - CFG.BAND_PAD) * dpr, srcH = (bandH + CFG.BAND_PAD * 2) * dpr;
-                    BD.setTransform(1, 0, 0, 1, 0, 0);
-                    BD.globalCompositeOperation = 'source-over';
-                    BD.clearRect(0, 0, band.width, band.height);
-                    if (FILTER_OK) BD.filter = `blur(${(CFG.BLUR_PX * dpr / BAND_SCALE).toFixed(2)}px)`;
-                    BD.drawImage(cv, 0, srcY, cv.width, srcH, 0, 0, band.width, band.height);
-                    BD.filter = 'none';
+                // because only rows from the horizon downward are pasted back.
+                // blur+복사는 BAND_EVERY 프레임마다만 갱신 (사이 프레임은 캐시 blit만).
+                if (bandH > 0) {
+                    const every = Math.max(1, Math.round(CFG.BAND_EVERY ?? 3));
+                    const pMoved = Math.abs(p - bandLastP) > 0.004;
+                    if (!bandValid || (bandTick % every) === 0 || pMoved) {
+                        bandBuilds++;
+                        bandLastP = p;
+                        const srcY = (HZ - CFG.BAND_PAD) * dpr, srcH = (bandH + CFG.BAND_PAD * 2) * dpr;
+                        BD.setTransform(1, 0, 0, 1, 0, 0);
+                        BD.globalCompositeOperation = 'source-over';
+                        BD.clearRect(0, 0, band.width, band.height);
+                        if (FILTER_OK) BD.filter = `blur(${(CFG.BLUR_PX * dpr / BAND_SCALE).toFixed(2)}px)`;
+                        BD.drawImage(cv, 0, srcY, cv.width, srcH, 0, 0, band.width, band.height);
+                        BD.filter = 'none';
+                        const y0 = CFG.BAND_PAD * dpr / BAND_SCALE, y1 = (CFG.BAND_PAD + bandH) * dpr / BAND_SCALE;
+                        const mg = BD.createLinearGradient(0, y0, 0, y1);
+                        mg.addColorStop(0, 'rgba(0,0,0,1)');
+                        mg.addColorStop(0.35, 'rgba(0,0,0,0.6)');
+                        mg.addColorStop(1, 'rgba(0,0,0,0)');
+                        BD.globalCompositeOperation = 'destination-in';
+                        BD.fillStyle = mg;
+                        BD.fillRect(0, 0, band.width, band.height);
+                        BD.globalCompositeOperation = 'source-over';
+                        bandValid = true;
+                    }
+                    bandTick++;
                     const y0 = CFG.BAND_PAD * dpr / BAND_SCALE, y1 = (CFG.BAND_PAD + bandH) * dpr / BAND_SCALE;
-                    const mg = BD.createLinearGradient(0, y0, 0, y1);
-                    mg.addColorStop(0, 'rgba(0,0,0,1)');
-                    mg.addColorStop(0.35, 'rgba(0,0,0,0.6)');
-                    mg.addColorStop(1, 'rgba(0,0,0,0)');
-                    BD.globalCompositeOperation = 'destination-in';
-                    BD.fillStyle = mg;
-                    BD.fillRect(0, 0, band.width, band.height);
-                    BD.globalCompositeOperation = 'source-over';
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.drawImage(band, 0, y0, band.width, y1 - y0, 0, HZ * dpr, cv.width, bandH * dpr);
                 }
@@ -1176,6 +1278,11 @@ void main() {
                 get paused() { return debugPaused; }, set paused(v) { debugPaused = !!v; },
                 get lanterns() { return lanterns; },
                 get lanReady() { return lanReady; },
+                get lanCached() { return lanCW > 0 && lanCH > 0; },
+                get reflStep() { return reflStep; },
+                get reflCost() { return reflEMA; },
+                get torBuilds() { return torBuilds; },
+                get bandBuilds() { return bandBuilds; },
                 get palettes() {
                     return { SKY: SKY_RAW, MOUNT: MOUNT_RAW, TORII: TORII_RAW, CLOUD_TINT: CLOUD_TINT_RAW, REFL, VIG, LV, COLS: COLS_RAW };
                 },
@@ -1200,6 +1307,9 @@ void main() {
                         Object.assign(CFG, JSON.parse(JSON.stringify(CFG_DEFAULTS)));
                         // 구버전 스냅샷(MOON_X0/MOON_X1)으로 가져온 잔여 키 제거
                         delete CFG.MOON_X0; delete CFG.MOON_X1;
+                        reflStep = Math.max(1, Math.round(CFG.ROW_STEP)); reflLastBase = reflStep; reflEMA = 16; reflCool = 0;
+                        torKey = ''; torRKey = ''; torBuilds = 0;
+                        bandValid = false; bandTick = 0; bandLastP = -1; bandBuilds = 0;
                         state = 'dusk'; p = CFG.P_DUSK; tState = 0; tNight = 0;
                         phi = 0; phiTail = null; trailTState = null; nightBase = 0; omega = 0; debugHold = false; debugPaused = false;
                         buildMountains(); buildClouds(); buildLanterns(); resize();
@@ -1220,8 +1330,10 @@ void main() {
                 lastT = now;
                 update(dt);
                 stepRipples(dt);
+                const t0 = performance.now();
                 render();
                 drawRipples();
+                tickReflGovernor(performance.now() - t0);
                 updateUI();
                 requestAnimationFrame(frame);
             }

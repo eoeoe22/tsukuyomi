@@ -69,6 +69,8 @@
             ['REFL_AMP0', 0, 1, 0.01], ['REFL_AMP1', 0, 6, 0.05],
             ['SL_F0', 0, 0.5, 0.001], ['SL_F1', 0, 3, 0.01], ['SL_F2', 0, 0.2, 0.001], ['SL_F3', 0, 3, 0.01],
             ['ROW_STEP', 1, 8, 1], ['SEAM_A', 0, 1, 0.005],
+            ['REFL_SCALE', 0.25, 1, 0.05], ['REFL_MAX_STEP', 2, 8, 1], ['REFL_AUTO', 0, 1, 1],
+            ['BAND_EVERY', 1, 8, 1],
         ]},
         { title: '물결', keys: [
             ['RIP_MAX', 1, 8, 1], ['RIP_V', 0.05, 1.5, 0.005],
@@ -492,7 +494,10 @@
             '\nphi=' + fmt(b.phi) + '  omega=' + fmt(b.omega) +
             '  clock=' + fmt(b.clock) +
             '\nhold=' + (b.hold ? 'on' : 'off') + '  paused=' + (b.paused ? 'on' : 'off') +
-            '\nlanterns=' + (b.lanterns ? b.lanterns.length : 0) + '  lanReady=' + (b.lanReady ? 'yes' : 'no');
+            '\nlanterns=' + (b.lanterns ? b.lanterns.length : 0) + '  lanReady=' + (b.lanReady ? 'yes' : 'no') +
+            '  lanCached=' + (b.lanCached ? 'yes' : 'no') +
+            '\nreflStep=' + b.reflStep + '  reflCost=' + fmt(b.reflCost) + 'ms' +
+            '  tor=' + b.torBuilds + '  band=' + b.bandBuilds;
     }
 
     // ---------- 감지 ----------
