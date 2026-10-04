@@ -79,7 +79,7 @@
             ['LANTERN_N', 0, 256, 1, 'lanterns'], ['LANTERN_SEED', 0, 99, 1, 'lanterns'],
             ['LANTERN_GX', 0.05, 0.6, 0.01, 'lanterns'], ['LANTERN_SN0', 0.02, 0.5, 0.01, 'lanterns'],
             ['LANTERN_SN1', 0.4, 1, 0.01, 'lanterns'], ['LANTERN_H', 0.15, 1.2, 0.01, 'lanterns'],
-            ['LANTERN_JITTER', 0, 0.6, 0.01, 'lanterns'], ['LANTERN_EXCL', 0, 2.5, 0.05, 'lanterns'],
+            ['LANTERN_EXCL', 0, 2.5, 0.05, 'lanterns'],
             ['LANTERN_GLOW', 0, 1, 0.01], ['LANTERN_POOL', 0, 1, 0.01],
         ]},
     ];
@@ -125,7 +125,7 @@
     fab.id = 'tsdFab';
     fab.type = 'button';
     fab.textContent = 'DEBUG';
-    fab.title = '디버그 패널 열기 (?debug=1 로 항상 표시 가능)';
+    fab.title = '디버그 패널 열기 (` 또는 ?debug=1 로 항상 표시 가능)';
     fab.hidden = true;
 
     function show(src) {
@@ -280,7 +280,30 @@
 
     // ---------- CFG 그룹 ----------
     const rowRefs = [];
+    // 슬라이더 드래그 중 input 이벤트가 60Hz로 들어오면 rebuild(resize/stars/clouds 등)가
+    // 매 틱마다 동기 실행되어 프레임이 끊긴다. trailing debounce로 합친다.
+    function makeRebuildScheduler(b) {
+        let t = 0;
+        const pending = new Set();
+        return (kind) => {
+            if (!kind) return;
+            pending.add(kind);
+            clearTimeout(t);
+            t = setTimeout(() => {
+                const kinds = [...pending];
+                pending.clear();
+                // resize가 stars/projectLanterns를 포함하므로 stars는 중복 실행하지 않음
+                if (kinds.includes('resize')) b.actions.resize();
+                else if (kinds.includes('stars')) b.actions.buildStars();
+                if (kinds.includes('mountains')) b.actions.buildMountains();
+                if (kinds.includes('clouds')) b.actions.buildClouds();
+                if (kinds.includes('lanterns')) b.actions.buildLanterns();
+            }, 120);
+        };
+    }
+    let scheduleRebuild = null;
     function buildGroups(b) {
+        scheduleRebuild = makeRebuildScheduler(b);
         const host = document.getElementById('tsdGroups');
         host.innerHTML = '';
         rowRefs.length = 0;
@@ -311,11 +334,8 @@
                     b.cfg[key] = n;
                     if (from !== range) range.value = String(Math.min(max, Math.max(min, n)));
                     if (from !== num) num.value = String(n);
-                    if (rebuild === 'resize') b.actions.resize();
-                    else if (rebuild === 'stars') b.actions.buildStars();
-                    else if (rebuild === 'mountains') b.actions.buildMountains();
-                    else if (rebuild === 'clouds') b.actions.buildClouds();
-                    else if (rebuild === 'lanterns') b.actions.buildLanterns();
+                    // rebuild는 debounce: 드래그 중에는 CFG만 바꾸고 무거운 재계산은 뒤로 미룸
+                    if (rebuild) scheduleRebuild(rebuild);
                 };
                 range.addEventListener('input', () => apply(range.value, range));
                 num.addEventListener('change', () => apply(num.value, num));
@@ -490,7 +510,21 @@
         }
     }
 
+    function isTypingTarget(t) {
+        return t instanceof Element && t.closest('input,textarea,select,[contenteditable="true"]') !== null;
+    }
+
     window.addEventListener('keydown', e => {
+        // ` 단축키: 패널 토글. DevTools를 열지 않고도 패널을 쓸 수 있게 한다.
+        // (입력 필드에서는 문자 입력 우선, 수식어키 조합은 브라우저에 양보)
+        if ((e.code === 'Backquote' || e.key === '`' || e.key === '~') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            if (e.repeat) return;
+            if (isTypingTarget(e.target)) return;
+            e.preventDefault();
+            if (panel.hidden) show('단축키(`)');
+            else hide();
+            return;
+        }
         const k = e.key || '';
         const mod = e.ctrlKey || e.metaKey;
         const devShortcut =
@@ -522,7 +556,9 @@
             buildPaletteEditors(b, false);
             buildIO(b);
             renderSrc();
-            setInterval(() => { tickStatus(); syncSceneUI(); }, 300);
+            // 패널이 닫혀 있을 때는 DOM 쓰기를 생략: DevTools를 닫은 상태의 백그라운드 비용 제거.
+            // 패널이 열려 있을 때(DevTools 도크 포함) 300ms마다 상태 텍스트+슬라이더 동기화만 수행.
+            setInterval(() => { if (panel.hidden) return; tickStatus(); syncSceneUI(); }, 300);
             tickStatus();
         });
     });

@@ -59,8 +59,8 @@
                 REFL_AMP0: 0.15, REFL_AMP1: 2.4, SEAM_A: 0.22,
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 3,
                 RIP_MAX: 8, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
-                LANTERN_N: 9, LANTERN_GX: 0.48, LANTERN_SN0: 0.06, LANTERN_SN1: 0.92,
-                LANTERN_H: 0.5, LANTERN_JITTER: 0.25, LANTERN_GLOW: 0.5, LANTERN_POOL: 0.4,
+                LANTERN_N: 64, LANTERN_GX: 0.48, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
+                LANTERN_H: 0.15, LANTERN_GLOW: 0.5, LANTERN_POOL: 0.4,
                 LANTERN_SEED: 7, LANTERN_EXCL: 1.0,
             };
             const CFG_DEFAULTS = JSON.parse(JSON.stringify(CFG));
@@ -267,8 +267,7 @@
                     const sn = lerp(sn0, sn1, rng());
                     // ux: -1..1 uniform; x spread narrows toward the horizon (perspective)
                     const ux = rng() * 2 - 1;
-                    const js = 1 + (rng() * 2 - 1) * clamp(CFG.LANTERN_JITTER, 0, 0.6);
-                    lanterns.push({ sn, ux, js, x: 0, y: 0, w: 0, h: 0, s: 0 });
+                    lanterns.push({ sn, ux, x: 0, y: 0, w: 0, h: 0, s: 0 });
                 }
                 lanterns.sort((a, b) => a.sn - b.sn);   // far-to-near painter order
                 projectLanterns();
@@ -283,7 +282,7 @@
                     L.s = s;
                     L.x = W / 2 + L.ux * halfW * (0.22 + 0.78 * L.sn);
                     L.y = HZ + s;
-                    L.h = Math.max(2, CFG.LANTERN_H * s * L.js);
+                    L.h = Math.max(2, CFG.LANTERN_H * s);
                     L.w = L.h * LAN_WHR;
                 }
                 // keep clear of the torii and the bottom control card
