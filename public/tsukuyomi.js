@@ -42,6 +42,8 @@
                 SUN_F: 0.03, SUN_MIN: 14, SUN_MAX: 34,
                 MOON_F: 0.026, MOON_MIN: 12, MOON_MAX: 28,
                 TORII_SCALE: 0.7, TORII_X: 0.76, TORII_BASE: 0.75,
+                // TORII_X는 토리이 중심과 달 중심이 공유하는 수직선 (항상 같은 x)
+                MOON_Y: 0.34,
                 STAR_DENS: 2400, STAR_MAX: 1600, STAR_A0: 0.40, STAR_A1: 0.62,
                 POLARIS_R: 0.7, HALO_R: 4, HALO_A: 0.35,
                 MTN_H: 0.022, MTN_MIN: 6, MTN_MAX: 20, MTN_TH: 0.47, MTN_POW: 1.15,
@@ -52,7 +54,7 @@
                 SUN_PATH: 0.42, SUN_X0: 0.27, SUN_X1: 0.32, SUN_DROP: 2.4,
                 SUN_F0: 0.34, SUN_F1: 0.46,
                 SUN_G0: 0.18, SUN_G1: 0.32, SUN_G2: 0.4, SUN_G3: 0.56,
-                MOON_A0: 0.46, MOON_A1: 0.92, MOON_GLOW: 9, MOON_A: 0.24, MOON_X0: 0.82, MOON_X1: 0.76,
+                MOON_A0: 0.46, MOON_A1: 0.92, MOON_GLOW: 9, MOON_A: 0.24,
                 HAZE_MIX: 0.22, HAZE_A: 0.32,
                 REFL_AMP0: 0.15, REFL_AMP1: 2.4, SEAM_A: 0.22,
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 3,
@@ -379,7 +381,7 @@
                 const m = Math.min(W, H);
                 sunR = clamp(m * CFG.SUN_F, CFG.SUN_MIN, CFG.SUN_MAX);
                 moonR = clamp(m * CFG.MOON_F, CFG.MOON_MIN, CFG.MOON_MAX);
-                // torii: centred under the moon's resting point, standing on the flat with
+                // torii: centred on the shared vertical line (CFG.TORII_X), standing on the flat with
                 // its base three quarters of the way up from the bottom edge to the horizon
                 torS = CFG.TORII_SCALE * Math.min(HZ * 0.30 / 356, W * 0.40 / 428);
                 torW = TB.w * torS; torH = TB.h * torS;
@@ -550,8 +552,9 @@
                 const m = ss(CFG.MOON_A0, CFG.MOON_A1, p);
                 if (m > 0.001) {
                     const mt = 1 - Math.pow(1 - m, 3);
-                    const mx = lerp(W * CFG.MOON_X0, W * CFG.MOON_X1, mt);
-                    const my = lerp(HZ + moonR * 2.2, HZ * 0.34, mt);
+                    // 달은 토리이와 항상 같은 수직선상: x는 TORII_X 공유, y만 MOON_Y로 조절
+                    const mx = W * CFG.TORII_X;
+                    const my = lerp(HZ + moonR * 2.2, HZ * CFG.MOON_Y, mt);
                     const mg = S.createRadialGradient(mx, my, moonR * 0.8, mx, my, moonR * CFG.MOON_GLOW);
                     mg.addColorStop(0, `rgba(200,215,255,${CFG.MOON_A * m})`);
                     mg.addColorStop(1, 'rgba(200,215,255,0)');
@@ -1066,6 +1069,8 @@ void main() {
                     toDusk() { state = 'toDusk'; tState = 0; },
                     reset() {
                         Object.assign(CFG, JSON.parse(JSON.stringify(CFG_DEFAULTS)));
+                        // 구버전 스냅샷(MOON_X0/MOON_X1)으로 가져온 잔여 키 제거
+                        delete CFG.MOON_X0; delete CFG.MOON_X1;
                         state = 'dusk'; p = CFG.P_DUSK; tState = 0; tNight = 0;
                         phi = 0; phiTail = null; trailTState = null; nightBase = 0; omega = 0; debugHold = false; debugPaused = false;
                         buildMountains(); buildClouds(); buildLanterns(); resize();

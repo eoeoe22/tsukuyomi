@@ -33,7 +33,10 @@
             ['POLE_X', 0, 1, 0.005, 'resize'], ['POLE_Y', 0, 1, 0.005, 'resize'],
             ['SUN_F', 0.005, 0.08, 0.001, 'resize'], ['SUN_MIN', 4, 30, 1, 'resize'], ['SUN_MAX', 10, 60, 1, 'resize'],
             ['MOON_F', 0.005, 0.07, 0.001, 'resize'], ['MOON_MIN', 4, 30, 1, 'resize'], ['MOON_MAX', 10, 60, 1, 'resize'],
-            ['TORII_SCALE', 0.2, 2, 0.01, 'resize'], ['TORII_X', 0, 1, 0.005, 'resize'], ['TORII_BASE', 0, 1, 0.01, 'resize'],
+        ]},
+        { title: '토리이 / 달 (동일 수직선)', keys: [
+            ['TORII_X', 0, 1, 0.005, 'resize'], ['TORII_BASE', 0, 1, 0.01, 'resize'],
+            ['MOON_Y', 0, 1, 0.005], ['TORII_SCALE', 0.2, 2, 0.01, 'resize'],
         ]},
         { title: '별', keys: [
             ['STAR_DENS', 500, 8000, 50, 'stars'], ['STAR_MAX', 100, 3000, 10, 'stars'],
@@ -59,7 +62,6 @@
         { title: '달 / 안개', keys: [
             ['MOON_A0', 0, 1, 0.005], ['MOON_A1', 0, 1, 0.005],
             ['MOON_GLOW', 2, 16, 0.1], ['MOON_A', 0, 1, 0.005],
-            ['MOON_X0', 0, 1, 0.005], ['MOON_X1', 0, 1, 0.005],
             ['HAZE_MIX', 0, 1, 0.005], ['HAZE_A', 0, 1, 0.005],
         ]},
         { title: '반사', keys: [
@@ -74,7 +76,7 @@
             ['RIP_STR', 0, 0.15, 0.001], ['FOCAL', 0.3, 2, 0.01],
         ]},
         { title: '랜턴', keys: [
-            ['LANTERN_N', 0, 16, 1, 'lanterns'], ['LANTERN_SEED', 0, 99, 1, 'lanterns'],
+            ['LANTERN_N', 0, 256, 1, 'lanterns'], ['LANTERN_SEED', 0, 99, 1, 'lanterns'],
             ['LANTERN_GX', 0.05, 0.6, 0.01, 'lanterns'], ['LANTERN_SN0', 0.02, 0.5, 0.01, 'lanterns'],
             ['LANTERN_SN1', 0.4, 1, 0.01, 'lanterns'], ['LANTERN_H', 0.15, 1.2, 0.01, 'lanterns'],
             ['LANTERN_JITTER', 0, 0.6, 0.01, 'lanterns'], ['LANTERN_EXCL', 0, 2.5, 0.05, 'lanterns'],
@@ -420,7 +422,12 @@
         imp.addEventListener('click', () => {
             try {
                 const snap = JSON.parse(ta.value);
-                if (snap.cfg) Object.assign(b.cfg, snap.cfg);
+                if (snap.cfg) {
+                    // 구버전 키 호환: MOON_X1이 있으면 공유축 TORII_X로 이관 후 제거
+                    if (snap.cfg.MOON_X1 !== undefined && snap.cfg.TORII_X === undefined) snap.cfg.TORII_X = snap.cfg.MOON_X1;
+                    Object.assign(b.cfg, snap.cfg);
+                    delete b.cfg.MOON_X0; delete b.cfg.MOON_X1;
+                }
                 if (snap.palettes) for (const k of Object.keys(snap.palettes)) {
                     try { b.setPalette(k, snap.palettes[k]); } catch (e) { /* 개별 실패 무시 */ }
                 }
