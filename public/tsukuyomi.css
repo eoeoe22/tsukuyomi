@@ -110,14 +110,13 @@
             --night-disabled: #4a5160;
 
             pointer-events: auto;
-            width: min(420px, 100%);
+            width: auto;
             display: flex;
             align-items: center;
-            gap: var(--space-5);
             background: var(--surface);
-            border-radius: var(--radius-md);
+            border-radius: var(--radius-pill);
             box-shadow: var(--raised-lg);
-            padding: var(--space-5);
+            padding: 10px;
             animation: fadeInUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
             transition: background-color 1.25s ease, box-shadow 1.25s ease;
         }
@@ -132,59 +131,53 @@
             --inset-sm: inset 2px 2px 4px var(--night-shadow-dark), inset -2px -2px 4px var(--night-shadow-light);
         }
 
-        .meter {
-            flex: 1;
-            min-width: 0;
-            height: 8px;
+        .icongroup {
+            display: flex;
+            gap: 4px;
+            padding: 4px;
             border-radius: var(--radius-pill);
             background: var(--track);
             box-shadow: var(--inset-sm);
-            overflow: hidden;
             transition: background-color 1.25s ease, box-shadow 1.25s ease;
         }
 
-        .meter span {
-            display: block;
-            height: 100%;
-            background: var(--primary);
-            border-radius: inherit;
-            transform-origin: left center;
-            transform: scaleX(0);
-        }
-
-        .btn {
-            flex: 0 0 auto;
-            height: 50px;
-            padding: 0 28px;
+        .icongroup button {
+            width: 46px;
+            height: 46px;
             border: 0;
-            border-radius: var(--radius-pill);
-            background: var(--primary);
-            color: var(--on-primary);
-            font: 700 14px/1.4 var(--font-sans);
-            letter-spacing: 1.15px;
-            box-shadow: var(--raised-md);
+            border-radius: 50%;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 19px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             cursor: pointer;
-            white-space: nowrap;
-            transition: box-shadow 0.25s, transform 0.25s, background-color 0.25s;
+            transition: background-color 0.25s, color 0.25s, box-shadow 0.25s, transform 0.25s;
         }
 
-        .btn:hover:not(:disabled) {
-            transform: translateY(-2px);
+        .icongroup button:hover {
+            transform: translateY(-1px);
         }
 
-        .btn:active:not(:disabled) {
-            box-shadow: var(--raised-md-pressed);
+        .icongroup button:active {
             transform: none;
         }
 
-        .btn:focus-visible {
-            outline: 2px solid var(--primary);
-            outline-offset: 4px;
+        .icongroup button.on {
+            background: var(--primary);
+            color: var(--on-primary);
+            box-shadow: var(--raised-md);
         }
 
-        .btn:disabled {
-            background: var(--text-subtle);
-            cursor: default;
+        .icongroup button:focus-visible {
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
+        }
+
+        .panel.is-night .icongroup button:not(.on) {
+            color: #9aa0ae;
         }
 
         .sr-only {
@@ -211,36 +204,25 @@
             }
         }
 
-        /* mobile: no card, no meter — just the toggle button in the bottom-left corner */
+        /* mobile: icon card stays centred at the bottom */
         @media (max-width: 460px),
         (pointer: coarse) and (max-height: 500px) {
             .dock {
-                justify-content: flex-start;
-                padding: 0 0 calc(var(--space-5) + env(safe-area-inset-bottom, 0px)) calc(var(--space-5) + env(safe-area-inset-left, 0px));
+                justify-content: center;
+                padding: 0 0 calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
             }
 
             .panel {
-                width: auto;
-                padding: 0;
-                background: none;
-                box-shadow: none;
-                border-radius: 0;
-            }
-
-            .meter {
-                display: none;
-            }
-
-            .btn {
-                height: 44px;
-                padding: 0 20px;
-                font-size: 13px;
                 box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
             }
 
-            .btn:active:not(:disabled) {
-                box-shadow: 0 3px 8px rgba(0, 0, 0, 0.22);
-                transform: scale(0.96);
+            .icongroup button {
+                width: 48px;
+                height: 48px;
+            }
+
+            .icongroup button:active {
+                transform: scale(0.94);
                 transition-duration: 0.1s;
             }
         }
@@ -251,8 +233,8 @@
             }
 
             .panel,
-            .meter,
-            .btn {
+            .icongroup,
+            .icongroup button {
                 transition: none;
             }
         }

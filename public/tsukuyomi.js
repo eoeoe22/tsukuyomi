@@ -33,9 +33,9 @@
 
             const elPanel = document.getElementById('panel');
             const elStatus = document.getElementById('status');
-            const elBtn = document.getElementById('go');
-            const elFill = document.getElementById('fill');
-            const elMeter = document.getElementById('meter');
+            const elDay = document.getElementById('btnDay');
+            const elDusk = document.getElementById('btnDusk');
+            const elNight = document.getElementById('btnNight');
 
             // ---------- tunable params (F12 debug UI에서 수동 조절) ----------
             // 모든 수치 파라미터는 CFG 하나로 모음. 기본값 = 기존 하드코딩 값과 동일.
@@ -107,9 +107,9 @@
                 };
             }
 
-            // ---------- palettes keyed by scene progress p (0 = noon dummy, P_DUSK = dusk idle, 1 = night) ----------
-            // NOTE(더미): p = 0 완전 낮 장면은 현재 초기값으로 쓰지 않지만 삭제하지 않고 남겨둠.
-            const P_NOON_DUMMY = 0;  // 더미: 완전 낮 (미사용, 팔레트 하위 키 유지용)
+            // ---------- palettes keyed by scene progress p (0 = day idle, P_DUSK = dusk idle, 1 = night) ----------
+            // 낮/황혼/밤 선택은 하단 아이콘 버튼이 정하고, p는 현재 p에서 목표까지 부드럽게 이동한다.
+            const P_NOON_DUMMY = 0;  // 낮 idle 시작점 (p = 0, 실제 사용)
             // P_DUSK 초기값은 CFG에서 가져옴 (debug UI로 조절 가능)
             let SKY_RAW = [
                 [0.00, '#2a64b4', '#6aa0d8', '#dbe9f3'],
@@ -170,6 +170,14 @@
             let W = 0, H = 0, HZ = 0, dpr = 1, R = 1;
             let pole = { x: 0, y: 0 }, sunR = 20, moonR = 18;
             let state = 'dusk', p = CFG.P_DUSK, tState = 0, tNight = 0;
+            // 진행 중인 전환의 시작/목표 p (클릭 시 현재 p에서 캡처 → 어디서든 자연스럽게 전환)
+            let transFrom = CFG.P_DUSK, transTo = CFG.P_DUSK;
+            // 태양 정규화 진행도 nk (0 = idle 고도 → 1 = night).
+            // 낮/황혼 idle 모두 nk = 0에서 시작하므로 최대 태양 고도가 동일하고,
+            // p와 함께 연속으로만 움직이므로 전환 중 점프가 없다.
+            // 태양 위치/소멸/여광이 모두 nk에 묶여 전환 총시간(T_NIGHT/T_DAY)도 동일하다.
+            let nk = 0, nkFrom = 0, nkTo = 0;
+            const sunK = () => clamp(nk, 0, 1);
             let phi = 0, phiTail = null, omega = 0, clock = 0;   // phiTail: 궤적 꼬리 각도 (null = 궤적 없음)
             // 달 상승 보간(mt)과 궤적 길이를 공유하는 헬퍼: drawSky의 달 위치와 동일한 식
             const moonMT = pp => { const m = ss(CFG.MOON_A0, CFG.MOON_A1, pp); return 1 - Math.pow(1 - m, 3); };
@@ -524,6 +532,14 @@
             }
 
             // ---------- layout ----------
+            // 모바일 레이아웃(CSS .dock 브레이크포인트와 동일)에서는 토리이/달을
+            // 화면 정가운데(x=0.5)에 고정. PC 레이아웃에서는 CFG.TORII_X 그대로.
+            function effToriiX() {
+                try {
+                    if (window.matchMedia('(max-width: 460px), (pointer: coarse) and (max-height: 500px)').matches) return 0.5;
+                } catch (e) { /* matchMedia 미지원 시 PC 값으로 폴백 */ }
+                return CFG.TORII_X;
+            }
             function resize() {
                 W = window.innerWidth; H = window.innerHeight;
                 dpr = Math.min(CFG.DPR_MAX, window.devicePixelRatio || 1);
@@ -546,7 +562,7 @@
                 torS = CFG.TORII_SCALE * Math.min(HZ * 0.30 / 356, W * 0.40 / 428);
                 torW = TB.w * torS; torH = TB.h * torS;
                 torBase = H - CFG.TORII_BASE * (H - HZ);
-                torX = W * CFG.TORII_X - (340 - TB.x) * torS;
+                torX = W * effToriiX() - (340 - TB.x) * torS;
                 torY = torBase - (TB.base - TB.y) * torS;
                 for (const c of [torC, torR]) {
                     c.width = Math.max(1, Math.ceil(torW * dpr));
@@ -570,24 +586,28 @@
                 if (state === 'toNight') {
                     tState += dt;
                     const k = Math.min(1, tState / CFG.T_NIGHT);
-                    p = CFG.P_DUSK + (1 - CFG.P_DUSK) * k;
+                    p = transFrom + (1 - transFrom) * k;
+                    nk = nkFrom + (1 - nkFrom) * k;
                     if (k >= 1) {
-                        state = 'night'; tNight = 0; p = 1;
+                        state = 'night'; tNight = 0; p = 1; nk = 1;
                     }
                 } else if (state === 'night') {
                     tNight += dt;
                 } else if (state === 'toDusk' || state === 'toDay') {
-                    // 'toDay' 분기는 더미 호환용으로 남겨둠 (완전 낮 p=0으로는 복귀하지 않고 노을로 복귀)
                     tState += dt;
                     const k = Math.min(1, tState / CFG.T_DAY);
-                    p = 1 - (1 - CFG.P_DUSK) * ss(0, 1, k);
+                    const e = ss(0, 1, k);
+                    p = transFrom + (transTo - transFrom) * e;
+                    nk = nkFrom + (nkTo - nkFrom) * e;
                     omega *= Math.exp(-dt * 3);
                     if (k >= 1) {
-                        state = 'dusk'; p = CFG.P_DUSK; phi = 0; phiTail = null; omega = 0;
+                        if (transTo === 0) { state = 'day'; p = 0; }
+                        else { state = 'dusk'; p = transTo; }
+                        nk = nkTo;
+                        phi = 0; phiTail = null; omega = 0;
                     }
                 } else {
-                    // 'day'(완전 낮, 더미) / 'dusk'(노을 idle) 모두 정지 상태
-                    // p가 P_NOON_DUMMY(0) 근처에 머물러도 렌더 경로는 그대로 유지됨
+                    // 'day'(낮 idle) / 'dusk'(황혼 idle) 모두 정지 상태
                     omega = 0;
                 }
                 }
@@ -644,14 +664,15 @@
                 g.addColorStop(0, rgba(top)); g.addColorStop(0.58, rgba(mid)); g.addColorStop(1, rgba(hor));
                 S.fillStyle = g; S.fillRect(0, 0, W, HZ);
 
-                // sun path
-                const sp = clamp(p / CFG.SUN_PATH, 0, 1);
+                // sun path (낮/황혼 공통: 정규화 진행도 nk 기준이라 시작 고도가 동일)
+                const nk = sunK();
+                const sp = clamp(nk / CFG.SUN_PATH, 0, 1);
                 const sx = lerp(W * CFG.SUN_X0, W * CFG.SUN_X1, sp);
                 const sy0 = HZ * 0.3;
                 const sy = lerp(sy0, HZ + sunR * CFG.SUN_DROP, sp * sp);
 
                 // afterglow along the horizon (brief)
-                const glowA = ss(CFG.SUN_G0, CFG.SUN_G1, p) * (1 - ss(CFG.SUN_G2, CFG.SUN_G3, p));
+                const glowA = ss(CFG.SUN_G0, CFG.SUN_G1, nk) * (1 - ss(CFG.SUN_G2, CFG.SUN_G3, nk));
                 if (glowA > 0.005) {
                     S.save();
                     S.translate(W * 0.32, HZ);
@@ -665,8 +686,8 @@
                     S.restore();
                 }
 
-                // sun
-                const sunFade = 1 - ss(CFG.SUN_F0, CFG.SUN_F1, p);
+                // sun (소멸도 nk 기준: 낮/황혼 동일한 타이밍)
+                const sunFade = 1 - ss(CFG.SUN_F0, CFG.SUN_F1, nk);
                 if (sy < HZ + sunR * 3 && sunFade > 0.001) {
                     const hgt = clamp((HZ - sy) / (HZ - sy0), 0, 1);
                     const sc = hgt > 0.35
@@ -715,8 +736,8 @@
                 const m = ss(CFG.MOON_A0, CFG.MOON_A1, p);
                 if (m > 0.001) {
                     const mt = 1 - Math.pow(1 - m, 3);
-                    // 달은 토리이와 항상 같은 수직선상: x는 TORII_X 공유, y만 MOON_Y로 조절
-                    const mx = W * CFG.TORII_X;
+                    // 달은 토리이와 항상 같은 수직선상: x는 effToriiX() 공유, y만 MOON_Y로 조절
+                    const mx = W * effToriiX();
                     const my = lerp(HZ + moonR * 2.2, HZ * CFG.MOON_Y, mt);
                     const mg = S.createRadialGradient(mx, my, moonR * 0.8, mx, my, moonR * CFG.MOON_GLOW);
                     mg.addColorStop(0, `rgba(200,215,255,${CFG.MOON_A * m})`);
@@ -1222,47 +1243,56 @@ void main() {
             }
 
             // ---------- UI ----------
-            let uiKey = '', lastPct = -1, lastNight = null;
-            const progOf = v => clamp((v - CFG.P_DUSK) / (1 - CFG.P_DUSK), 0, 1);
-            function updateUI() {
-                let status, label, disabled = false, prog = 0;
-                if (state === 'day') {
-                    // 더미 분기: 완전 낮 idle (현재 진입 불가, 기존 문자열 호환용)
-                    status = '낮'; label = '해 지게 하기'; prog = 0;
-                } else if (state === 'dusk') {
-                    status = '노을'; label = '해 지게 하기';
-                } else if (state === 'toNight') {
-                    status = '밤으로 전환 중'; label = '전환 중'; disabled = true; prog = progOf(p);
-                } else if (state === 'night') {
-                    status = '밤'; label = '노을로 돌아가기'; prog = 1;
+            let uiKey = '', lastNight = null, lastActive = '';
+            // 상태가 향하는 목표: 'day' | 'dusk' | 'night'
+            const targetOf = s => (s === 'day' || s === 'toDay' ? 'day' : s === 'dusk' || s === 'toDusk' ? 'dusk' : 'night');
+            // 아이콘 클릭 → 현재 p에서 목표까지 자연스럽게 전환 (전환 중 재클릭도 현재 p에서 다시 시작)
+            function goTo(target) {
+                if (target !== 'day' && target !== 'dusk' && target !== 'night') return;
+                if (targetOf(state) === target) return;
+                transFrom = p;
+                nkFrom = nk;
+                if (target === 'night') {
+                    transTo = 1;
+                    state = 'toNight'; tState = 0;
+                    nkTo = 1;
+                    phi = 0; phiTail = null; omega = 0;
                 } else {
-                    // 'toDusk' + 더미 'toDay'
-                    status = '노을로 전환 중'; label = '전환 중'; disabled = true; prog = progOf(p);
+                    transTo = target === 'day' ? 0 : CFG.P_DUSK;
+                    state = target === 'day' ? 'toDay' : 'toDusk'; tState = 0;
+                    nkTo = 0;
                 }
-                const key = status + '|' + label;
+            }
+            function updateUI() {
+                let status;
+                const active = targetOf(state);
+                if (state === 'day') status = '낮';
+                else if (state === 'dusk') status = '황혼';
+                else if (state === 'toNight') status = '밤으로 전환 중';
+                else if (state === 'night') status = '밤';
+                else status = state === 'toDay' ? '낮으로 전환 중' : '황혼으로 전환 중';
+                const key = status;
                 if (key !== uiKey) {
                     uiKey = key;
                     elStatus.textContent = status;
-                    elBtn.textContent = label;
-                    elBtn.disabled = disabled;
                 }
                 // card switches to its night palette once the sky has gone dark
                 const night = p >= 0.5;
                 if (night !== lastNight) { lastNight = night; elPanel.classList.toggle('is-night', night); }
-                elFill.style.transform = `scaleX(${prog})`;
-                const pct = Math.round(prog * 100);
-                if (pct !== lastPct) { lastPct = pct; elMeter.setAttribute('aria-valuenow', String(pct)); }
+                if (active !== lastActive) {
+                    lastActive = active;
+                    for (const [el, m] of [[elDay, 'day'], [elDusk, 'dusk'], [elNight, 'night']]) {
+                        if (!el) continue;
+                        const on = active === m;
+                        el.classList.toggle('on', on);
+                        el.setAttribute('aria-pressed', on ? 'true' : 'false');
+                    }
+                }
             }
 
-            elBtn.addEventListener('click', () => {
-                if (state === 'dusk' || state === 'day') {
-                    // 'day'는 더미 호환: 실제 시작점은 항상 노을(P_DUSK)
-                    state = 'toNight'; tState = 0; p = CFG.P_DUSK;
-                    phi = 0; phiTail = null; omega = 0;
-                } else if (state === 'night') {
-                    state = 'toDusk'; tState = 0;
-                }
-            });
+            if (elDay) elDay.addEventListener('click', () => goTo('day'));
+            if (elDusk) elDusk.addEventListener('click', () => goTo('dusk'));
+            if (elNight) elNight.addEventListener('click', () => goTo('night'));
 
             // ---------- debug bridge (F12 패널용) ----------
             // tsukuyomi.debug.js가 이 객체를 통해 모든 파라미터를 수동 조절한다.
@@ -1270,7 +1300,26 @@ void main() {
             window.__TSUKUYOMI__ = {
                 cfg: CFG,
                 defaults: CFG_DEFAULTS,
-                get state() { return state; }, set state(v) { state = v; },
+                get state() { return state; },
+                set state(v) {
+                    state = v;
+                    if (v === 'day') { p = 0; transFrom = 0; transTo = 0; nk = 0; nkFrom = 0; nkTo = 0; phi = 0; phiTail = null; omega = 0; }
+                    else if (v === 'dusk') { p = CFG.P_DUSK; transFrom = p; transTo = p; nk = 0; nkFrom = 0; nkTo = 0; phi = 0; phiTail = null; omega = 0; }
+                    else if (v === 'night') { p = 1; transFrom = 1; transTo = 1; nk = 1; nkFrom = 1; nkTo = 1; }
+                    else if (v === 'toNight') {
+                        if (!(p < 1)) p = CFG.P_DUSK;
+                        transFrom = p; transTo = 1; nkFrom = nk; nkTo = 1; tState = 0;
+                        phi = 0; phiTail = null; omega = 0;
+                    }
+                    else if (v === 'toDay' || v === 'toDusk') {
+                        transTo = v === 'toDay' ? 0 : CFG.P_DUSK;
+                        if (!(p >= 0 && p <= 1)) p = 1;
+                        transFrom = p; nkFrom = nk; nkTo = 0; tState = 0;
+                    }
+                },
+                get mode() { return targetOf(state); }, set mode(v) { goTo(v); },
+                get sunK() { return sunK(); },
+                get nk() { return nk; }, set nk(v) { nk = clamp(Number(v) || 0, 0, 1); },
                 get p() { return p; }, set p(v) { p = clamp(Number(v) || 0, 0, 1); },
                 get phi() { return phi; }, set phi(v) { phi = Number(v) || 0; },
                 get phiTail() { return phiTail; }, set phiTail(v) { phiTail = v; },
@@ -1306,8 +1355,10 @@ void main() {
                 resetPalette(name, defaults) { this.setPalette(name, defaults); },
                 actions: {
                     resize, buildStars, buildMountains, buildClouds, buildLanterns,
-                    toNight() { state = 'toNight'; tState = 0; p = CFG.P_DUSK; phi = 0; phiTail = null; omega = 0; },
-                    toDusk() { state = 'toDusk'; tState = 0; },
+                    goTo,
+                    toNight() { goTo('night'); },
+                    toDay() { goTo('day'); },
+                    toDusk() { goTo('dusk'); },
                     reset() {
                         Object.assign(CFG, JSON.parse(JSON.stringify(CFG_DEFAULTS)));
                         // 구버전 스냅샷(MOON_X0/MOON_X1, W_FAST/DECAY/FAST_HOLD)으로 가져온 잔여 키 제거
@@ -1316,6 +1367,7 @@ void main() {
                         reflStep = Math.max(1, Math.round(CFG.ROW_STEP)); reflLastBase = reflStep; reflEMA = 16; reflCool = 0;
                         torKey = ''; torRKey = ''; torBuilds = 0;
                         bandValid = false; bandTick = 0; bandLastP = -1; bandBuilds = 0;
+                        transFrom = CFG.P_DUSK; transTo = CFG.P_DUSK; nk = 0; nkFrom = 0; nkTo = 0;
                         state = 'dusk'; p = CFG.P_DUSK; tState = 0; tNight = 0;
                         phi = 0; phiTail = null; omega = 0; debugHold = false; debugPaused = false;
                         buildMountains(); buildClouds(); buildLanterns(); resize();

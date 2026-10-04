@@ -207,14 +207,12 @@
         // state buttons
         const btns = document.createElement('div');
         btns.className = 'tsd-btnrow';
-        const states = ['dusk', 'toNight', 'night', 'toDusk'];
+        const states = ['day', 'dusk', 'toNight', 'night', 'toDay', 'toDusk'];
         for (const s of states) {
             const btn = document.createElement('button');
             btn.type = 'button'; btn.textContent = s; btn.dataset.state = s;
             btn.addEventListener('click', () => {
                 b.state = s; b.hold = false;
-                if (s === 'dusk') { b.p = b.cfg.P_DUSK; b.phiTail = null; b.omega = 0; }
-                if (s === 'night') { b.p = 1; }
                 syncHoldChk(); syncSceneUI();
             });
             btns.appendChild(btn);
@@ -224,9 +222,13 @@
         goNight.addEventListener('click', () => { b.actions.toNight(); b.hold = false; syncHoldChk(); });
         btns.appendChild(goNight);
         const goDusk = document.createElement('button');
-        goDusk.type = 'button'; goDusk.textContent = '◀ 노을로';
+        goDusk.type = 'button'; goDusk.textContent = '◀ 황혼으로';
         goDusk.addEventListener('click', () => { b.actions.toDusk(); b.hold = false; syncHoldChk(); });
         btns.appendChild(goDusk);
+        const goDay = document.createElement('button');
+        goDay.type = 'button'; goDay.textContent = '◀ 낮으로';
+        goDay.addEventListener('click', () => { b.actions.toDay(); b.hold = false; syncHoldChk(); });
+        btns.appendChild(goDay);
         host.appendChild(btns);
 
         // phi
@@ -436,7 +438,7 @@
             const snap = {
                 cfg: b.cfg,
                 palettes: b.palettes,
-                scene: { state: b.state, p: b.p, phi: b.phi, hold: b.hold, paused: b.paused },
+                scene: { state: b.state, mode: b.mode, p: b.p, phi: b.phi, hold: b.hold, paused: b.paused, nk: b.sunK },
             };
             ta.value = JSON.stringify(snap, null, 1);
             err.textContent = '';
@@ -460,8 +462,11 @@
                     try { b.setPalette(k, snap.palettes[k]); } catch (e) { /* 개별 실패 무시 */ }
                 }
                 if (snap.scene) {
-                    if (typeof snap.scene.state === 'string') b.state = snap.scene.state;
+                    // p/nk를 state보다 먼저 복원: 전이 상태 세터가 transFrom/nkFrom을 올바르게 캡처한다.
+                    // (idle/night 세터는 p/nk를 덮어쓰므로 순서 무관)
                     if (isFinite(snap.scene.p)) b.p = snap.scene.p;
+                    if (isFinite(snap.scene.nk)) b.nk = snap.scene.nk;
+                    if (typeof snap.scene.state === 'string') b.state = snap.scene.state;
                     if (isFinite(snap.scene.phi)) b.phi = snap.scene.phi;
                     if (typeof snap.scene.hold === 'boolean') b.hold = snap.scene.hold;
                     if (typeof snap.scene.paused === 'boolean') b.paused = snap.scene.paused;
@@ -494,7 +499,7 @@
         if (!el) return;
         if (!b) { el.textContent = 'bridge 없음: tsukuyomi.js가 먼저 로드되어야 한다.'; return; }
         el.textContent =
-            'state=' + b.state + '  p=' + fmt(b.p) +
+            'state=' + b.state + '  mode=' + b.mode + '  p=' + fmt(b.p) +
             '\nphi=' + fmt(b.phi) + '  omega=' + fmt(b.omega) +
             '  clock=' + fmt(b.clock) +
             '\nhold=' + (b.hold ? 'on' : 'off') + '  paused=' + (b.paused ? 'on' : 'off') +
