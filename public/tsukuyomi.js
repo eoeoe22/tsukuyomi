@@ -41,7 +41,9 @@
             // 모든 수치 파라미터는 CFG 하나로 모음. 기본값 = 기존 하드코딩 값과 동일.
             // debug 패널(tsukuyomi.debug.js)이 window.__TSUKUYOMI__ 를 통해 live로 읽고 쓴다.
             const CFG = {
-                T_NIGHT: 9.5, T_DAY: 2.4, W_FAST: 0.28, W_SLOW: 0.009, TRAIL_LEN: 0.6, DECAY: 0.45, FAST_HOLD: 2.0,
+                T_NIGHT: 9.5, T_DAY: 2.4, W_SLOW: 0.025, TRAIL_LEN: 0.6,
+                // 별 회전은 달 상승(mt)과 동일한 보간으로 동기화되며 별도 고속 단계가 없다.
+                // 최종 궤적 길이는 TRAIL_LEN 그대로 유지된다.
                 P_DUSK: 0.32,
                 HZ_RATIO: 0.56, DPR_MAX: 2, PIX_BUDGET: 5e6,
                 BAND_PAD: 12, BLUR_PX: 3, BAND_H: 0.3, BAND_EVERY: 3,
@@ -168,9 +170,9 @@
             let W = 0, H = 0, HZ = 0, dpr = 1, R = 1;
             let pole = { x: 0, y: 0 }, sunR = 20, moonR = 18;
             let state = 'dusk', p = CFG.P_DUSK, tState = 0, tNight = 0;
-            let phi = 0, phiTail = null, omega = 0, clock = 0;   // phiTail: rotation angle at the trail's tail
-            let trailTState = null;   // tState at which the trail first reached full length (early-decay 기준점)
-            let nightBase = 0;   // night 진입 시점의 감속 경과량 (점프 방지용 오프셋)
+            let phi = 0, phiTail = null, omega = 0, clock = 0;   // phiTail: 궤적 꼬리 각도 (null = 궤적 없음)
+            // 달 상승 보간(mt)과 궤적 길이를 공유하는 헬퍼: drawSky의 달 위치와 동일한 식
+            const moonMT = pp => { const m = ss(CFG.MOON_A0, CFG.MOON_A1, pp); return 1 - Math.pow(1 - m, 3); };
             let stars = [], buckets = [];
             let mtn = [], clouds = [];
             // stone lanterns on the flat (lantern-front.svg, all facing the viewer)
@@ -557,6 +559,10 @@
             }
 
             // ---------- update ----------
+            // 고속 회전 단계 없음: 별 회전/궤적은 달 상승 보간(mt)에 직접 동기화된다.
+            // 궤적 생성 시작(mt > 0) = 달이 뜨기 시작(p > MOON_A0),
+            // 궤적 생성 완료(mt = 1) = 달이 최대 고도 도착(p >= MOON_A1).
+            // 최종 궤적 길이는 TRAIL_LEN 그대로 유지된다.
             function update(dt) {
                 if (debugPaused) return;
                 clock += dt;
@@ -565,32 +571,11 @@
                     tState += dt;
                     const k = Math.min(1, tState / CFG.T_NIGHT);
                     p = CFG.P_DUSK + (1 - CFG.P_DUSK) * k;
-                    // 감속 곡선: FAST_HOLD 뒤 DECAY*4 구간을 smoothstep으로 감속.
-                    // 양끝 기울기가 0이라 유지-감속, 감속-완료 경계에서 끊기는 느낌이 없다.
-                    const dur = Math.max(0.05, CFG.DECAY * 4);
-                    if (trailTState === null) {
-                        omega = CFG.W_FAST * ss(0.46, 0.56, p);
-                    } else {
-                        const e = tState - trailTState - CFG.FAST_HOLD;
-                        omega = lerp(CFG.W_FAST, CFG.W_SLOW, ss(0, dur, e));
-                    }
-                    // 감속 완료(e >= dur) 시점을 전환 완료로 취급 (k>=1은 트레일 미완성 시 폴백)
-                    const eNow = trailTState === null ? -1 : tState - trailTState - CFG.FAST_HOLD;
-                    const decelDone = eNow >= Math.max(0.05, CFG.DECAY * 4);
-                    if (decelDone || k >= 1) {
-                        nightBase = trailTState !== null ? Math.max(0, tState - trailTState - CFG.FAST_HOLD) : 0;
+                    if (k >= 1) {
                         state = 'night'; tNight = 0; p = 1;
                     }
                 } else if (state === 'night') {
                     tNight += dt;
-                    // 진입 시점의 감속 곡선을 그대로 이어감 (값·기울기 모두 연속)
-                    const dur = Math.max(0.05, CFG.DECAY * 4);
-                    if (trailTState === null) {
-                        omega = lerp(CFG.W_FAST, CFG.W_SLOW, ss(0, dur, tNight));
-                    } else {
-                        // toNight에서 이미 감속이 시작됐다면 이어서 감속 (점프 방지)
-                        omega = lerp(CFG.W_FAST, CFG.W_SLOW, ss(0, dur, nightBase + tNight));
-                    }
                 } else if (state === 'toDusk' || state === 'toDay') {
                     // 'toDay' 분기는 더미 호환용으로 남겨둠 (완전 낮 p=0으로는 복귀하지 않고 노을로 복귀)
                     tState += dt;
@@ -598,7 +583,7 @@
                     p = 1 - (1 - CFG.P_DUSK) * ss(0, 1, k);
                     omega *= Math.exp(-dt * 3);
                     if (k >= 1) {
-                        state = 'dusk'; p = CFG.P_DUSK; phi = 0; phiTail = null; trailTState = null; nightBase = 0; omega = 0;
+                        state = 'dusk'; p = CFG.P_DUSK; phi = 0; phiTail = null; omega = 0;
                     }
                 } else {
                     // 'day'(완전 낮, 더미) / 'dusk'(노을 idle) 모두 정지 상태
@@ -607,17 +592,37 @@
                 }
                 }
 
-                if (phiTail === null && omega > 0) { phiTail = phi; trailTState = null; }
-                phi += omega * dt;
-                if (phiTail !== null) {
-                    // The tail holds still until the trail is ~80% grown, then eases into motion,
-                    // so the move from "growing" to "fixed length" has no sudden jump in speed.
-                    // (0.2 -> 0.8: 트레일 완성 시점을 앞당겨 빠른 회전 시간을 단축)
-                    const g = ss(0.8 * CFG.TRAIL_LEN, 1.05 * CFG.TRAIL_LEN, phi - phiTail);
-                    phiTail += omega * g * dt;
-                    if (phi - phiTail > CFG.TRAIL_LEN) phiTail = phi - CFG.TRAIL_LEN;
-                    // 트레일 완성 시점을 기록: 이후 omega는 DECAY(~0.45)로 2초 이내 최저속도까지 감속
-                    if (trailTState === null && (phi - phiTail) >= CFG.TRAIL_LEN - 1e-6) trailTState = tState;
+                // 별 회전 / 궤적: p 기반이라 hold(수동 스크럽) 중에도 현재 p를 그대로 반영한다.
+                if (state === 'toNight') {
+                    const m = ss(CFG.MOON_A0, CFG.MOON_A1, p);
+                    const mt = 1 - Math.pow(1 - m, 3);
+                    if (m <= 0) {
+                        phi = 0; phiTail = null; omega = 0;
+                    } else if (m < 1) {
+                        const prev = phi;
+                        phi = CFG.TRAIL_LEN * mt;
+                        phiTail = 0;
+                        omega = dt > 0 ? Math.max(0, (phi - prev) / dt) : 0;
+                    } else {
+                        if (phiTail === null || phi < CFG.TRAIL_LEN) { phi = CFG.TRAIL_LEN; phiTail = 0; }
+                        omega = CFG.W_SLOW;
+                        phi += omega * dt;
+                        phiTail = phi - CFG.TRAIL_LEN;
+                    }
+                } else if (state === 'night') {
+                    if (phiTail === null) {
+                        if (phi < CFG.TRAIL_LEN) phi = CFG.TRAIL_LEN;
+                        phiTail = phi - CFG.TRAIL_LEN;
+                    }
+                    omega = CFG.W_SLOW;
+                    phi += omega * dt;
+                    phiTail = phi - CFG.TRAIL_LEN;
+                } else if (state === 'toDusk' || state === 'toDay') {
+                    // 복귀 시에는 궤적을 되감지 않고 고정 길이로 서서히 멈춘 뒤 페이드아웃
+                    if (phiTail !== null && !debugHold) {
+                        phi += omega * dt;
+                        phiTail = phi - CFG.TRAIL_LEN;
+                    }
                 }
 
                 if (!RM.matches) {
@@ -1253,7 +1258,7 @@ void main() {
                 if (state === 'dusk' || state === 'day') {
                     // 'day'는 더미 호환: 실제 시작점은 항상 노을(P_DUSK)
                     state = 'toNight'; tState = 0; p = CFG.P_DUSK;
-                    phi = 0; phiTail = null; trailTState = null; nightBase = 0;
+                    phi = 0; phiTail = null; omega = 0;
                 } else if (state === 'night') {
                     state = 'toDusk'; tState = 0;
                 }
@@ -1268,8 +1273,8 @@ void main() {
                 get state() { return state; }, set state(v) { state = v; },
                 get p() { return p; }, set p(v) { p = clamp(Number(v) || 0, 0, 1); },
                 get phi() { return phi; }, set phi(v) { phi = Number(v) || 0; },
-                get phiTail() { return phiTail; }, set phiTail(v) { phiTail = v; if (v === null) trailTState = null; },
-                get trailTState() { return trailTState; },
+                get phiTail() { return phiTail; }, set phiTail(v) { phiTail = v; },
+                get moonMT() { return moonMT(p); },
                 get omega() { return omega; }, set omega(v) { omega = Number(v) || 0; },
                 get clock() { return clock; },
                 get tState() { return tState; }, set tState(v) { tState = Number(v) || 0; },
@@ -1301,17 +1306,18 @@ void main() {
                 resetPalette(name, defaults) { this.setPalette(name, defaults); },
                 actions: {
                     resize, buildStars, buildMountains, buildClouds, buildLanterns,
-                    toNight() { state = 'toNight'; tState = 0; p = CFG.P_DUSK; phi = 0; phiTail = null; trailTState = null; nightBase = 0; },
+                    toNight() { state = 'toNight'; tState = 0; p = CFG.P_DUSK; phi = 0; phiTail = null; omega = 0; },
                     toDusk() { state = 'toDusk'; tState = 0; },
                     reset() {
                         Object.assign(CFG, JSON.parse(JSON.stringify(CFG_DEFAULTS)));
-                        // 구버전 스냅샷(MOON_X0/MOON_X1)으로 가져온 잔여 키 제거
+                        // 구버전 스냅샷(MOON_X0/MOON_X1, W_FAST/DECAY/FAST_HOLD)으로 가져온 잔여 키 제거
                         delete CFG.MOON_X0; delete CFG.MOON_X1;
+                        delete CFG.W_FAST; delete CFG.DECAY; delete CFG.FAST_HOLD;
                         reflStep = Math.max(1, Math.round(CFG.ROW_STEP)); reflLastBase = reflStep; reflEMA = 16; reflCool = 0;
                         torKey = ''; torRKey = ''; torBuilds = 0;
                         bandValid = false; bandTick = 0; bandLastP = -1; bandBuilds = 0;
                         state = 'dusk'; p = CFG.P_DUSK; tState = 0; tNight = 0;
-                        phi = 0; phiTail = null; trailTState = null; nightBase = 0; omega = 0; debugHold = false; debugPaused = false;
+                        phi = 0; phiTail = null; omega = 0; debugHold = false; debugPaused = false;
                         buildMountains(); buildClouds(); buildLanterns(); resize();
                     },
                     ripple(xn = 0.5, sn = 0.5) {

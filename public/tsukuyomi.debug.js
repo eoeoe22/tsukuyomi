@@ -23,8 +23,7 @@
     const GROUPS = [
         { title: '전환 타이밍', keys: [
             ['T_NIGHT', 1, 40, 0.1], ['T_DAY', 0.5, 10, 0.1],
-            ['W_FAST', 0, 1, 0.005], ['W_SLOW', 0, 0.1, 0.001],
-            ['TRAIL_LEN', 0, 2, 0.01], ['DECAY', 0.1, 5, 0.05], ['FAST_HOLD', 0, 6, 0.1],
+            ['TRAIL_LEN', 0, 2, 0.01],
             ['P_DUSK', 0, 0.9, 0.005],
         ]},
         { title: '레이아웃', keys: [
@@ -39,6 +38,7 @@
             ['MOON_Y', 0, 1, 0.005], ['TORII_SCALE', 0.2, 2, 0.01, 'resize'],
         ]},
         { title: '별', keys: [
+            ['W_SLOW', 0, 0.05, 0.0005],
             ['STAR_DENS', 500, 8000, 50, 'stars'], ['STAR_MAX', 100, 3000, 10, 'stars'],
             ['STAR_A0', 0, 1, 0.01], ['STAR_A1', 0, 1, 0.01],
             ['POLARIS_R', 0, 5, 0.05, 'stars'], ['HALO_R', 0, 12, 0.1], ['HALO_A', 0, 1, 0.01],
@@ -323,7 +323,10 @@
                 const row = document.createElement('div');
                 row.className = 'tsd-row';
                 const lab = document.createElement('label');
-                lab.textContent = key; lab.title = '기본값 ' + fmt(b.defaults[key]);
+                lab.textContent = key === 'W_SLOW' ? 'W_SLOW (전환완료 후 저속)' : key;
+                lab.title = key === 'W_SLOW'
+                    ? '전환 완료(night) 후 별 회전각속도 rad/s — 기본값 ' + fmt(b.defaults[key])
+                    : '기본값 ' + fmt(b.defaults[key]);
                 const range = document.createElement('input');
                 range.type = 'range';
                 range.min = String(min); range.max = String(max); range.step = String(step);
@@ -451,6 +454,7 @@
                     if (snap.cfg.MOON_X1 !== undefined && snap.cfg.TORII_X === undefined) snap.cfg.TORII_X = snap.cfg.MOON_X1;
                     Object.assign(b.cfg, snap.cfg);
                     delete b.cfg.MOON_X0; delete b.cfg.MOON_X1;
+                    delete b.cfg.W_FAST; delete b.cfg.DECAY; delete b.cfg.FAST_HOLD;
                 }
                 if (snap.palettes) for (const k of Object.keys(snap.palettes)) {
                     try { b.setPalette(k, snap.palettes[k]); } catch (e) { /* 개별 실패 무시 */ }
