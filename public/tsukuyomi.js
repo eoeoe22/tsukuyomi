@@ -31,6 +31,8 @@
             const reflC = document.createElement('canvas');
             const RC = reflC.getContext('2d');
             const RM = window.matchMedia('(prefers-reduced-motion: reduce)');
+            // 절차적 구름 라이브 렌더러(cloud-live.js). 없거나 WebGL2 실패면 null → duskRender가 CPU로 굽는다
+            const cloudLive = window.CloudLive ? window.CloudLive.create() : null;
             // real torii and vignette live on their own layer above the ripple copy,
             // so only the mirror image bends
             const fg = document.getElementById('fg');
@@ -89,6 +91,10 @@
                 DAY_SCENE: 1,
                 // CLOUD_DOC: 1 = 브러시 구름 문서(디버그 패널 › 구름 › 브러시 구름 편집)가 있으면 황혼/새 낮 구름 대신 그린다, 0 = 항상 절차적 구름.
                 CLOUD_DOC: 1,
+                // 절차적 구름 라이브(cloud-live.js): CL_LIVE 1 = GPU로 계속 다시 그림(0 = 예전처럼 CPU로 한 번 굽기, 재생성 필요),
+                // CL_RATE 변화 속도 배율, CL_BOIL 혹 끓음 세기, CL_WARP 윤곽 일렁임/타원 호 지우기, CL_RAND 경계 랜덤화(덮임 변동·침식),
+                // CL_HZ 스프라이트당 갱신 빈도, CL_UP 혹 음영에 섞는 위쪽 빛(0 = 해 방향만 → 세로 붓자국 줄무늬가 다시 생김)
+                CL_LIVE: 1, CL_RATE: 1, CL_BOIL: 1, CL_WARP: 1, CL_RAND: 1, CL_HZ: 12, CL_UP: 0.9,
                 // 구름 블룸: BLOOM 세기(0 = 끔), BLOOM_POW 밝은 부분 추출 문턱(2/4/8/16, 클수록 가장 밝은 곳만 번진다),
                 // BLOOM_R 가까운 번짐 반경(하늘 높이 비율), BLOOM_WIDE 넓은 후광 비중
                 BLOOM: 0.7, BLOOM_POW: 4, BLOOM_R: 0.02, BLOOM_WIDE: 0.6,
@@ -518,6 +524,11 @@
                     }
                 }
                 const Eat = (x, y) => E[clamp(Math.round(y), 0, H - 1) * W + clamp(Math.round(x), 0, W - 1)];
+                // 라이브: 엔벨로프까지만 CPU, 노이즈·음영·착색은 GPU에서 계속 다시 그린다(타임랩스처럼 혹이 끓고 윤곽이 일렁임)
+                if (cloudLive && cloudLive.ok && CFG.CL_LIVE >= 0.5) {
+                    const lc = cloudLive.add({ m, E, W, H, RS, top, hh, COV, SHARP, SOFT, SC, ABS, UV, UX, seed, o, sunDeg: o.sun ?? CFG.DC_SUN });
+                    if (lc) return lc;
+                }
                 // 2) 빌로우 노이즈: 5옥타브(형태) + 앞 3옥타브(광원 쪽 미분용). 약한 도메인 워프로 격자 티를 없앤다
                 const N5 = new Float32Array(N), N3 = new Float32Array(N);
                 const live = 1.7 * (1 - 2.15);   // 이보다 엔벨로프가 낮으면 노이즈가 최대여도 덮임을 못 넘는다
@@ -1722,6 +1733,7 @@
                     if (CFG.BLOOM > 0.005 && alpha > 0.01) drawBloom(alpha);
                 };
                 const drawSetInner = (set, tint, alpha, light) => {
+                    if (cloudLive && Array.isArray(set)) { const nowMs = performance.now(); for (const c of set) if (c.spr) cloudLive.touch(c.spr, nowMs); }
                     CL.setTransform(1, 0, 0, 1, 0, 0);
                     CL.globalCompositeOperation = 'source-over';
                     CL.clearRect(0, 0, cloudLayer.width, cloudLayer.height);
@@ -2670,6 +2682,8 @@ void main() {
                 const dt = Math.min(0.05, Math.max(0, (now - lastT) / 1000));
                 lastT = now;
                 update(dt);
+                // 절차적 구름 타임랩스 갱신(동작 줄이기 설정이면 첫 장 그대로)
+                if (cloudLive && CFG.CL_LIVE >= 0.5 && !RM.matches) cloudLive.tick(clock, now, CFG);
                 // 브러시 구름 라이브 갱신(편집 중이 아닐 때, 켜진 장면만). 내부에서 fps로 솎아낸다
                 for (const k in docCloud) {
                     const D = docCloud[k];
