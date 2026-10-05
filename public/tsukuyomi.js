@@ -72,6 +72,8 @@
                 DC_CB_N: 3, DC_CB_S0: 0.95, DC_CB_S1: 1.5, DC_CB_SP: 0.4,
                 DC_F0: 0.36, DC_F1: 0.58,
                 DC_LX: 0.16, DC_LY: -0.12, DC_LIGHT: 0.34,
+                // 광원 쪽 구름 반사 오버레이: 세기, 반경(max(W, HZ) 비율). 크림색으로 덮는 방식이라 세면 광원 근처(왼쪽 위)를 지나는 구름의 명암이 씻겨 나간다
+                DC_REFL_A: 0.16, DC_REFL_R: 0.55,
                 // 황혼 구름 질감(적운 셰이더 랩 파라미터): 덮임 정도, 윗면/아랫면 경계 폭, 덩어리 크기, 그림자 깊이, 빛 방향(°, y-up)
                 DC_COV: 0.52, DC_SHARP: 0.105, DC_SOFT: 0.15, DC_SCALE: 8.1, DC_ABSORB: 1.25, DC_SUN: 160,
                 // 새 낮 장면(reference-images/day-empty-ref.png 기반): 가운데 구름 틈의 광원 + 양옆 거대 적운 벽 + 수평선 낮은 구름 띠.
@@ -1605,8 +1607,8 @@
                     if (light > 0.005) {
                         // 광원 쪽 구름일수록 더 밝게 반사
                         CL.globalCompositeOperation = 'source-atop';
-                        const rg = CL.createRadialGradient(lx, ly, 0, lx, ly, Math.max(W, HZ) * 0.9);
-                        rg.addColorStop(0, rgba(hex('#fff2dc'), 0.42 * light));
+                        const rg = CL.createRadialGradient(lx, ly, 0, lx, ly, Math.max(W, HZ) * CFG.DC_REFL_R);
+                        rg.addColorStop(0, rgba(hex('#fff2dc'), CFG.DC_REFL_A * light));
                         rg.addColorStop(1, 'rgba(255,236,210,0)');
                         CL.fillStyle = rg; CL.fillRect(0, 0, W, HZ);
                         // 하부 음영: 수평선 쪽 구름 밑면을 자주빛으로 가라앉힌다
