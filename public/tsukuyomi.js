@@ -1880,7 +1880,8 @@
 
             // torii standing on the flat in front of the ranges, with its own mirror image
             // torC(본체)/torR(뒤집힌 반사체)은 색·크기가 바뀔 때만 재래스터 (idle 시 60fps 재빌드 제거)
-            // 낮 시간대에는 숨김: duskW(낮=0, 황혼/밤=1)를 불투명도로 써서 toDay에서 페이드아웃, day idle에서 스킵
+            // 토리이는 항상 불투명(a=1)으로 그린다. 낮 숨김은 호출부의 structA 게이트로만 처리해
+            // 페이드 중 반투명 토리이 뒤로 랜턴이 비치는 부자연스러움을 없앤다.
             function drawTorii(r0, r1, a = 1) {
                 if (a <= 0.01) return;
                 let [red, blk, gold] = keyed(TORII, palQ());
@@ -2230,12 +2231,13 @@
                 FG.setTransform(1, 0, 0, 1, 0, 0);
                 FG.clearRect(0, 0, fg.width, fg.height);
                 // 낮에는 토리이/랜턴 숨김: duskW(낮=0, 황혼/밤=1)로 페이드. toDay에서 사라지고 toNight에서 복원된다
+                // 단 토리이는 항상 불투명으로: 반투명 상태에서 뒤 랜턴이 비치지 않게 structA 대신 1을 넘긴다.
                 const structA = clamp(duskW, 0, 1);
                 if (structA > 0.01) {
                     // 깊이 순서: 수평선 경량 랜턴 → 토리이 뒤 랜턴 → 토리이 → 토리이 앞 랜턴
                     drawFarLanterns(structA, lanGlowW());
                     drawLanterns(r0, r1, structA, 'back');
-                    drawTorii(r0, r1, structA);
+                    drawTorii(r0, r1, 1);
                     drawLanterns(r0, r1, structA, 'front');
                 }
                 FG.setTransform(dpr, 0, 0, dpr, 0, 0);
