@@ -68,6 +68,7 @@
                 // TORII_X는 토리이 중심과 달 중심이 공유하는 수직선 (항상 같은 x)
                 MOON_Y: 0.34,
                 STAR_DENS: 2400, STAR_MAX: 1600, STAR_A0: 0.64, STAR_A1: 0.86,
+                // 북극성 제거로 미사용 더미(복원 시 buildStars/drawStars도 함께 복원)
                 POLARIS_R: 0.7, HALO_R: 4, HALO_A: 0.35,
                 MTN_H: 0.022, MTN_MIN: 6, MTN_MAX: 20, MTN_TH: 0.47, MTN_POW: 1.15,
                 MTN_W0: 0.62, MTN_W1: 0.28, MTN_W2: 0.10,
@@ -390,8 +391,16 @@
                     stars.push(s);
                     buckets[lvl * 3 + col].push(s);
                 }
-                // Polaris: a small point almost on the pole, tracing a tiny circle
-                buckets[3].push({ rn: 0, rAbs: CFG.POLARIS_R, th: 0, lvl: 1, col: 0, polaris: true });
+                // 극점 근접 별: 중심이 비어 보이지 않게 밝은 별 몇 개를 작은 반경에 배치
+                for (let i = 0; i < 6; i++) {
+                    const rn = 0.008 + rng() * 0.032;
+                    const th = rng() * Math.PI * 2;
+                    const lvl = i < 2 ? 2 + ((rng() * 2) | 0) : 1 + ((rng() * 2) | 0);
+                    const col = (rng() * 3) | 0;
+                    const s = { rn, th, lvl, col };
+                    stars.push(s);
+                    buckets[lvl * 3 + col].push(s);
+                }
             }
 
             function buildMountains() {
@@ -1450,12 +1459,6 @@
                     }
                     S.fill();
                 }
-                // faint halo so Polaris still reads as the centre
-                const pg = S.createRadialGradient(pole.x, pole.y, 0, pole.x, pole.y, CFG.HALO_R);
-                pg.addColorStop(0, `rgba(235,242,255,${CFG.HALO_A * a})`);
-                pg.addColorStop(1, 'rgba(235,242,255,0)');
-                S.fillStyle = pg;
-                S.beginPath(); S.arc(pole.x, pole.y, CFG.HALO_R, 0, Math.PI * 2); S.fill();
                 S.globalCompositeOperation = 'source-over';
             }
 

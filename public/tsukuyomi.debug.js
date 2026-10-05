@@ -42,7 +42,6 @@
             ['TRAIL_A0', 0, 1, 0.005], ['TRAIL_A1', 0, 1, 0.005],
             ['STAR_DENS', 500, 8000, 50, 'stars'], ['STAR_MAX', 100, 3000, 10, 'stars'],
             ['STAR_A0', 0, 1, 0.01], ['STAR_A1', 0, 1, 0.01],
-            ['POLARIS_R', 0, 5, 0.05, 'stars'], ['HALO_R', 0, 12, 0.1], ['HALO_A', 0, 1, 0.01],
         ]},
         { title: '산', keys: [
             ['MTN_SHOW', 0, 1, 1, 'mountains'],
