@@ -339,6 +339,19 @@
             det.appendChild(sum);
             const sec = document.createElement('div');
             sec.className = 'tsd-sec';
+            // 구름 탭 맨 위: 브러시 구름 편집기(tsukuyomi.cloudedit.js)
+            if (g.title === '구름' && window.TsukuyomiCloudEdit) {
+                const ed = document.createElement('details');
+                ed.className = 'tsce';
+                const es = document.createElement('summary');
+                es.textContent = '브러시 구름 편집 (황혼 / 낮)';
+                const eh = document.createElement('div');
+                eh.className = 'tsd-sec';
+                ed.appendChild(es); ed.appendChild(eh);
+                sec.appendChild(ed);
+                try { window.TsukuyomiCloudEdit.mount(eh, b); }
+                catch (e) { console.error(e); eh.textContent = '편집기 초기화 실패: ' + e.message; }
+            }
             for (const [key, min, max, step, rebuild] of g.keys) {
                 if (!(key in b.cfg)) continue;
                 const row = document.createElement('div');

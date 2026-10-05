@@ -1,6 +1,6 @@
 /* 브러시 구름 문서(tsukuyomi-cloud-doc) 공용 모듈.
- * cloud-editor.html(편집·미리보기)과 tsukuyomi.js(장면에 굽기)가 같은 셰이더·프리셋을 써서
- * 에디터에서 본 구름이 장면에 그대로 적용된다. window.CloudDoc 으로 노출.
+ * tsukuyomi.cloudedit.js(디버그 패널 › 구름 › 브러시 구름 편집)와 tsukuyomi.js(장면에 굽기)가 같은 셰이더·프리셋을 써서
+ * 편집 중 본 구름이 장면에 그대로 적용된다. window.CloudDoc 으로 노출.
  *
  * 문서 좌표: 세로 1 = 문서 높이, 가로 = aspect(가로/세로 비), 아래가 0. horizon 아래는 수면.
  * 맵 두 장(행 0 = 문서 아래):
@@ -125,7 +125,13 @@ void main(){
     // 대기 원근: 수평선 쪽 대비를 낮춰 멀리 보이게
     float far=1.-smoothstep(h,h+.22,uv.y);
     cc=mix(cc,skyCol(dp.y)*uFar,far*.45);
-    if(uMode==1){float a=d;fragColor=vec4(clamp(cc,0.,1.)*a,a);return;}   // 프리멀티플라이드 알파
+    if(uMode==1){   // 장면용: 구름만 프리멀티플라이드 알파로. 편집 중 겹쳐 보기는 구름 위에 얹는다
+      float a=d;vec3 pm=clamp(cc,0.,1.)*a;
+      if(uOverlay==1){
+        if(uLayer==0){float ln=iso(e,0.,fw)*.65;pm=vec3(.55,.95,1.)*ln+pm*(1.-ln);a=ln+a*(1.-ln);}
+        else{pm=mix(pm,vec3(1.,.72,.3)*a,clamp(te,0.,1.)*.45);pm=mix(pm,vec3(.3,.5,1.)*a,clamp(-te,0.,1.)*.45);}
+      }
+      fragColor=vec4(pm,a);return;}
     col=mix(col,cc,d);
     // 수평선 아래(미리보기용 수면)
     if(uv.y<h){float k=(h-uv.y)/max(h,1e-3);col=mix(uWatA,uWatB,pow(k,.6));}
