@@ -79,7 +79,9 @@
             ['DY_GLOW_R', 0.2, 2.5, 0.01], ['DY_GLOW_CORE', 0, 2.5, 0.01], ['DY_GLOW_A', 0, 2, 0.01],
             ['DY_F0', 0, 1, 0.01], ['DY_F1', 0, 1, 0.01],
             ['DY_STAR_A', 0, 1.5, 0.01], ['DY_GLINT_N', 0, 1200, 10, 'clouds'], ['DY_GLINT_A', 0, 2, 0.01],
-            ['DY_WATER', 0, 1, 0.01], ['DY_DEBRIS_N', 0, 8, 1, 'clouds'], ['DY_COLUMN', 0, 2, 0.01],
+            ['DY_WATER', 0, 1, 0.01], ['DY_COLUMN', 0, 2, 0.01],
+            ['DY_HOLE', 0, 1, 0.05, 'clouds'], ['DY_HOLE_S', 0.3, 2.5, 0.05, 'clouds'], ['DY_HOLE_N', 0, 8, 1, 'clouds'],
+            ['DY_HOLE_EDGE', 0, 2, 0.05, 'clouds'], ['DY_HOLE_RIM', 0, 1.5, 0.05, 'clouds'], ['DY_HOLE_SKY', 0, 1.5, 0.05, 'clouds'],
         ]},
         { title: '태양', keys: [
             ['SUN_PATH', 0.1, 1, 0.005], ['SUN_X0', 0, 1, 0.005], ['SUN_X1', 0, 1, 0.005],
