@@ -62,6 +62,16 @@
             ['DC_COV', 0.2, 0.8, 0.01, 'clouds'], ['DC_SHARP', 0.01, 0.3, 0.005, 'clouds'], ['DC_SOFT', 0.05, 0.6, 0.01, 'clouds'],
             ['DC_SCALE', 2, 12, 0.1, 'clouds'], ['DC_ABSORB', 0.2, 4, 0.05, 'clouds'], ['DC_SUN', 20, 160, 1, 'clouds'],
         ]},
+        { title: '새 낮 (day-empty-ref)', keys: [
+            ['DAY_SCENE', 0, 1, 1],
+            ['DY_SEED', 0, 50, 1, 'clouds'], ['DY_BAND_N', 0, 14, 1, 'clouds'], ['DY_SP', 0, 0.02, 0.0005, 'clouds'],
+            ['DY_COV', 0.2, 0.8, 0.01, 'clouds'], ['DY_SCALE', 2, 12, 0.1, 'clouds'], ['DY_ABSORB', 0.2, 4, 0.05, 'clouds'],
+            ['DY_SWAY', 0, 0.05, 0.001],
+            ['DY_LX', 0, 1, 0.005], ['DY_LY', -0.2, 1, 0.005], ['DY_LIGHT', 0, 1.5, 0.01],
+            ['DY_F0', 0, 1, 0.01], ['DY_F1', 0, 1, 0.01],
+            ['DY_STAR_A', 0, 1.5, 0.01], ['DY_GLINT_N', 0, 1200, 10, 'clouds'], ['DY_GLINT_A', 0, 2, 0.01],
+            ['DY_WATER', 0, 1, 0.01],
+        ]},
         { title: '태양', keys: [
             ['SUN_PATH', 0.1, 1, 0.005], ['SUN_X0', 0, 1, 0.005], ['SUN_X1', 0, 1, 0.005],
             ['SUN_DROP', 0, 5, 0.05], ['SUN_F0', 0, 1, 0.005], ['SUN_F1', 0, 1, 0.005],
@@ -95,7 +105,7 @@
             ['LANTERN_GLOW', 0, 1, 0.01], ['LANTERN_POOL', 0, 1, 0.01],
         ]},
     ];
-    const PALETTES = ['SKY', 'SKY_DAY', 'MOUNT', 'TORII', 'CLOUD_TINT', 'DCLOUD_TINT', 'REFL', 'VIG', 'LV', 'COLS'];
+    const PALETTES = ['SKY', 'SKY_DAY', 'SKY_DAY2', 'MOUNT', 'MOUNT_DAY2', 'TORII', 'TORII_DAY2', 'CLOUD_TINT', 'DCLOUD_TINT', 'DAY2_TINT', 'REFL', 'REFL_DAY2', 'VIG', 'VIG_DAY2', 'LV', 'COLS'];
 
     const fmt = v => {
         if (!isFinite(v)) return String(v);
