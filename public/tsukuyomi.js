@@ -74,6 +74,17 @@
                 DC_LX: 0.16, DC_LY: -0.12, DC_LIGHT: 0.34,
                 // 황혼 구름 질감(적운 셰이더 랩 파라미터): 덮임 정도, 윗면/아랫면 경계 폭, 덩어리 크기, 그림자 깊이, 빛 방향(°, y-up)
                 DC_COV: 0.52, DC_SHARP: 0.105, DC_SOFT: 0.15, DC_SCALE: 8.1, DC_ABSORB: 1.25, DC_SUN: 160,
+                // 새 낮 장면(reference-images/day-empty-ref.png 기반): 가운데 구름 틈의 광원 + 양옆 거대 적운 벽 + 수평선 낮은 구름 띠.
+                // DAY_SCENE: 1 = 새 낮, 0 = 기존 낮(547f49e 하늘·구름·태양, 더미로 보존). 낮 분기(sunVis) 안에서만 갈린다.
+                // DY_LX/LY: 구름 틈 광원 위치(화면/수평선 비율), DY_LIGHT: 광원 세기, DY_F0/F1: 새 낮 구름 → 밤 소멸 구간.
+                // DY_BAND_N: 수평선 구름 띠 조각 수, DY_SP: 띠 흐름 속도, DY_SWAY: 큰 구름 벽의 좌우 흔들림(화면 비율).
+                // DY_STAR_A: 구름 틈 사이 낮 별 밝기, DY_GLINT_N/A: 수면 반짝임 개수/밝기, DY_WATER: 수면 청색 틴트.
+                DAY_SCENE: 1,
+                DY_SEED: 3, DY_LX: 0.5, DY_LY: 0.3, DY_LIGHT: 0.9,
+                DY_F0: 0.2, DY_F1: 0.5,
+                DY_BAND_N: 7, DY_SP: 0.0035, DY_SWAY: 0.01,
+                DY_COV: 0.5, DY_SCALE: 7.2, DY_ABSORB: 1.1,
+                DY_STAR_A: 0.6, DY_GLINT_N: 420, DY_GLINT_A: 1, DY_WATER: 0.34,
                 SUN_PATH: 0.42, SUN_X0: 0.27, SUN_X1: 0.32, SUN_DROP: 2.4,
                 SUN_F0: 0.34, SUN_F1: 0.46,
                 SUN_G0: 0.18, SUN_G1: 0.32, SUN_G2: 0.4, SUN_G3: 0.56,
@@ -168,11 +179,30 @@
                 [1.00, '#02040c', '#060b20', '#172848']
             ]);
             let SKY_DAY = prep(SKY_DAY_RAW);
+            // 새 낮(DAY_SCENE=1) 하늘: day-empty-ref의 짙은 코발트 → 수평선 쪽 옅은 청색. 구름 틈의 밝은 청록은 광원(DY_*)이 맡는다.
+            // 밤으로 갈 때는 주황 노을 대신 블루 아워(짙은 남색)를 거쳐 공용 밤 팔레트로 이어진다.
+            let SKY_DAY2_RAW = [
+                [0.00, '#1b4688', '#2a62a2', '#3c76b2', '#3f6d9e', '#6d9cc6'],
+                [0.16, '#183f7c', '#265895', '#336aa3', '#375f8e', '#5d88b2'],
+                [0.26, '#152c5e', '#1f3a74', '#2a4782', '#334a7c', '#4a5a88'],
+                [0.34, '#101f4a', '#18295c', '#1f3268', '#2a3a6a', '#3c4a78'],
+                [0.42, '#0b1434', '#121c46', '#182553', '#22305c', '#33416c'],
+                [0.52, '#070b22', '#111536', '#1a1f48', '#2a2f58', '#3a4468'],
+                [0.64, '#03050f', '#05091a', '#070d24', '#101a38', '#18264a'],
+                [1.00, '#02040c', '#040816', '#060b20', '#0f1a35', '#172848']
+            ];
+            let SKY_DAY2 = prep(SKY_DAY2_RAW);
             let MOUNT_RAW = [
                 [0.00, '#93a8bd'], [0.20, '#8d90a8'], [0.32, '#5b4560'],
                 [0.42, '#2a2038'], [0.56, '#0b0d1c'], [1.00, '#04060d']
             ];
             let MOUNT = prep(MOUNT_RAW);
+            // 새 낮: 수평선이 구름 그늘에 잠겨 산도 짙은 청회색
+            let MOUNT_DAY2_RAW = [
+                [0.00, '#3d5779'], [0.20, '#33476a'], [0.32, '#27334f'],
+                [0.42, '#1b2036'], [0.56, '#0b0d1c'], [1.00, '#04060d']
+            ];
+            let MOUNT_DAY2 = prep(MOUNT_DAY2_RAW);
             // torii: vermilion / black / gold, sinking into silhouette as night falls
             let TORII_RAW = [
                 [0.00, '#D9472B', '#2A2522', '#C9A24A'],
@@ -182,6 +212,15 @@
                 [1.00, '#33171d', '#0b0a10', '#3a3126']
             ];
             let TORII = prep(TORII_RAW);
+            // 새 낮: 흐린 청색 빛 아래라 주홍이 조금 가라앉는다 (0.30 이후는 TORII와 동일)
+            let TORII_DAY2_RAW = [
+                [0.00, '#b8432e', '#221e22', '#a88a4c'],
+                [0.30, '#c8452c', '#261f1e', '#c99a4a'],
+                [0.42, '#7a2a26', '#1a1418', '#7a6038'],
+                [0.56, '#3a1a20', '#0d0b12', '#3e3428'],
+                [1.00, '#33171d', '#0b0a10', '#3a3126']
+            ];
+            let TORII_DAY2 = prep(TORII_DAY2_RAW);
             // shapes in the source SVG's 680×450 space; the feet sit on y = 420
             const TORII_RED = new Path2D(
                 'M216 110H244L247 410H213Z M436 110H464L467 410H433Z ' +
@@ -203,9 +242,17 @@
                 [0.00, '#ffffff', 0], [0.34, '#ffffff', 0], [0.42, '#4a2f5e', 0.5], [1.00, '#1a1a30', 0.7]
             ];
             let DCLOUD_TINT = prep(DCLOUD_TINT_RAW);
+            // 새 낮 구름도 색을 스프라이트에 굽는다. 블루 아워 → 밤으로만 어두워진다.
+            let DAY2_TINT_RAW = [
+                [0.00, '#ffffff', 0], [0.12, '#ffffff', 0], [0.26, '#2a3a66', 0.32], [0.42, '#141a36', 0.6], [1.00, '#0d1022', 0.72]
+            ];
+            let DAY2_TINT = prep(DAY2_TINT_RAW);
             // reflection dimming: day and sunset unchanged, stronger only once the sky is night
             let REFL = [[0, 0.06, 0.20], [0.45, 0.14, 0.34], [0.64, 0.42, 0.60], [1, 0.42, 0.60]];
             let VIG = [[0, 0.05], [0.6, 0.32], [1, 0.32]];
+            // 새 낮: 수면이 하늘보다 짙고 가장자리가 가라앉는다
+            let REFL_DAY2 = [[0, 0.08, 0.26], [0.45, 0.2, 0.4], [0.64, 0.42, 0.60], [1, 0.42, 0.60]];
+            let VIG_DAY2 = [[0, 0.3], [0.6, 0.32], [1, 0.32]];
 
             // ---------- star brightness levels and colours ----------
             // d = star diameter = trail width (css px), al = brightness for both head and trail
@@ -241,9 +288,12 @@
             // toNight에서는 출발값을 유지한다 (낮→밤은 해가 지고, 황혼→밤은 원반 없이 진행).
             let sunVis = 0, svFrom = 0, svTo = 0;
             const sunK = () => clamp(nk, 0, 1);
-            // 하늘 색: 낮 분기(SKY_DAY)와 황혼 분기(SKY)를 sunVis로 보간. idle에서는 한쪽만 쓰인다.
+            // 낮 분기 안에서 새 낮(DAY_SCENE=1) / 기존 낮(0, 더미) 선택. 가중치는 sunVis에 곱해 쓴다.
+            const day2On = () => (CFG.DAY_SCENE >= 0.5 ? 1 : 0);
+            const day2W = () => sunVis * day2On();
+            // 하늘 색: 낮 분기(SKY_DAY2 또는 기존 SKY_DAY)와 황혼 분기(SKY)를 sunVis로 보간. idle에서는 한쪽만 쓰인다.
             const skyAt = q => {
-                const d = keyed(SKY_DAY, q);
+                const d = keyed(day2On() ? SKY_DAY2 : SKY_DAY, q);
                 if (sunVis >= 1) return d;
                 const k = keyed(SKY, q);
                 return sunVis <= 0 ? k : k.map((c, i) => mix(c, d[i], sunVis));
@@ -253,6 +303,14 @@
             const moonMT = pp => { const m = ss(CFG.MOON_A0, CFG.MOON_A1, pp); return 1 - Math.pow(1 - m, 3); };
             let stars = [], buckets = [];
             let mtn = [], clouds = [], duskClouds = [];
+            // 새 낮: 구름(day2Clouds, 스프라이트는 유휴 시간에 하나씩 굽는다), 구름 틈 별, 수면 반짝임
+            let day2Clouds = [], day2Stars = [], glints = [];
+            let day2Builds = 0, day2Timer = 0;
+            // 수면 반짝임 밝기 판정용 하늘 썸네일 (주기적으로만 읽는다)
+            const thumb = document.createElement('canvas');
+            thumb.width = 96; thumb.height = 48;
+            const TH = thumb.getContext('2d', { willReadFrequently: true });
+            let thumbData = null, thumbTick = 0;
             // stone lanterns on the flat (lantern-front.svg, all facing the viewer)
             let lanterns = [], lanImg = null, lanReady = false;
             // lantern raster cache: SVG를 1회 비트맵으로 구워 매 프레임 벡터 재래스터 방지
@@ -394,14 +452,16 @@
             // o.lit / o.shade: 콘텐츠 높이(0=상단, 1=하단)별 빛/그늘 색 [[t, [r,g,b]], ...]
             // o.glow: 광원 핫스팟 [x, y, r] (스프라이트 좌표) | null, o.fade: 밑변 소멸 시작 비율,
             // o.ax: 노이즈 가로 압축(가로로 늘여 그리는 띠에서 혹이 둥글게 남도록), o.seed: 노이즈 시드
+            // 선택(새 낮 구름용, 없으면 황혼 기본값): o.sun 광원 각도(°, y-up), o.lx/o.ly 핫스팟(콘텐츠 비율),
+            // o.cov/o.scale/o.absorb 질감, o.rimC/o.glowC 실버 라이닝·후광 색, o.gd [핫스팟 밝기, 반대편 밝기]
             function duskRender(m, P, o) {
                 const RS = 0.5;
                 const { w0, h0, pad: PAD } = m;
                 const W = Math.ceil(m.width * RS), H = Math.ceil(m.height * RS), N = W * H;
                 const top = PAD * RS, hh = h0 * RS;
                 const hyOf = y => clamp((y - top) / hh, 0, 1);
-                const COV = CFG.DC_COV, SHARP = CFG.DC_SHARP, SOFT = CFG.DC_SOFT;
-                const SC = CFG.DC_SCALE, ABS = CFG.DC_ABSORB;
+                const COV = o.cov ?? CFG.DC_COV, SHARP = CFG.DC_SHARP, SOFT = CFG.DC_SOFT;
+                const SC = o.scale ?? CFG.DC_SCALE, ABS = o.absorb ?? CFG.DC_ABSORB;
                 const ax = o.ax ?? 1, UV = 1 / (DUSK_UV * RS), UX = UV * ax;
                 const seed = o.seed | 0;
                 // 1) 엔벨로프: 퍼프 타원 sdE = 1 - |(p - c) / r| 의 최대값 (랩의 탑 덩어리처럼 1.7배)
@@ -448,12 +508,14 @@
                     return a + (b - a) * ty;
                 };
                 // 3) 광원(DC_SUN, 랩 기준 y-up 각도)을 격자 방향으로: 노이즈 공간 1단위 = 1 / (UX, UV) 격자 px
-                const sa = CFG.DC_SUN * Math.PI / 180, Lx = Math.cos(sa), Ly = -Math.sin(sa);
+                const sa = (o.sun ?? CFG.DC_SUN) * Math.PI / 180, Lx = Math.cos(sa), Ly = -Math.sin(sa);
                 const eL = 0.35 / SC * 0.5;            // 혹 크기에 비례한 미분 간격 (uv)
                 const dU = 0.02 / UV;                   // 윗면/아랫면 판정 간격 (격자 px)
                 const lit = o.lit, shade = o.shade;
-                const lax = (PAD + w0 * (o.lx ?? 0.1)) * RS, lay = top, ldiag = Math.hypot(w0, h0) * RS;
+                const lax = (PAD + w0 * (o.lx ?? 0.1)) * RS, lay = top + hh * (o.ly ?? 0), ldiag = Math.hypot(w0, h0) * RS;
                 const glow = o.glow ? [o.glow[0] * RS, o.glow[1] * RS, o.glow[2] * RS] : null;
+                const [GD0, GD1] = o.gd ?? [1.2, 0.62];
+                const RC_ = o.rimC ?? [255, 217, 178], GC_ = o.glowC ?? [255, 250, 236];
                 const img = new ImageData(W, H), D = img.data;
                 for (let y = 1; y < H - 1; y++) {
                     const hy = hyOf(y);
@@ -486,7 +548,7 @@
                         let v = clamp(lerp(T, T * powder, 0.4), 0, 1);
                         // 덩어리 전체의 빛 분포: 광원 쪽(좌상단) 모서리는 타오르고 반대편은 그늘로 가라앉는다
                         const gd = Math.hypot(x - lax, (y - lay) * 1.25) / ldiag;
-                        v *= lerp(1.2, 0.62, ss(0.05, 0.95, gd));
+                        v *= lerp(GD0, GD1, ss(0.05, 0.95, gd));
                         v = ss(0.1, 0.9, v);
                         v = v + (Math.sqrt(v) - v) * 0.35;   // 밝은 면은 빛에 씻겨 평평하게
                         let r = S0[0] + (L0[0] - S0[0]) * v;
@@ -494,11 +556,11 @@
                         let b = S0[2] + (L0[2] - S0[2]) * v;
                         // 실버 라이닝: 얇은 가장자리 + 빛 정면
                         const rim = (1 - ss(0, 0.6, d)) * T * (1 - 0.6 * hy) * 0.45;
-                        r += (255 - r) * rim; g += (217 - g) * rim; b += (178 - b) * rim;
+                        r += (RC_[0] - r) * rim; g += (RC_[1] - g) * rim; b += (RC_[2] - b) * rim;
                         if (glow) {
                             const ddx = x - glow[0], ddy = y - glow[1];
                             const w = Math.exp(-(ddx * ddx + ddy * ddy) / (glow[2] * glow[2])) * (0.35 + 0.65 * v);
-                            r += (255 - r) * w * 0.85; g += (250 - g) * w * 0.8; b += (236 - b) * w * 0.7;
+                            r += (GC_[0] - r) * w * 0.85; g += (GC_[1] - g) * w * 0.8; b += (GC_[2] - b) * w * 0.7;
                         }
                         let A = d;
                         if (o.fade < 1) A *= 1 - ss(o.fade, 1, hy);
@@ -655,6 +717,178 @@
                     if (c.slot === 0) c.xn = clamp(c.xc, 0.5, Math.max(0.5, 1 - cw / 2)) - cw / 2;
                     else { left -= cw + c.gap; c.xn = left; }
                     c.slot = null;
+                }
+            }
+
+            // ---------- 새 낮 전용 구름 (reference-images/day-empty-ref.png) ----------
+            // 양옆 거대 적운 벽 + 가운데 아래 밝은 덩어리 + 수평선 낮은 띠. 질감·음영은 황혼 셰이더(duskRender)를 그대로 쓰되
+            // 광원이 가운데 구름 틈에 있으므로 덩어리마다 광원 각도(o.sun)와 핫스팟(o.lx/o.ly)을 틈 쪽으로 돌린다.
+            // 색: 틈을 향한 윗면만 흰빛, 나머지는 청회색 그늘로 가라앉는다. 색이 구워져 있어 낮 idle에서는 틴트 없음.
+            const DY_LIT = [[0, [248, 250, 254]], [0.22, [222, 231, 246]], [0.45, [160, 178, 214]], [0.7, [106, 126, 170]], [1, [68, 88, 134]]];
+            const DY_SHADE = [[0, [118, 136, 180]], [0.3, [84, 102, 150]], [0.6, [60, 76, 124]], [1, [40, 54, 96]]];
+            // spec.prof: 윗면 프로파일 [[u, top], ...] (u = 가로 비율, top = 콘텐츠 상단으로부터의 높이 비율)
+            function makeDay2MassSprite(lr, spec) {
+                const { w0, h0 } = spec, PAD = 180;
+                const m = duskMask(w0, h0, PAD);
+                const P = [];
+                const prof = spec.prof;
+                const topAt = u => {
+                    if (u <= prof[0][0]) return prof[0][1];
+                    for (let i = 1; i < prof.length; i++) {
+                        if (u <= prof[i][0]) return lerp(prof[i - 1][1], prof[i][1], ss(prof[i - 1][0], prof[i][0], u));
+                    }
+                    return prof[prof.length - 1][1];
+                };
+                const NC = spec.cols, colW = w0 / NC, bot = PAD + h0 * (spec.bot ?? 0.84);
+                for (let i = 0; i < NC; i++) {
+                    const u = (i + 0.15 + lr() * 0.7) / NC;
+                    const tp = topAt(u) + (lr() - 0.5) * 0.03;
+                    const R0 = clamp(colW * (0.7 + lr() * 0.35), 26, 110);
+                    const x = PAD + w0 * u;
+                    let y = PAD + h0 * tp + R0 * 0.8;
+                    // 윗면 덩어리: 윗둘레 잔 덩어리가 많아 콜리플라워 실루엣
+                    duskBillow(P, lr, x, y, R0, 1 + lr() * 0.25, 0.85 + lr() * 0.15, 3 + ((lr() * 3) | 0));
+                    // 아래로 밑변까지 점점 큰 덩어리로 채운다
+                    let R = R0;
+                    while (y < bot) {
+                        R = Math.min(R * 1.12, 120);
+                        y += R * (0.8 + lr() * 0.3);
+                        duskBillow(P, lr, x + (lr() - 0.5) * colW * 0.6, Math.min(y, bot), R,
+                            1.1 + lr() * 0.3, 0.8 + lr() * 0.15, 1 + ((lr() * 2) | 0));
+                    }
+                }
+                const gl = spec.glow;
+                return duskRender(m, P, {
+                    lit: DY_LIT, shade: DY_SHADE,
+                    glow: gl ? [PAD + w0 * gl[0], PAD + h0 * gl[1], w0 * gl[2]] : null,
+                    fade: spec.fade ?? 0.9, ax: 1, seed: (lr() * 1e6) | 0,
+                    sun: spec.sun, lx: spec.lx, ly: spec.ly, gd: spec.gd ?? [1.25, 0.5],
+                    cov: CFG.DY_COV, scale: CFG.DY_SCALE, absorb: CFG.DY_ABSORB,
+                    rimC: [236, 244, 255], glowC: [250, 252, 255]
+                });
+            }
+            // 수평선 낮은 띠: 납작하고 어두운 청회색 덩어리들이 섬처럼 이어진다
+            function makeDay2BandSprite(lr) {
+                const w0 = 560, h0 = 120, PAD = 140;
+                const m = duskMask(w0, h0, PAD);
+                const P = [];
+                const humps = Array.from({ length: 1 + ((lr() * 3) | 0) }, () => ({
+                    u: 0.15 + lr() * 0.7, w: 0.05 + lr() * 0.08, h: 0.3 + lr() * 0.5
+                }));
+                const top = u => {
+                    let v = 0.1;
+                    for (const hp of humps) v = Math.max(v, hp.h * Math.exp(-((u - hp.u) ** 2) / (2 * hp.w * hp.w)));
+                    return 0.7 - 0.6 * Math.min(1, v);
+                };
+                for (let i = 0; i < 12; i++) {
+                    const x = PAD + w0 * (0.04 + 0.92 * (i + lr()) / 12);
+                    duskPuff(P, x, PAD + h0 * (0.72 + lr() * 0.12), 24 + lr() * 12, 0.85 + lr() * 0.25, 1.8 + lr() * 0.8, 0.5 + lr() * 0.15);
+                }
+                for (let i = 0; i < 10; i++) {
+                    const u = 0.06 + 0.88 * (i + lr()) / 10;
+                    const tp = top(u);
+                    const R = 14 + (0.7 - tp) * 60 + lr() * 6;
+                    duskBillow(P, lr, PAD + w0 * u, PAD + h0 * tp + R * 0.75, R, 1.2 + lr() * 0.4, 0.75 + lr() * 0.2, 2 + ((lr() * 2) | 0));
+                }
+                return duskRender(m, P, {
+                    lit: [[0, [122, 144, 184]], [0.5, [84, 104, 148]], [1, [56, 74, 114]]],
+                    shade: [[0, [60, 78, 120]], [0.5, [44, 60, 100]], [1, [30, 44, 80]]],
+                    glow: null, fade: 0.85, ax: 1.6, seed: (lr() * 1e6) | 0,
+                    sun: 90, lx: 0.5, gd: [1.1, 0.8],
+                    cov: CFG.DY_COV, scale: CFG.DY_SCALE, absorb: CFG.DY_ABSORB, rimC: [204, 222, 246]
+                });
+            }
+            // 큰 덩어리 배치: ax = 기준 x(화면 비율), al = 기준이 콘텐츠의 어디인지(0 왼쪽 끝, 0.5 중심, 1 오른쪽 끝),
+            // ay = 콘텐츠 밑변(수평선 비율), hh = 콘텐츠 높이(수평선 비율), wmax = 화면에 보이는 최대 너비(화면 비율).
+            // 좁은 화면에서 wmax를 넘는 만큼은 바깥쪽 화면 밖으로 밀어 가운데 틈을 남긴다.
+            const DAY2_MASS = [
+                {   // 왼쪽 벽: 왼쪽 위로 화면 밖까지 솟고 틈 쪽으로 계단처럼 내려온다. 빛은 오른쪽 위(틈)에서
+                    w0: 860, h0: 660, cols: 13,
+                    prof: [[0, 0], [0.18, 0.04], [0.3, 0.16], [0.42, 0.08], [0.56, 0.05], [0.68, 0.22], [0.8, 0.38], [0.92, 0.5], [1, 0.62]],
+                    sun: 30, lx: 0.8, ly: 0.2, ax: -0.05, al: 0, ay: 1.0, hh: 1.3, wmax: 0.48, bot: 0.97, fade: 0.95
+                },
+                {   // 오른쪽 벽: 틈 쪽 가장자리가 낮고 오른쪽 위로 화면 밖까지 솟는다. 빛은 왼쪽 위(틈)에서
+                    w0: 860, h0: 660, cols: 13,
+                    prof: [[0, 0.52], [0.1, 0.36], [0.2, 0.24], [0.3, 0.3], [0.42, 0.14], [0.6, 0.05], [0.8, 0], [1, 0]],
+                    sun: 150, lx: 0.2, ly: 0.2, ax: 1.05, al: 1, ay: 1.0, hh: 1.3, wmax: 0.46, bot: 0.97, fade: 0.95
+                },
+                {   // 가운데 아래 덩어리: 꼭대기는 틈의 빛을 정면으로 받아 희고, 밑동은 수평선까지 그늘로 이어진다
+                    w0: 520, h0: 380, cols: 8,
+                    prof: [[0, 0.5], [0.22, 0.2], [0.5, 0.04], [0.75, 0.16], [1, 0.46]],
+                    sun: 90, lx: 0.5, ly: 0, ax: 0.52, al: 0.5, ay: 1.0, hh: 0.56, wmax: 0.3,
+                    bot: 0.95, fade: 0.93, gd: [1.35, 0.6], glow: [0.45, 0.06, 0.3]
+                },
+            ];
+            function buildDay2Clouds() {
+                const rng = mulberry32(Math.round((CFG.DY_SEED ?? 3) * 1000 + 313));
+                day2Clouds = [];
+                for (const spec of DAY2_MASS) {
+                    day2Clouds.push({ kind: 'mass', spec, spr: null, seed: (rng() * 4294967296) >>> 0, ph: rng() * Math.PI * 2 });
+                }
+                const n = Math.max(0, Math.round(CFG.DY_BAND_N));
+                for (let i = 0; i < n; i++) {
+                    day2Clouds.push({
+                        kind: 'band', spr: null, seed: (rng() * 4294967296) >>> 0,
+                        xn: -0.3 + (i / Math.max(1, n)) * 1.5 + rng() * 0.06,
+                        yn: 0.985 + rng() * 0.025,
+                        sp: (CFG.DY_SP ?? 0.0035) * (0.6 + rng() * 0.8),
+                        s: 0.6 + rng() * 0.4, sw: 1.4 + rng() * 0.6, sh: 0.45 + rng() * 0.25
+                    });
+                }
+                scheduleDay2();
+            }
+            function buildDay2Sprite(c) {
+                const lr = mulberry32(c.seed);
+                c.spr = c.kind === 'mass' ? makeDay2MassSprite(lr, c.spec) : makeDay2BandSprite(lr);
+                day2Builds++;
+            }
+            // 스프라이트는 유휴 시간에 하나씩 굽는다(첫 화면 지연 방지). 낮이 먼저 필요해지면 ensureDay2가 남은 것을 즉시 굽는다.
+            function scheduleDay2() {
+                clearTimeout(day2Timer);
+                const next = () => {
+                    const c = day2Clouds.find(c => !c.spr);
+                    if (!c) return;
+                    buildDay2Sprite(c);
+                    day2Timer = setTimeout(next, 30);
+                };
+                day2Timer = setTimeout(next, 400);
+            }
+            function ensureDay2() {
+                for (const c of day2Clouds) if (!c.spr) buildDay2Sprite(c);
+            }
+            function day2Geom(c, base) {
+                const sp = c.spr, pad = sp.pad, w0 = sp.w0, h0 = sp.h0;
+                if (c.kind === 'mass') {
+                    const S = c.spec;
+                    // 가운데 덩어리는 좁은 화면에서 틈을 다 덮지 않게 너비로도 제한 (양옆 벽은 화면 밖으로 밀어낸다)
+                    let k = S.hh * HZ / h0;
+                    if (S.al === 0.5) k = Math.min(k, 2 * S.wmax * W / w0);
+                    const cw = w0 * k, ch = h0 * k, pd = pad * k;
+                    const over = Math.max(0, cw - S.wmax * W);
+                    const sway = RM.matches ? 0 : W * (CFG.DY_SWAY ?? 0) * Math.sin(clock * 0.04 + c.ph);
+                    const cx = S.ax * W - S.al * cw + (S.al < 0.5 ? -over : S.al > 0.5 ? over : 0) + sway;
+                    return { px: pd, tw: cw + pd * 2, th: ch + pd * 2, dx: cx - pd, dy: S.ay * HZ - ch - pd };
+                }
+                const k = base * (c.s ?? 1), sx = c.sw ?? 1, sy = c.sh ?? 1;
+                const cw = w0 * k * sx, ch = h0 * k * sy, px = pad * k * sx, py = pad * k * sy;
+                return { px, tw: cw + px * 2, th: ch + py * 2, dx: c.xn * W - px, dy: c.yn * HZ - ch * 0.9 - py };
+            }
+            // 구름 틈 별(광원 둘레에 몰림) + 수면 반짝임 위치
+            function buildDay2Extras() {
+                const rng = mulberry32(919);
+                day2Stars = [];
+                for (let i = 0; i < 150; i++) {
+                    const a = rng() * Math.PI * 2, r = Math.sqrt(rng());
+                    day2Stars.push({
+                        ox: Math.cos(a) * r * 0.26, oy: Math.sin(a) * r * 0.36 - 0.06,
+                        d: 0.6 + rng() * rng() * 1.4, a: 0.35 + rng() * 0.65,
+                        ph: rng() * Math.PI * 2, f: 0.5 + rng() * 1.5
+                    });
+                }
+                glints = [];
+                const ng = Math.max(0, Math.round(CFG.DY_GLINT_N));
+                for (let i = 0; i < ng; i++) {
+                    glints.push({ u: rng(), s: 0.04 + Math.pow(rng(), 0.85) * 0.96, ph: rng() * Math.PI * 2, f: 0.7 + rng() * 2.2, z: 0.5 + rng() * 0.8 });
                 }
             }
 
@@ -1084,10 +1318,82 @@
                         // 왼쪽이 화면 오른쪽 밖으로 완전히 나가면 너비만큼 왼쪽 밖으로 되돌림 (팝인 없음)
                         if (G.dx > W) c.xn = (-G.tw - 8 + G.px) / W;
                     }
+                    // 새 낮 수평선 띠 (큰 덩어리는 day2Geom에서 제자리 흔들림만)
+                    for (const c of day2Clouds) {
+                        if (c.kind !== 'band') continue;
+                        c.xn += c.sp * dt;
+                        if (!c.spr) continue;
+                        const G = day2Geom(c, base);
+                        if (G.dx > W) c.xn = (-G.tw - 8 + G.px) / W;
+                    }
                 }
             }
 
             // ---------- render ----------
+            // 새 낮: 구름 뒤에서 퍼지는 틈의 청백색 빛 + 그 둘레로 비치는 옅은 별
+            function drawDay2Light(lx, ly, a) {
+                const A = CFG.DY_LIGHT * a;
+                const r = Math.max(W, HZ) * 0.55;
+                S.save();
+                S.translate(lx, ly);
+                S.scale(1, 1.3);
+                const g = S.createRadialGradient(0, 0, 0, 0, 0, r);
+                g.addColorStop(0, rgba(hex('#f4fbff'), Math.min(1, 0.95 * A)));
+                g.addColorStop(0.1, rgba(hex('#cfeafa'), 0.75 * A));
+                g.addColorStop(0.32, rgba(hex('#7cb8e2'), 0.36 * A));
+                g.addColorStop(1, 'rgba(80,140,205,0)');
+                S.fillStyle = g;
+                S.fillRect(-r, -r, r * 2, r * 2);
+                S.restore();
+                const sa = CFG.DY_STAR_A * a;
+                if (sa > 0.01) {
+                    S.globalCompositeOperation = 'lighter';
+                    S.fillStyle = '#eef5ff';
+                    for (const st of day2Stars) {
+                        const tw = RM.matches ? 0.8 : 0.6 + 0.4 * Math.sin(clock * st.f + st.ph);
+                        const al = sa * st.a * tw;
+                        if (al < 0.01) continue;
+                        S.globalAlpha = Math.min(1, al);
+                        S.beginPath();
+                        S.arc(lx + st.ox * W, ly + st.oy * HZ, st.d / 2, 0, Math.PI * 2);
+                        S.fill();
+                    }
+                    S.globalAlpha = 1;
+                    S.globalCompositeOperation = 'source-over';
+                }
+            }
+            // 새 낮: 수면 반짝임. 반사된 하늘이 밝은 곳(썸네일 휘도)에서만 깜빡인다
+            function drawGlints(w, q) {
+                const a0 = CFG.DY_GLINT_A * w * (1 - ss(CFG.DY_F0, CFG.DY_F1, q));
+                if (a0 < 0.01 || !glints.length) return;
+                if (!thumbData || (thumbTick % 15) === 0) {
+                    TH.setTransform(1, 0, 0, 1, 0, 0);
+                    TH.drawImage(sky, 0, 0, thumb.width, thumb.height);
+                    thumbData = TH.getImageData(0, 0, thumb.width, thumb.height).data;
+                }
+                thumbTick++;
+                const D = thumbData, TW = thumb.width, THh = thumb.height, reflH = H - HZ;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.fillStyle = '#e8f4ff';
+                for (const gl of glints) {
+                    const d = gl.s * reflH, my = HZ - d;
+                    if (my < 0) continue;
+                    const ix = clamp((gl.u * TW) | 0, 0, TW - 1), iy = clamp((my / HZ * THh) | 0, 0, THh - 1);
+                    const j = (iy * TW + ix) * 4;
+                    const L = (0.3 * D[j] + 0.59 * D[j + 1] + 0.11 * D[j + 2]) / 255;
+                    const lum = ss(0.32, 0.7, L);
+                    if (lum <= 0) continue;
+                    const tw = RM.matches ? 0.45 : Math.pow(Math.max(0, Math.sin(clock * gl.f + gl.ph)), 4);
+                    const al = a0 * lum * tw;
+                    if (al < 0.02) continue;
+                    const sz = gl.z * (0.8 + 1.8 * gl.s);
+                    ctx.globalAlpha = Math.min(1, al);
+                    ctx.fillRect(gl.u * W - sz, HZ + d - sz * 0.35, sz * 2, sz * 0.7);
+                }
+                ctx.globalAlpha = 1;
+                ctx.globalCompositeOperation = 'source-over';
+            }
             function drawSky() {
                 S.setTransform(dpr, 0, 0, dpr, 0, 0);
                 S.globalCompositeOperation = 'source-over';
@@ -1100,6 +1406,12 @@
                 for (let i = 0; i < skyC.length; i++) g.addColorStop(SKY_STOPS[i], rgba(skyC[i]));
                 S.fillStyle = g; S.fillRect(0, 0, W, HZ);
 
+                // 새 낮(DAY_SCENE=1) 가중치: 낮 분기(sunVis) 중 새 낮 몫. 나머지(sunVis - w2)가 기존 낮(더미).
+                const w2 = day2W();
+                const d2Live = w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, q));
+                const d2lx = W * CFG.DY_LX, d2ly = HZ * CFG.DY_LY;
+                if (d2Live > 0.005) drawDay2Light(d2lx, d2ly, d2Live);
+
                 // sun path (낮/황혼 공통: 정규화 진행도 nk 기준이라 시작 고도가 동일)
                 const nk = sunK();
                 const sp = clamp(nk / CFG.SUN_PATH, 0, 1);
@@ -1108,7 +1420,8 @@
                 const sy = lerp(sy0, HZ + sunR * CFG.SUN_DROP, sp * sp);
 
                 // afterglow along the horizon (brief)
-                const glowA = ss(CFG.SUN_G0, CFG.SUN_G1, nk) * (1 - ss(CFG.SUN_G2, CFG.SUN_G3, nk));
+                // 새 낮은 주황 여광 없이 블루 아워로 넘어간다
+                const glowA = ss(CFG.SUN_G0, CFG.SUN_G1, nk) * (1 - ss(CFG.SUN_G2, CFG.SUN_G3, nk)) * (1 - w2);
                 if (glowA > 0.005) {
                     S.save();
                     S.translate(W * 0.32, HZ);
@@ -1123,7 +1436,8 @@
                 }
 
                 // sun (소멸도 nk 기준: 낮/황혼 동일한 타이밍)
-                const sunFade = (1 - ss(CFG.SUN_F0, CFG.SUN_F1, nk)) * sunVis;
+                // 태양 원반은 기존 낮(더미)에만: 새 낮은 해가 구름 뒤에 가려 틈의 빛으로만 보인다
+                const sunFade = (1 - ss(CFG.SUN_F0, CFG.SUN_F1, nk)) * (sunVis - w2);
                 if (sy < HZ + sunR * 3 && sunFade > 0.001) {
                     const hgt = clamp((HZ - sy) / (HZ - sy0), 0, 1);
                     const sc = hgt > 0.35
@@ -1168,6 +1482,26 @@
                             const sp = c.spr, cw = sp.w0 * k, ch = sp.h0 * k, pd = sp.pad * k;
                             CL.drawImage(sp, c.xn * W - pd, c.yn * HZ - ch * 0.7 - pd, cw + pd * 2, ch + pd * 2);
                         }
+                    } else if (set === day2Clouds) {
+                        ensureDay2();
+                        for (const c of set) {
+                            const G = day2Geom(c, base);
+                            if (G.dx > W || G.dx + G.tw < 0) continue;
+                            CL.drawImage(c.spr, G.dx, G.dy, G.tw, G.th);
+                        }
+                        // 틈의 광원에 가까운 가장자리일수록 청백색으로 타오른다
+                        CL.globalCompositeOperation = 'source-atop';
+                        const rg = CL.createRadialGradient(d2lx, d2ly, 0, d2lx, d2ly, Math.max(W, HZ) * 0.42);
+                        rg.addColorStop(0, `rgba(236,248,255,${(0.5 * CFG.DY_LIGHT).toFixed(3)})`);
+                        rg.addColorStop(0.5, `rgba(200,228,250,${(0.14 * CFG.DY_LIGHT).toFixed(3)})`);
+                        rg.addColorStop(1, 'rgba(200,228,250,0)');
+                        CL.fillStyle = rg; CL.fillRect(0, 0, W, HZ);
+                        // 수평선 쪽 구름 밑동은 한 덩어리의 짙은 청회색 그늘로 가라앉는다
+                        const bg = CL.createLinearGradient(0, HZ * 0.55, 0, HZ);
+                        bg.addColorStop(0, 'rgba(36,54,98,0)');
+                        bg.addColorStop(1, 'rgba(36,54,98,0.5)');
+                        CL.fillStyle = bg; CL.fillRect(0, HZ * 0.55, W, HZ * 0.45);
+                        CL.globalCompositeOperation = 'source-over';
                     } else {
                         for (const c of set) {
                             const G = duskGeom(c, base);
@@ -1201,8 +1535,9 @@
                     S.globalAlpha = 1;
                     S.setTransform(dpr, 0, 0, dpr, 0, 0);
                 };
-                const ca = (1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q)) * (1 - wD);
+                const ca = (1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q)) * (sunVis - w2);
                 if (ca > 0.01) drawSet(clouds, CLOUD_TINT, ca, 0);
+                if (d2Live > 0.01) drawSet(day2Clouds, DAY2_TINT, d2Live, 0);
                 if (dLive > 0.01) drawSet(duskClouds, DCLOUD_TINT, dLive, 1 - ss(DUSK_Q, CFG.DC_F1, q));
 
                 drawStars();
@@ -1237,7 +1572,8 @@
 
                 // distant ranges on the horizon
                 const mh = clamp(H * CFG.MTN_H, CFG.MTN_MIN, CFG.MTN_MAX);
-                S.fillStyle = rgba(keyed(MOUNT, q)[0]);
+                const mc = keyed(MOUNT, q)[0];
+                S.fillStyle = rgba(w2 > 0 ? mix(mc, keyed(MOUNT_DAY2, q)[0], w2) : mc);
                 S.beginPath();
                 S.moveTo(0, HZ);
                 for (let i = 0; i < mtn.length; i++) S.lineTo((i / (mtn.length - 1)) * W, HZ - mtn[i] * mh);
@@ -1273,7 +1609,12 @@
             // torii standing on the flat in front of the ranges, with its own mirror image
             // torC(본체)/torR(뒤집힌 반사체)은 색·크기가 바뀔 때만 재래스터 (idle 시 60fps 재빌드 제거)
             function drawTorii(r0, r1) {
-                const [red, blk, gold] = keyed(TORII, palQ());
+                let [red, blk, gold] = keyed(TORII, palQ());
+                const w2 = day2W();
+                if (w2 > 0) {
+                    const [r2, b2, g2] = keyed(TORII_DAY2, palQ());
+                    red = mix(red, r2, w2); blk = mix(blk, b2, w2); gold = mix(gold, g2, w2);
+                }
                 const k = torS * dpr;
                 const key = torC.width + 'x' + torC.height + '|' + k.toFixed(3) + '|' +
                     (red[0] | 0) + ',' + (red[1] | 0) + ',' + (red[2] | 0) + '|' +
@@ -1517,11 +1858,22 @@
 
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 const qR = palQ();
-                const [r0, r1] = keyed(REFL, qR);
+                const w2 = day2W();
+                let [r0, r1] = keyed(REFL, qR);
+                if (w2 > 0) { const [a, b] = keyed(REFL_DAY2, qR); r0 = lerp(r0, a, w2); r1 = lerp(r1, b, w2); }
                 const rg = ctx.createLinearGradient(0, HZ, 0, H);
                 rg.addColorStop(0, `rgba(10,18,32,${r0})`);
                 rg.addColorStop(1, `rgba(10,18,32,${r1})`);
                 ctx.fillStyle = rg; ctx.fillRect(0, HZ, W, H - HZ);
+                // 새 낮: 수면이 하늘보다 짙은 바다빛 청색 (수평선 쪽은 옅게)
+                const wa = (CFG.DY_WATER ?? 0) * w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, qR));
+                if (wa > 0.005) {
+                    const wg = ctx.createLinearGradient(0, HZ, 0, H);
+                    wg.addColorStop(0, `rgba(28,92,156,${(wa * 0.55).toFixed(3)})`);
+                    wg.addColorStop(1, `rgba(18,70,134,${wa.toFixed(3)})`);
+                    ctx.fillStyle = wg; ctx.fillRect(0, HZ, W, H - HZ);
+                }
+                if (w2 > 0.01) drawGlints(w2, qR);
 
                 // seam glow where sky meets its mirror
                 const hor = skyAt(qR)[SKY_STOPS.length - 1];
@@ -1536,7 +1888,7 @@
                 drawLanterns(r0, r1);
                 FG.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-                const v = keyed(VIG, qR)[0];
+                const v = lerp(keyed(VIG, qR)[0], keyed(VIG_DAY2, qR)[0], w2);
                 const vg = FG.createRadialGradient(W / 2, HZ, Math.min(W, H) * 0.35, W / 2, HZ, Math.hypot(W, H) * 0.72);
                 vg.addColorStop(0, 'rgba(0,0,0,0)');
                 vg.addColorStop(1, `rgba(0,0,0,${v})`);
@@ -1879,14 +2231,26 @@ void main() {
                 get reflCost() { return reflEMA; },
                 get torBuilds() { return torBuilds; },
                 get bandBuilds() { return bandBuilds; },
+                get day2Builds() { return day2Builds; },
+                get day2W() { return day2W(); },
                 get palettes() {
-                    return { SKY: SKY_RAW, SKY_DAY: SKY_DAY_RAW, MOUNT: MOUNT_RAW, TORII: TORII_RAW, CLOUD_TINT: CLOUD_TINT_RAW, DCLOUD_TINT: DCLOUD_TINT_RAW, REFL, VIG, LV, COLS: COLS_RAW };
+                    return {
+                        SKY: SKY_RAW, SKY_DAY: SKY_DAY_RAW, SKY_DAY2: SKY_DAY2_RAW, MOUNT: MOUNT_RAW, MOUNT_DAY2: MOUNT_DAY2_RAW,
+                        TORII: TORII_RAW, TORII_DAY2: TORII_DAY2_RAW, CLOUD_TINT: CLOUD_TINT_RAW, DCLOUD_TINT: DCLOUD_TINT_RAW,
+                        DAY2_TINT: DAY2_TINT_RAW, REFL, REFL_DAY2, VIG, VIG_DAY2, LV, COLS: COLS_RAW
+                    };
                 },
                 setPalette(name, raw) {
                     const parsed = JSON.parse(JSON.stringify(raw));
                     if (name === 'SKY') { SKY_RAW = skyTo5(parsed); SKY = prep(SKY_RAW); }
                     else if (name === 'SKY_DAY') { SKY_DAY_RAW = skyTo5(parsed); SKY_DAY = prep(SKY_DAY_RAW); }
+                    else if (name === 'SKY_DAY2') { SKY_DAY2_RAW = skyTo5(parsed); SKY_DAY2 = prep(SKY_DAY2_RAW); }
                     else if (name === 'MOUNT') { MOUNT_RAW = parsed; MOUNT = prep(MOUNT_RAW); }
+                    else if (name === 'MOUNT_DAY2') { MOUNT_DAY2_RAW = parsed; MOUNT_DAY2 = prep(MOUNT_DAY2_RAW); }
+                    else if (name === 'TORII_DAY2') { TORII_DAY2_RAW = parsed; TORII_DAY2 = prep(TORII_DAY2_RAW); }
+                    else if (name === 'DAY2_TINT') { DAY2_TINT_RAW = parsed; DAY2_TINT = prep(DAY2_TINT_RAW); }
+                    else if (name === 'REFL_DAY2') { REFL_DAY2 = parsed; }
+                    else if (name === 'VIG_DAY2') { VIG_DAY2 = parsed; }
                     else if (name === 'TORII') { TORII_RAW = parsed; TORII = prep(TORII_RAW); }
                     else if (name === 'CLOUD_TINT') { CLOUD_TINT_RAW = parsed; CLOUD_TINT = prep(CLOUD_TINT_RAW); }
                     else if (name === 'DCLOUD_TINT') { DCLOUD_TINT_RAW = parsed; DCLOUD_TINT = prep(DCLOUD_TINT_RAW); }
@@ -1899,7 +2263,7 @@ void main() {
                 resetPalette(name, defaults) { this.setPalette(name, defaults); },
                 actions: {
                     resize, buildStars, buildMountains, buildLanterns,
-                    buildClouds() { buildClouds(); buildDuskClouds(); },
+                    buildClouds() { buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); },
                     goTo,
                     toNight() { goTo('night'); },
                     toDay() { goTo('day'); },
@@ -1918,7 +2282,7 @@ void main() {
                         sunVis = 0; svFrom = 0; svTo = 0;
                         state = 'dusk'; p = CFG.P_DUSK; tState = 0; tNight = 0;
                         phi = 0; phiTail = null; omega = 0; debugHold = false; debugPaused = false;
-                        buildMountains(); buildClouds(); buildDuskClouds(); buildLanterns(); resize();
+                        buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); resize();
                     },
                     ripple(xn = 0.5, sn = 0.5) {
                         const cap = Math.min(RIP_SLOTS, Math.max(1, Math.round(CFG.RIP_MAX)));
@@ -1954,6 +2318,8 @@ void main() {
             buildMountains();
             buildClouds();
             buildDuskClouds();
+            buildDay2Clouds();
+            buildDay2Extras();
             buildLanterns();
             loadLanternSprite();
             resize();

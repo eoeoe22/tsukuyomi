@@ -1,4 +1,4 @@
-// 로컬 미리보기 전용 Worker. 배포용이 아님.
+// 미리보기용 Worker (로컬 wrangler dev와 Workers Builds 프리뷰 공용).
 // "/" 로 접속해도 tsukuyomi.html이 열리도록 매핑하고,
 // 나머지는 정적 에셋 그대로 서빙한다.
 export default {
