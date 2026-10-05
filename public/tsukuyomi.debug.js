@@ -54,12 +54,10 @@
             ['CLOUD_Y0', 0, 1, 0.01, 'clouds'], ['CLOUD_YR', 0, 0.6, 0.01, 'clouds'],
             ['CLOUD_X0', -1, 0.5, 0.01, 'clouds'], ['CLOUD_SPREAD', 0, 2.5, 0.01, 'clouds'],
             ['CLOUD_F0', 0, 1, 0.01], ['CLOUD_F1', 0, 1, 0.01],
-            ['CLOUD_CB_N', 0, 6, 1, 'clouds'], ['CLOUD_CB_Y0', 0, 1, 0.01, 'clouds'], ['CLOUD_CB_YR', 0, 0.5, 0.01, 'clouds'],
-            ['CLOUD_CB_S0', 0.3, 2.5, 0.01, 'clouds'], ['CLOUD_CB_S1', 0.3, 2.5, 0.01, 'clouds'],
             ['DC_SEED', 0, 50, 1, 'clouds'], ['DC_N', 0, 16, 1, 'clouds'],
             ['DC_Y0', 0.6, 1.1, 0.01, 'clouds'], ['DC_YR', 0, 0.3, 0.01, 'clouds'],
             ['DC_CB_N', 0, 6, 1, 'clouds'], ['DC_CB_S0', 0.3, 2.5, 0.01, 'clouds'], ['DC_CB_S1', 0.3, 2.5, 0.01, 'clouds'], ['DC_CB_SP', 0, 1.5, 0.05, 'clouds'],
-            ['DC_W0', 0, 0.4, 0.01], ['DC_W1', 0, 0.4, 0.01], ['DC_F0', 0.3, 1, 0.01], ['DC_F1', 0.3, 1, 0.01],
+            ['DC_F0', 0.3, 1, 0.01], ['DC_F1', 0.3, 1, 0.01],
             ['DC_LX', -0.3, 1.2, 0.01], ['DC_LY', -0.6, 0.6, 0.01], ['DC_LIGHT', 0, 1.5, 0.01],
             ['DC_COV', 0.2, 0.8, 0.01, 'clouds'], ['DC_SHARP', 0.01, 0.3, 0.005, 'clouds'], ['DC_SOFT', 0.05, 0.6, 0.01, 'clouds'],
             ['DC_SCALE', 2, 12, 0.1, 'clouds'], ['DC_ABSORB', 0.2, 4, 0.05, 'clouds'], ['DC_SUN', 20, 160, 1, 'clouds'],
@@ -97,7 +95,7 @@
             ['LANTERN_GLOW', 0, 1, 0.01], ['LANTERN_POOL', 0, 1, 0.01],
         ]},
     ];
-    const PALETTES = ['SKY', 'MOUNT', 'TORII', 'CLOUD_TINT', 'DCLOUD_TINT', 'REFL', 'VIG', 'LV', 'COLS'];
+    const PALETTES = ['SKY', 'SKY_DAY', 'MOUNT', 'TORII', 'CLOUD_TINT', 'DCLOUD_TINT', 'REFL', 'VIG', 'LV', 'COLS'];
 
     const fmt = v => {
         if (!isFinite(v)) return String(v);

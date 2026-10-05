@@ -61,17 +61,16 @@
                 POLARIS_R: 0.7, HALO_R: 4, HALO_A: 0.35,
                 MTN_H: 0.022, MTN_MIN: 6, MTN_MAX: 20, MTN_TH: 0.47, MTN_POW: 1.15,
                 MTN_W0: 0.62, MTN_W1: 0.28, MTN_W2: 0.10,
-                CLOUD_N: 12, CLOUD_SP0: 0.003, CLOUD_SP1: 0.005, CLOUD_Y0: 0.66, CLOUD_YR: 0.28,
-                CLOUD_X0: -0.3, CLOUD_SPREAD: 1.55,
+                // 낮 구름 세트(CLOUD_*): 547f49e 시점 로직 그대로. 황혼 세트(DC_*)와 코드·값을 공유하지 않는다.
+                CLOUD_N: 7, CLOUD_SP0: 0.003, CLOUD_SP1: 0.005, CLOUD_Y0: 0.5, CLOUD_YR: 0.34,
+                CLOUD_X0: -0.25, CLOUD_SPREAD: 1.4,
                 CLOUD_F0: 0.2, CLOUD_F1: 0.48,
-                CLOUD_CB_N: 2, CLOUD_CB_Y0: 0.8, CLOUD_CB_YR: 0.14,
-                CLOUD_CB_S0: 0.85, CLOUD_CB_S1: 1.45,
                 // 황혼 전용 구름 세트(낮 구름과 분리): 수평선 위 하부 띠 + 랜덤 적란운.
-                // DC_W0/W1: q 기준 낮 구름 → 황혼 구름 크로스페이드 구간, DC_F0/F1: 황혼 구름 → 밤 소멸 구간.
+                // 낮 ↔ 황혼 세트 전환은 sunVis(낮=1, 황혼=0)로 크로스페이드, DC_F0/F1: 황혼 구름 → 밤 소멸 구간.
                 // DC_CB_N: 적란운 최대 개수(실제 개수는 시드 기반 1~N 랜덤), DC_CB_SP: 띠 대비 적란운 흐름 속도 배율. DC_LX/LY: 화면 밖 좌상단 광원 위치.
                 DC_SEED: 5, DC_N: 9, DC_Y0: 0.93, DC_YR: 0.07,
                 DC_CB_N: 3, DC_CB_S0: 0.95, DC_CB_S1: 1.5, DC_CB_SP: 0.4,
-                DC_W0: 0.12, DC_W1: 0.17, DC_F0: 0.36, DC_F1: 0.58,
+                DC_F0: 0.36, DC_F1: 0.58,
                 DC_LX: 0.16, DC_LY: -0.12, DC_LIGHT: 0.34,
                 // 황혼 구름 질감(적운 셰이더 랩 파라미터): 덮임 정도, 윗면/아랫면 경계 폭, 덩어리 크기, 그림자 깊이, 빛 방향(°, y-up)
                 DC_COV: 0.52, DC_SHARP: 0.105, DC_SOFT: 0.15, DC_SCALE: 8.1, DC_ABSORB: 1.25, DC_SUN: 160,
@@ -156,6 +155,19 @@
                 return [q, t, hx(mix(T, M, 0.30 / 0.58)), m, hx(mix(M, Z, 0.22 / 0.42)), h];
             });
             let SKY = prep(SKY_RAW);
+            // 낮 분기 전용 하늘(547f49e 시점 3단 팔레트 그대로): 낮 idle과 낮→밤 전환(파랑 → 주황 → 밤)에 쓴다.
+            // 위 SKY는 황혼 분기 전용. 두 팔레트는 sunVis(낮=1, 황혼=0)로만 섞이므로 서로 영향을 주지 않는다.
+            let SKY_DAY_RAW = skyTo5([
+                [0.00, '#2a64b4', '#6aa0d8', '#dbe9f3'],
+                [0.16, '#2f63ad', '#7ea7d3', '#e8e2d2'],
+                [0.26, '#E87A5D', '#EE966C', '#F3B27A'],
+                [0.34, '#E06D53', '#EA9067', '#F3B27A'],
+                [0.42, '#121838', '#523866', '#d0604c'],
+                [0.52, '#070b22', '#1a1f48', '#4a3f68'],
+                [0.64, '#03050f', '#070d24', '#18264a'],
+                [1.00, '#02040c', '#060b20', '#172848']
+            ]);
+            let SKY_DAY = prep(SKY_DAY_RAW);
             let MOUNT_RAW = [
                 [0.00, '#93a8bd'], [0.20, '#8d90a8'], [0.32, '#5b4560'],
                 [0.42, '#2a2038'], [0.56, '#0b0d1c'], [1.00, '#04060d']
@@ -180,9 +192,10 @@
                 'M126 64Q340 108 554 64L548 85Q340 126 132 85Z');
             // SVG-space bounding box (with a little room for the gold stroke)
             const TB = { x: 124, y: 62, w: 432, h: 360, base: 420 };
+            // 낮 구름 틴트 (547f49e 시점 그대로)
             let CLOUD_TINT_RAW = [
-                [0.00, '#ffffff', 0], [0.14, '#ffe9d2', 0.10], [0.26, '#f9b092', 0.40],
-                [0.34, '#ef7fa2', 0.50], [0.42, '#5c3a6e', 0.62], [1.00, '#1a1a30', 0.7]
+                [0.00, '#ffffff', 0], [0.14, '#ffe8c8', 0.10], [0.26, '#ffb07a', 0.42],
+                [0.34, '#ff6f6a', 0.52], [0.42, '#5a3d6e', 0.62], [1.00, '#1a1a30', 0.7]
             ];
             let CLOUD_TINT = prep(CLOUD_TINT_RAW);
             // 황혼 구름은 색을 스프라이트에 직접 구우므로 황혼 idle(≤0.34)에서는 틴트 없음, 밤으로만 어두워진다.
@@ -228,6 +241,13 @@
             // toNight에서는 출발값을 유지한다 (낮→밤은 해가 지고, 황혼→밤은 원반 없이 진행).
             let sunVis = 0, svFrom = 0, svTo = 0;
             const sunK = () => clamp(nk, 0, 1);
+            // 하늘 색: 낮 분기(SKY_DAY)와 황혼 분기(SKY)를 sunVis로 보간. idle에서는 한쪽만 쓰인다.
+            const skyAt = q => {
+                const d = keyed(SKY_DAY, q);
+                if (sunVis >= 1) return d;
+                const k = keyed(SKY, q);
+                return sunVis <= 0 ? k : k.map((c, i) => mix(c, d[i], sunVis));
+            };
             let phi = 0, phiTail = null, omega = 0, clock = 0;   // phiTail: 궤적 꼬리 각도 (null = 궤적 없음)
             // 달 상승 보간(mt)과 궤적 길이를 공유하는 헬퍼: drawSky의 달 위치와 동일한 식
             const moonMT = pp => { const m = ss(CFG.MOON_A0, CFG.MOON_A1, pp); return 1 - Math.pow(1 - m, 3); };
@@ -285,172 +305,36 @@
                 }
             }
 
+            // 낮 구름 스프라이트 (547f49e 시점 로직 그대로). 황혼 구름(duskRender)과 코드를 공유하지 않는다.
+            // PAD: 퍼프가 캔버스 경계에서 잘리지 않도록 둔 투명 여백(그리기 위치는 그만큼 보정하므로 모양은 동일).
             function makeCloudSprite(rng) {
-                // PAD: 퍼프가 캔버스 경계에서 잘리지 않게 투명 여백을 둔다.
-                // 그라데이션이 0까지 떨어지기 전에 캔버스가 끝나면 스프라이트
-                // 가장자리에 직선 이음매가 생긴다.
-                const w0 = 560, h0 = 220, PAD = 140;
                 const c = document.createElement('canvas');
-                c.width = w0 + PAD * 2; c.height = h0 + PAD * 2;
-                c.w0 = w0; c.h0 = h0; c.pad = PAD;
+                const cw = 560, ch = 220, PAD = 90;
+                c.width = cw + PAD * 2; c.height = ch + PAD * 2;
+                c.w0 = cw; c.h0 = ch; c.pad = PAD;
                 const g = c.getContext('2d');
-                // 2톤 퍼프: 자주빛 하부 로브를 먼저 깔고 밝은 코어를 위로 얹어
-                // 뭉게 하나하나에 음영을 준다 (양배추 질감의 핵심)
-                const puffBase = (x, y, r, a, ex, ey) => {
-                    g.save();
-                    g.translate(x, y);
-                    g.scale(ex, ey);
-                    let sg = g.createRadialGradient(0, r * 0.35, 0, 0, r * 0.35, r * 0.95);
-                    sg.addColorStop(0, `rgba(88,48,124,${(0.46 * a).toFixed(3)})`);
-                    sg.addColorStop(1, 'rgba(96,58,128,0)');
-                    g.fillStyle = sg;
-                    g.beginPath(); g.arc(0, r * 0.35, r * 0.95, 0, Math.PI * 2); g.fill();
-                    const gr = g.createRadialGradient(0, -r * 0.12, 0, 0, -r * 0.12, r);
-                    gr.addColorStop(0, `rgba(255,255,255,${(0.62 * a).toFixed(3)})`);
-                    gr.addColorStop(0.6, `rgba(255,255,255,${(0.36 * a).toFixed(3)})`);
+                g.translate(PAD, PAD);
+                for (let i = 0; i < 36; i++) {
+                    const u = rng();
+                    const x = cw * (0.12 + 0.76 * u);
+                    const bell = Math.sin(Math.PI * u);
+                    const y = ch * (0.66 - 0.38 * bell * (0.5 + 0.5 * rng()));
+                    const r = (22 + rng() * 48) * (0.55 + 0.6 * bell);
+                    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+                    gr.addColorStop(0, 'rgba(255,255,255,0.55)');
+                    gr.addColorStop(0.6, 'rgba(255,255,255,0.32)');
                     gr.addColorStop(1, 'rgba(255,255,255,0)');
                     g.fillStyle = gr;
-                    g.beginPath(); g.arc(0, -r * 0.12, r, 0, Math.PI * 2); g.fill();
-                    g.restore();
-                };
-                const puffs = 40 + ((rng() * 9) | 0);
-                for (let i = 0; i < puffs; i++) {
-                    const u = rng();
-                    const x = PAD + w0 * (0.12 + 0.76 * u);
-                    const bell = Math.sin(Math.PI * u);
-                    const y = PAD + h0 * (0.66 - 0.38 * bell * (0.5 + 0.5 * rng())) + (rng() - 0.5) * 22;
-                    const r = (20 + rng() * 52) * (0.5 + 0.65 * bell);
-                    const a = 0.75 + rng() * 0.45;
-                    const ex = 0.75 + rng() * 0.9;
-                    const ey = 0.55 + rng() * 0.55;
-                    puffBase(x, y, r, a, ex, ey);
-                }
-                // 하부 덱 보강: 밑변에 납작한 퍼프를 깔아 수평선 근처 밀도를 높인다
-                for (let i = 0; i < 18; i++) {
-                    const u = rng();
-                    const x = PAD + w0 * (0.05 + 0.9 * u);
-                    const y = PAD + h0 * (0.74 + rng() * 0.16);
-                    const r = 26 + rng() * 40;
-                    puffBase(x, y, r, 0.7 + rng() * 0.4, 1.3 + rng() * 0.8, 0.45 + rng() * 0.25);
-                }
-                // 미세 질감: 윗면에 작은 뭉게를 뿌려 양배추 결을 만든다
-                for (let i = 0; i < 26; i++) {
-                    const u = rng();
-                    const bell = Math.sin(Math.PI * u);
-                    const x = PAD + w0 * (0.1 + 0.8 * u) + (rng() - 0.5) * 20;
-                    const y = PAD + h0 * (0.5 - 0.32 * bell) + (rng() - 0.5) * 16;
-                    const r = 8 + rng() * 10;
-                    puffBase(x, y, r, 0.5 + rng() * 0.4, 0.8 + rng() * 0.5, 0.7 + rng() * 0.4);
+                    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
                 }
                 g.globalCompositeOperation = 'destination-out';
-                const fl = g.createLinearGradient(0, PAD + h0 * 0.72, 0, PAD + h0 * 0.94);
+                const fl = g.createLinearGradient(0, ch * 0.64, 0, ch * 0.8);
                 fl.addColorStop(0, 'rgba(0,0,0,0)'); fl.addColorStop(1, 'rgba(0,0,0,1)');
-                g.fillStyle = fl; g.fillRect(0, 0, c.width, c.height);
+                g.fillStyle = fl; g.fillRect(-PAD, -PAD, c.width, c.height);
                 g.globalCompositeOperation = 'source-atop';
-                // 하단 음영: 참조 장면처럼 밑으로 갈수록 진한 자주빛 (상부 하이라이트는 유지)
-                const sh = g.createLinearGradient(0, PAD + h0 * 0.15, 0, PAD + h0 * 0.82);
-                sh.addColorStop(0, 'rgba(255,255,255,0)');
-                sh.addColorStop(0.38, 'rgba(168,112,158,0.55)');
-                sh.addColorStop(0.68, 'rgba(92,42,110,0.80)');
-                sh.addColorStop(1, 'rgba(34,15,62,0.96)');
-                g.fillStyle = sh; g.fillRect(0, 0, c.width, c.height);
-                return c;
-            }
-
-            // 적란운: 넓은 몸통 + 모루(anvil) + 자주빛 하단 음영의 뭉게구름 덩어리.
-            // 가늘게 솟은 기둥형 분포(연기처럼 보이는 원인)를 버리고 전 구간에 걸쳐
-            // 겹을 두껍게 쌓아 한 덩어리로 읽히게 한다.
-            function makeCbSprite(rng) {
-                const w0 = 560, h0 = 520, PAD = 140;
-                const c = document.createElement('canvas');
-                c.width = w0 + PAD * 2; c.height = h0 + PAD * 2;
-                c.w0 = w0; c.h0 = h0; c.pad = PAD;
-                const g = c.getContext('2d');
-                const puff = (x, y, r, a, ex, ey) => {
-                    g.save();
-                    g.translate(x, y);
-                    g.scale(ex, ey);
-                    let sg = g.createRadialGradient(0, r * 0.35, 0, 0, r * 0.35, r * 0.95);
-                    sg.addColorStop(0, `rgba(88,48,124,${(0.46 * a).toFixed(3)})`);
-                    sg.addColorStop(1, 'rgba(96,58,128,0)');
-                    g.fillStyle = sg;
-                    g.beginPath(); g.arc(0, r * 0.35, r * 0.95, 0, Math.PI * 2); g.fill();
-                    const gr = g.createRadialGradient(0, -r * 0.12, 0, 0, -r * 0.12, r);
-                    gr.addColorStop(0, `rgba(255,255,255,${(0.65 * a).toFixed(3)})`);
-                    gr.addColorStop(0.55, `rgba(255,255,255,${(0.37 * a).toFixed(3)})`);
-                    gr.addColorStop(1, 'rgba(255,255,255,0)');
-                    g.fillStyle = gr;
-                    g.beginPath(); g.arc(0, -r * 0.12, r, 0, Math.PI * 2); g.fill();
-                    g.restore();
-                };
-                // 하부 데크: 밑변 가득 넓고 납작하게
-                for (let i = 0; i < 30; i++) {
-                    const u = rng();
-                    const x = PAD + w0 * (0.03 + 0.94 * u);
-                    const bell = Math.sin(Math.PI * u);
-                    const y = PAD + h0 * (0.76 + rng() * 0.18 - 0.05 * bell);
-                    const r = 38 + rng() * 44;
-                    puff(x, y, r, 0.7 + rng() * 0.4, 1.4 + rng() * 0.8, 0.45 + rng() * 0.25);
-                }
-                // 몸통: 아래가 넓고 위로 갈수록 살짝 좁아지는 뭉게 덩어리.
-                // 중앙 집중 가우스로 빽빽이 겹쳐 기둥이 분리돼 보이지 않게 한다.
-                for (let i = 0; i < 44; i++) {
-                    const t = rng(); // 0 = 하단, 1 = 상단
-                    const hw = 0.36 - 0.08 * t;
-                    const gauss = (rng() + rng() + rng()) / 3 - 0.5;
-                    const x = PAD + w0 * (0.5 + gauss * 2 * hw);
-                    const y = PAD + h0 * (0.72 - 0.47 * t) + (rng() - 0.5) * 14;
-                    const r = 36 + rng() * 44 + t * 10;
-                    puff(x, y, r, 0.8 + rng() * 0.4, 0.9 + rng() * 0.6, 0.7 + rng() * 0.4);
-                }
-                // 모루(anvil): 몸통 꼭대기에 붙어 위로 수렴하는 납작한 머리.
-                // 몸통 상단(y 0.25)과 겹치는 y 0.28부터 시작해 꼭대기로 갈수록
-                // 폭(hw 0.30→0.10)을 좁혀 옆으로 떠다니는 손가락 streak이 생기지 않게 한다.
-                for (let i = 0; i < 16; i++) {
-                    const v = rng(); // 0 = 몸통 접합부, 1 = 꼭대기
-                    const hw = lerp(0.30, 0.10, v);
-                    const gauss = (rng() + rng() + rng()) / 3 - 0.5;
-                    const x = PAD + w0 * (0.5 + gauss * 2 * hw);
-                    const y = PAD + h0 * (0.28 - 0.22 * v) + (rng() - 0.5) * 10;
-                    const r = 30 + rng() * 36 - v * 8;
-                    puff(x, y, r, 0.85 + rng() * 0.4, 1.1 + rng() * 0.6, 0.55 + rng() * 0.3);
-                }
-                // 체적 음영: 하단 1/3에 자주빛 코어를 먼저 깔아 입체감을 준다
-                for (let i = 0; i < 10; i++) {
-                    const x = PAD + w0 * (0.2 + rng() * 0.6);
-                    const y = PAD + h0 * (0.6 + rng() * 0.3);
-                    const r = 44 + rng() * 50;
-                    g.save();
-                    g.translate(x, y);
-                    g.scale(1.5 + rng() * 0.8, 0.6 + rng() * 0.3);
-                    const dg = g.createRadialGradient(0, 0, 0, 0, 0, r);
-                    dg.addColorStop(0, `rgba(52,24,86,${(0.42 + rng() * 0.18).toFixed(3)})`);
-                    dg.addColorStop(1, 'rgba(52,24,86,0)');
-                    g.fillStyle = dg;
-                    g.beginPath(); g.arc(0, 0, r, 0, Math.PI * 2); g.fill();
-                    g.restore();
-                }
-                // 미세 질감: 몸통 윗면·모루에 작은 뭉게를 뿌려 결을 살린다
-                for (let i = 0; i < 30; i++) {
-                    const t = rng();
-                    const hw = 0.34 - 0.08 * t;
-                    const gauss = (rng() + rng() + rng()) / 3 - 0.5;
-                    const x = PAD + w0 * (0.5 + gauss * 2 * hw) + (rng() - 0.5) * 14;
-                    const y = PAD + h0 * (0.55 - 0.45 * t) + (rng() - 0.5) * 12;
-                    const r = 10 + rng() * 12;
-                    puff(x, y, r, 0.55 + rng() * 0.4, 0.8 + rng() * 0.5, 0.7 + rng() * 0.4);
-                }
-                g.globalCompositeOperation = 'destination-out';
-                const fl = g.createLinearGradient(0, PAD + h0 * 0.78, 0, PAD + h0 * 0.97);
-                fl.addColorStop(0, 'rgba(0,0,0,0)'); fl.addColorStop(1, 'rgba(0,0,0,1)');
-                g.fillStyle = fl; g.fillRect(0, 0, c.width, c.height);
-                g.globalCompositeOperation = 'source-atop';
-                const sh2 = g.createLinearGradient(0, PAD + h0 * 0.05, 0, PAD + h0 * 0.95);
-                sh2.addColorStop(0, 'rgba(255,255,255,0)');
-                sh2.addColorStop(0.38, 'rgba(168,112,158,0.58)');
-                sh2.addColorStop(0.68, 'rgba(88,38,106,0.82)');
-                sh2.addColorStop(1, 'rgba(30,13,58,0.97)');
-                g.fillStyle = sh2; g.fillRect(0, 0, c.width, c.height);
+                const sh = g.createLinearGradient(0, ch * 0.2, 0, ch * 0.75);
+                sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(126,140,166,0.55)');
+                g.fillStyle = sh; g.fillRect(-PAD, -PAD, c.width, c.height);
                 return c;
             }
 
@@ -774,60 +658,33 @@
                 }
             }
 
+            // 낮 구름 세트 (547f49e 시점 로직 그대로)
             function buildClouds() {
                 const rng = mulberry32(42);
                 clouds = [];
                 const n = Math.max(0, Math.round(CFG.CLOUD_N));
                 for (let i = 0; i < n; i++) {
                     clouds.push({
-                        kind: 'base',
                         spr: makeCloudSprite(rng),
                         xn: CFG.CLOUD_X0 + (i / Math.max(1, n)) * CFG.CLOUD_SPREAD + rng() * 0.08,
                         yn: CFG.CLOUD_Y0 + rng() * CFG.CLOUD_YR,
-                        sp: CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1,
-                        sw: 1.2 + rng() * 0.6,
-                        sh: 0.9 + rng() * 0.35
-                    });
-                }
-                // 적란운: 하부 레이어 위에 랜덤하게 0~N개 솟은 타워
-                const ncb = Math.max(0, Math.round(CFG.CLOUD_CB_N ?? 2));
-                const cbY0 = CFG.CLOUD_CB_Y0 ?? 0.8, cbYR = CFG.CLOUD_CB_YR ?? 0.14;
-                const cbS0 = Math.min(CFG.CLOUD_CB_S0 ?? 0.85, CFG.CLOUD_CB_S1 ?? 1.45);
-                const cbS1 = Math.max(CFG.CLOUD_CB_S0 ?? 0.85, CFG.CLOUD_CB_S1 ?? 1.45);
-                for (let i = 0; i < ncb; i++) {
-                    const sideL = rng() < 0.5;
-                    clouds.push({
-                        kind: 'cb',
-                        spr: makeCbSprite(rng),
-                        xn: sideL ? -0.18 + rng() * 0.35 : 0.42 + rng() * 0.45,
-                        yn: cbY0 + rng() * cbYR,
-                        sp: CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1,
-                        s: cbS0 + rng() * (cbS1 - cbS0)
+                        sp: CFG.CLOUD_SP0 + rng() * CFG.CLOUD_SP1
                     });
                 }
             }
 
-            // 스프라이트 기하: PAD 포함 전체 비트맵 기준 그리기 위치/크기.
+            // 황혼 구름 스프라이트 기하: PAD 포함 전체 비트맵 기준 그리기 위치/크기.
             // update(랩어라운드)와 drawSky가 같은 식을 공유해 화면 끝 출현 팝을 막는다.
-            function cloudGeom(c, base) {
-                const pad = c.spr.pad ?? 0, w0 = c.spr.w0 ?? c.spr.width, h0 = c.spr.h0 ?? c.spr.height;
+            function duskGeom(c, base) {
+                const pad = c.spr.pad, w0 = c.spr.w0, h0 = c.spr.h0;
                 if (c.kind === 'cb') {
                     const k = base * (c.s ?? 1);
                     const cw = w0 * k, ch = h0 * k, px = pad * k, py = pad * k;
                     return { k, cw, ch, px, py, tw: cw + px * 2, th: ch + py * 2, dx: c.xn * W - px, dy: c.yn * HZ - ch * 0.88 - py };
                 }
-                if (c.kind === 'band') {
-                    const k = base * (c.s ?? 1), sx = c.sw ?? 1, sy = c.sh ?? 1;
-                    const cw = w0 * k * sx, ch = h0 * k * sy, px = pad * k * sx, py = pad * k * sy;
-                    return { k, cw, ch, px, py, tw: cw + px * 2, th: ch + py * 2, dx: c.xn * W - px, dy: c.yn * HZ - ch * 0.9 - py };
-                }
-                const denom = CFG.CLOUD_YR || 1;
-                // 수평선에 가까울수록 크게: 멀리 작아지는 실제 원근과 반대로 두지만
-                // 하부 덱이 얇아져 끊겨 보이는 문제를 막기 위한 스타일라이즈드 선택
-                const k = base * lerp(0.8, 1.3, clamp((c.yn - CFG.CLOUD_Y0) / denom, 0, 1));
-                const sx = c.sw ?? 1, sy = c.sh ?? 1;
+                const k = base * (c.s ?? 1), sx = c.sw ?? 1, sy = c.sh ?? 1;
                 const cw = w0 * k * sx, ch = h0 * k * sy, px = pad * k * sx, py = pad * k * sy;
-                return { k, cw, ch, px, py, tw: cw + px * 2, th: ch + py * 2, dx: c.xn * W - px, dy: c.yn * HZ - ch * 0.7 - py };
+                return { k, cw, ch, px, py, tw: cw + px * 2, th: ch + py * 2, dx: c.xn * W - px, dy: c.yn * HZ - ch * 0.9 - py };
             }
 
             // ---------- stone lanterns scattered on the flat ----------
@@ -1215,10 +1072,15 @@
                 }
 
                 if (!RM.matches) {
-                    const base = clamp(W / 1400, 0.5, 1.1);
-                    for (const c of clouds.concat(duskClouds)) {
+                    // 낮 구름 (547f49e 시점 그대로)
+                    for (const c of clouds) {
                         c.xn += c.sp * dt;
-                        const G = cloudGeom(c, base);
+                        if (c.xn > 1.25) c.xn = -0.4;
+                    }
+                    const base = clamp(W / 1400, 0.5, 1.1);
+                    for (const c of duskClouds) {
+                        c.xn += c.sp * dt;
+                        const G = duskGeom(c, base);
                         // 왼쪽이 화면 오른쪽 밖으로 완전히 나가면 너비만큼 왼쪽 밖으로 되돌림 (팝인 없음)
                         if (G.dx > W) c.xn = (-G.tw - 8 + G.px) / W;
                     }
@@ -1232,7 +1094,7 @@
                 S.globalAlpha = 1;
 
                 const q = palQ();
-                const skyC = keyed(SKY, q);
+                const skyC = skyAt(q);
                 const hor = skyC[skyC.length - 1];
                 const g = S.createLinearGradient(0, 0, 0, HZ);
                 for (let i = 0; i < skyC.length; i++) g.addColorStop(SKY_STOPS[i], rgba(skyC[i]));
@@ -1277,11 +1139,13 @@
                     S.beginPath(); S.arc(sx, sy, sunR, 0, Math.PI * 2); S.fill();
                 }
 
-                // 황혼: 원반 대신 화면 밖 좌상단 광원의 은은한 빛 (구름 상부 반사 방향과 일치)
-                const wD = ss(CFG.DC_W0, CFG.DC_W1, q);
+                // 낮/황혼 구름 세트 가중치: sunVis(낮=1, 황혼=0)로만 갈린다. q와 무관하므로
+                // 낮→밤 전환에는 낮 구름만, 황혼→밤 전환에는 황혼 구름만 나온다.
+                const wD = 1 - sunVis;
                 const dLive = wD * (1 - ss(CFG.DC_F0, CFG.DC_F1, q));
+                // 황혼: 원반 대신 화면 밖 좌상단 광원의 은은한 빛 (구름 상부 반사 방향과 일치)
                 const lx = W * CFG.DC_LX, ly = HZ * CFG.DC_LY;
-                const lA = CFG.DC_LIGHT * dLive * (1 - sunVis);
+                const lA = CFG.DC_LIGHT * dLive;
                 if (lA > 0.005) {
                     const lg = S.createRadialGradient(lx, ly, 0, lx, ly, HZ * 1.1);
                     lg.addColorStop(0, rgba(hex('#fff0d8'), 0.75 * lA));
@@ -1290,17 +1154,26 @@
                     S.fillStyle = lg; S.fillRect(0, 0, W, HZ);
                 }
 
-                // clouds: 낮 세트(틴트 방식)와 황혼 세트(색 구움)를 q로 크로스페이드
+                // clouds: 낮 세트(547f49e 로직, 틴트 방식)와 황혼 세트(색 구움)를 sunVis로 크로스페이드
                 const base = clamp(W / 1400, 0.5, 1.1);
                 const drawSet = (set, tint, alpha, light) => {
                     CL.setTransform(1, 0, 0, 1, 0, 0);
                     CL.globalCompositeOperation = 'source-over';
                     CL.clearRect(0, 0, cloudLayer.width, cloudLayer.height);
                     CL.setTransform(dpr, 0, 0, dpr, 0, 0);
-                    for (const c of set) {
-                        const G = cloudGeom(c, base);
-                        if (G.dx > W || G.dx + G.tw < 0) continue;
-                        CL.drawImage(c.spr, G.dx, G.dy, G.tw, G.th);
+                    if (set === clouds) {
+                        // 낮 구름 배치 (547f49e 시점 식 그대로, PAD 여백만 보정)
+                        for (const c of set) {
+                            const k = base * lerp(1, 0.4, (c.yn - CFG.CLOUD_Y0) / (CFG.CLOUD_YR || 1));
+                            const sp = c.spr, cw = sp.w0 * k, ch = sp.h0 * k, pd = sp.pad * k;
+                            CL.drawImage(sp, c.xn * W - pd, c.yn * HZ - ch * 0.7 - pd, cw + pd * 2, ch + pd * 2);
+                        }
+                    } else {
+                        for (const c of set) {
+                            const G = duskGeom(c, base);
+                            if (G.dx > W || G.dx + G.tw < 0) continue;
+                            CL.drawImage(c.spr, G.dx, G.dy, G.tw, G.th);
+                        }
                     }
                     if (light > 0.005) {
                         // 광원 쪽 구름일수록 더 밝게 반사
@@ -1651,7 +1524,7 @@
                 ctx.fillStyle = rg; ctx.fillRect(0, HZ, W, H - HZ);
 
                 // seam glow where sky meets its mirror
-                const hor = keyed(SKY, qR)[SKY_STOPS.length - 1];
+                const hor = skyAt(qR)[SKY_STOPS.length - 1];
                 const hl = mix(hor, [255, 255, 255], 0.3);
                 const sg = ctx.createLinearGradient(0, HZ - 6, 0, HZ + 14);
                 sg.addColorStop(0, rgba(hl, 0)); sg.addColorStop(0.3, rgba(hl, CFG.SEAM_A)); sg.addColorStop(1, rgba(hl, 0));
@@ -2007,11 +1880,12 @@ void main() {
                 get torBuilds() { return torBuilds; },
                 get bandBuilds() { return bandBuilds; },
                 get palettes() {
-                    return { SKY: SKY_RAW, MOUNT: MOUNT_RAW, TORII: TORII_RAW, CLOUD_TINT: CLOUD_TINT_RAW, DCLOUD_TINT: DCLOUD_TINT_RAW, REFL, VIG, LV, COLS: COLS_RAW };
+                    return { SKY: SKY_RAW, SKY_DAY: SKY_DAY_RAW, MOUNT: MOUNT_RAW, TORII: TORII_RAW, CLOUD_TINT: CLOUD_TINT_RAW, DCLOUD_TINT: DCLOUD_TINT_RAW, REFL, VIG, LV, COLS: COLS_RAW };
                 },
                 setPalette(name, raw) {
                     const parsed = JSON.parse(JSON.stringify(raw));
                     if (name === 'SKY') { SKY_RAW = skyTo5(parsed); SKY = prep(SKY_RAW); }
+                    else if (name === 'SKY_DAY') { SKY_DAY_RAW = skyTo5(parsed); SKY_DAY = prep(SKY_DAY_RAW); }
                     else if (name === 'MOUNT') { MOUNT_RAW = parsed; MOUNT = prep(MOUNT_RAW); }
                     else if (name === 'TORII') { TORII_RAW = parsed; TORII = prep(TORII_RAW); }
                     else if (name === 'CLOUD_TINT') { CLOUD_TINT_RAW = parsed; CLOUD_TINT = prep(CLOUD_TINT_RAW); }
