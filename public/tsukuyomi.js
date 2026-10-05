@@ -109,8 +109,8 @@
                 LANTERN_H: 0.15, LANTERN_GLOW: 0.7, LANTERN_POOL: 0.4,
                 // 황혼 글로우: DUSK_GLOW = 황혼(밤 이전) 글로우 강도(밤=1), HALO = 먼 랜턴일수록 후광 반경 확대,
                 // FAR_BLOOM = 수평선 경량 랜턴 띠의 번짐(블룸) 강도
-                LANTERN_DUSK_GLOW: 0.9, LANTERN_HALO: 1, LANTERN_FAR_BLOOM: 1,
-                LANTERN_SEED: 7,
+                LANTERN_DUSK_GLOW: 0.9, LANTERN_HALO: 1, LANTERN_FAR_BLOOM: 1.85,
+                LANTERN_SEED: 10,
             };
             const CFG_DEFAULTS = JSON.parse(JSON.stringify(CFG));
             // 수동 스크럽용 플래그 (debug UI에서 토글)
