@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>적운 질감 셰이더 랩</title>
+<style>
+:root{
+  --panel:rgba(28,22,44,.72); --ink:#f3e9f0; --muted:#bfaecb; --accent:#ffd9a8; --line:rgba(255,255,255,.14);
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){ --panel:rgba(255,248,252,.78); --ink:#2a1f36; --muted:#6a5878; --accent:#9a4d2c; --line:rgba(40,20,60,.16);} }
+:root[data-theme="light"]{ --panel:rgba(255,248,252,.78); --ink:#2a1f36; --muted:#6a5878; --accent:#9a4d2c; --line:rgba(40,20,60,.16);}
+html,body{height:100%;margin:0;background:#2b2440;overflow:hidden;font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+.panel{position:fixed;right:12px;top:calc(12px + env(safe-area-inset-top,0px));width:min(280px,calc(100% - 24px));
+  background:var(--panel);color:var(--ink);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--line);border-radius:14px;padding:12px 14px;font-size:13px;line-height:1.4;max-height:calc(100% - 24px);overflow:auto}
+.panel h1{font-size:14px;margin:0 0 8px;font-weight:600}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 8px;margin:8px 0}
+.row label{color:var(--muted)} .row output{color:var(--accent);font-variant-numeric:tabular-nums}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent)}
+select,button{font:inherit;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+select:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+details summary{cursor:pointer;color:var(--muted)}
+.hint{color:var(--muted);font-size:12px;margin:6px 0 0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="panel">
+  <details open>
+  <summary><strong style="color:var(--ink)">적운 질감 파라미터</strong></summary>
+  <div class="row"><label for="view">보기</label>
+    <select id="view">
+      <option value="0">최종 합성</option>
+      <option value="1">밀도(형태)</option>
+      <option value="2">자기 그림자(투과율)</option>
+      <option value="3">빌로우 노이즈 원본</option>
+    </select></div>
+  <div class="row"><label for="cov">덮임 정도</label><output id="covO"></output><input id="cov" type="range" min="0.2" max="0.8" step="0.01" value="0.5"></div>
+  <div class="row"><label for="sharp">윗면 경계 선명도</label><output id="sharpO"></output><input id="sharp" type="range" min="0.01" max="0.3" step="0.005" value="0.04"></div>
+  <div class="row"><label for="soft">아랫면 흐림</label><output id="softO"></output><input id="soft" type="range" min="0.05" max="0.6" step="0.01" value="0.3"></div>
+  <div class="row"><label for="scale">덩어리 크기</label><output id="scaleO"></output><input id="scale" type="range" min="2" max="12" step="0.1" value="5.5"></div>
+  <div class="row"><label for="absorb">그림자 깊이</label><output id="absorbO"></output><input id="absorb" type="range" min="0.2" max="4" step="0.05" value="1.6"></div>
+  <div class="row"><label for="sun">빛 방향(°)</label><output id="sunO"></output><input id="sun" type="range" min="20" max="160" step="1" value="105"></div>
+  <div class="row"><label for="grain">필름 그레인</label><output id="grainO"></output><input id="grain" type="range" min="0" max="0.12" step="0.005" value="0.05"></div>
+  <div class="btns"><button id="anim" aria-pressed="true">흐름 멈추기</button><button id="theme">패널 테마</button></div>
+  <p class="hint">"자기 그림자" 보기에서 덩어리마다 위가 밝고 아래가 어두워야 콜리플라워 질감이 납니다.</p>
+  </details>
+</div>
+<script>
+const vs=`attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+const fs=`
+precision highp float;
+uniform vec2 uRes; uniform float uTime;
+uniform float uCov,uSharp,uSoft,uScale,uAbsorb,uGrain; uniform vec2 uSun; uniform int uView;
+
+float hash12(vec2 p){vec3 p3=fract(vec3(p.xyx)*.1031);p3+=dot(p3,p3.yzx+33.33);return fract((p3.x+p3.y)*p3.z);}
+vec2 hash22(vec2 p){vec3 p3=fract(vec3(p.xyx)*vec3(.1031,.1030,.0973));p3+=dot(p3,p3.yzx+33.33);return fract((p3.xx+p3.yz)*p3.zy);}
+float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.-2.*f);
+  return mix(mix(hash12(i),hash12(i+vec2(1,0)),u.x),mix(hash12(i+vec2(0,1)),hash12(i+vec2(1,1)),u.x),u.y);}
+// F1 워리 거리: 셀 중심이 밝은 둥근 혹을 만든다
+float worley(vec2 p){vec2 i=floor(p),f=fract(p);float d=8.;
+  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec2 g=vec2(x,y);vec2 o=hash22(i+g);
+    o=.5+.38*sin(uTime*.04+6.2831*o);vec2 r=g+o-f;d=min(d,dot(r,r));}
+  return sqrt(d);}
+// 반전 워리 fbm = 빌로우(뭉게) 노이즈
+float billow(vec2 p,int oct){float n=0.,a=.55,s=0.;
+  for(int i=0;i<5;i++){if(i>=oct)break;n+=a*(1.-worley(p));s+=a;p=p*2.07+vec2(3.1,1.7);a*=.5;}
+  return n/s;}
+float vfbm(vec2 p){float n=0.,a=.5;for(int i=0;i<3;i++){n+=a*vnoise(p);p*=2.1;a*=.5;}return n/.875;}
+
+// 큰 형태(엔벨로프): 수평선 구름띠 + 적란운 탑 + 왼쪽 무리
+float sdE(vec2 uv,vec2 c,vec2 r){return 1.-length((uv-c)/r);}
+float envelope(vec2 uv,float A){
+  float h=.12;
+  float bankTop=h+.13+.07*vfbm(vec2(uv.x*1.6,3.));
+  float bank=(bankTop-uv.y)/.10;
+  float t=sdE(uv,vec2(A*.66,.40),vec2(.26,.24));
+  t=max(t,sdE(uv,vec2(A*.62,.56),vec2(.14,.15)));
+  t=max(t,sdE(uv,vec2(A*.74,.50),vec2(.15,.14)));
+  t=max(t,sdE(uv,vec2(A*.86,.36),vec2(.20,.13)));
+  float l=max(sdE(uv,vec2(A*.10,.34),vec2(.20,.11)),sdE(uv,vec2(A*.20,.29),vec2(.18,.09)));
+  return max(bank,max(t*1.9,l*1.6));
+}
+float lobeNoise(vec2 uv,int oct){
+  vec2 q=uv*uScale+vec2(uTime*.006,0.);
+  q+=.35*vec2(vfbm(q*.5),vfbm(q*.5+7.3))-.17; // 약한 도메인 워프: 격자 티 제거
+  return billow(q,oct);
+}
+float rawDensity(vec2 uv,float A,int oct){
+  return envelope(uv,A)*.55+(lobeNoise(uv,oct)-.5)*1.25+.5;
+}
+// 경계: 위로 향한 면은 날카롭게, 아래로 향한 면은 부드럽게
+float density(vec2 uv,float A,int oct){
+  float r=rawDensity(uv,A,oct);
+  float up=envelope(uv+vec2(0.,.02),A)-envelope(uv,A); // <0 이면 윗면
+  float edge=mix(uSharp,uSoft,smoothstep(-.02,.06,up));
+  return smoothstep(uCov,uCov+edge,r);
+}
+
+vec3 sky(vec2 s){
+  float y=s.y;
+  vec3 top=vec3(.33,.38,.66),mid=vec3(.62,.58,.82),low=vec3(.92,.62,.74),hor=vec3(.98,.78,.74);
+  vec3 c=mix(hor,low,smoothstep(.12,.30,y));c=mix(c,mid,smoothstep(.30,.60,y));c=mix(c,top,smoothstep(.60,1.,y));
+  return c;
+}
+
+void main(){
+  vec2 s=gl_FragCoord.xy/uRes; float A=uRes.x/uRes.y; vec2 uv=vec2(s.x*A,s.y);
+  float h=.12;
+  vec3 col=sky(s);
+  if(uView==3){float n=lobeNoise(uv,5);gl_FragColor=vec4(vec3(n),1.);return;}
+  float d=density(uv,A,5);
+  // ① 덩어리 단위 음영: 노이즈를 태양 방향으로 미분 → 각 혹의 '윗면'이 밝아진다
+  vec2 L=normalize(uSun);
+  float n0=lobeNoise(uv,5);
+  float e=.35/uScale;                    // 혹 크기에 비례한 샘플 간격
+  float dn=0.;
+  for(int i=1;i<=3;i++){dn+=(n0-lobeNoise(uv+L*e*float(i)*.5,3))/float(i);}
+  float lobe=smoothstep(-.18,.22,dn);
+  // ② 거대 형태 음영: 엔벨로프 두께를 태양 쪽으로 적분 → 탑 전체의 큰 명암
+  float od=0.;
+  for(int i=1;i<=4;i++){od+=max(envelope(uv+L*.035*float(i),A),0.);}
+  float macro=exp(-od*uAbsorb*.6)*mix(.55,1.,smoothstep(.15,.6,uv.y)); // 위로 갈수록 직사광
+  float T=lobe*mix(.18,1.,macro)+.15*macro;
+  float powder=1.-exp(-d*4.);
+  float light=clamp(mix(T,T*powder,.4),0.,1.);
+  if(uView==1){gl_FragColor=vec4(vec3(d),1.);return;}
+  if(uView==2){gl_FragColor=vec4(vec3(mix(.08,1.,light))*step(.01,d)+vec3(.05,.05,.1)*(1.-step(.01,d)),1.);return;}
+
+  float hgt=smoothstep(h,h+.5,uv.y);
+  vec3 shadowC=mix(vec3(.42,.30,.44),vec3(.50,.40,.60),hgt);   // 아랫면: 하늘색 반사 받은 모브
+  vec3 midC=vec3(.93,.60,.60);
+  vec3 litC=vec3(1.,.93,.78);
+  vec3 cc=mix(shadowC,midC,smoothstep(.0,.5,light));
+  cc=mix(cc,litC,smoothstep(.45,.95,light));
+  // 실버 라이닝: 얇은 가장자리 + 빛 정면
+  float rim=(1.-smoothstep(.0,.6,d))*T;
+  cc+=vec3(1.,.85,.7)*rim*.45;
+  // 대기 원근: 수평선 쪽 대비를 낮춰 멀리 보이게
+  float far=1.-smoothstep(h,h+.22,uv.y);
+  cc=mix(cc,sky(s)*vec3(1.,.9,.95),far*.45);
+  col=mix(col,cc,d);
+  // 수평선 아래(데모용 수면)
+  if(uv.y<h){float k=(h-uv.y)/h;col=mix(vec3(.55,.42,.55),vec3(.22,.17,.28),pow(k,.6));}
+  // 필름 그레인
+  col+=(hash12(gl_FragCoord.xy+fract(uTime*7.)*137.)-.5)*uGrain;
+  gl_FragColor=vec4(pow(clamp(col,0.,1.),vec3(1.)),1.);
+}`;
+const c=document.getElementById('c');
+const gl=c.getContext('webgl',{antialias:false,preserveDrawingBuffer:true});
+function sh(t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s;}
+const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);
+const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+const loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+const U=n=>gl.getUniformLocation(pr,n);
+const ids=['cov','sharp','soft','scale','absorb','sun','grain'];
+ids.forEach(id=>{const el=document.getElementById(id),o=document.getElementById(id+'O');const f=()=>o.textContent=(+el.value).toFixed(id==='sun'?0:2);el.addEventListener('input',()=>{f();dirty=true});f();});
+document.getElementById('view').addEventListener('change',()=>dirty=true);
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let animate=!reduce,dirty=true,t0=performance.now(),tAcc=0,last=t0;
+const ab=document.getElementById('anim');
+const syncAnim=()=>{ab.textContent=animate?'흐름 멈추기':'흐름 재생';ab.setAttribute('aria-pressed',animate)};syncAnim();
+ab.onclick=()=>{animate=!animate;syncAnim();dirty=true};
+document.getElementById('theme').onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==='light'?'dark':'light'};
+function resize(){const s=Math.min(devicePixelRatio||1,1)*.8;c.width=Math.round(innerWidth*s);c.height=Math.round(innerHeight*s);gl.viewport(0,0,c.width,c.height);dirty=true;}
+addEventListener('resize',resize);resize();
+function frame(now){
+  const dt=(now-last)/1000;last=now;if(animate){tAcc+=dt;dirty=true;}
+  if(dirty){dirty=false;
+    gl.uniform2f(U('uRes'),c.width,c.height);gl.uniform1f(U('uTime'),tAcc+20.);
+    ids.forEach(id=>{if(id!=='sun')gl.uniform1f(U('u'+id[0].toUpperCase()+id.slice(1)),+document.getElementById(id).value)});
+    const a=+document.getElementById('sun').value*Math.PI/180;gl.uniform2f(U('uSun'),Math.cos(a),Math.sin(a));
+    gl.uniform1i(U('uView'),+document.getElementById('view').value);
+    gl.drawArrays(gl.TRIANGLES,0,3);}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
