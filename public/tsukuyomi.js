@@ -87,6 +87,13 @@
                 DC_LX: 0.16, DC_LY: -0.12, DC_LIGHT: 0.34,
                 // 황혼 구름 질감(적운 셰이더 랩 파라미터): 덮임 정도, 윗면/아랫면 경계 폭, 덩어리 크기, 그림자 깊이, 빛 방향(°, y-up)
                 DC_COV: 0.52, DC_SHARP: 0.105, DC_SOFT: 0.15, DC_SCALE: 8.1, DC_ABSORB: 1.25, DC_SUN: 160,
+                // 황혼 명암 대비(reference-images/twilight-ref1.png 기준, 새 낮처럼 혹 단위 음영을 살린다):
+                // DC_VLIFT 중간톤 리프트(낮을수록 그늘 깊음), DC_SKYBOT 아랫쪽 직사광 감쇠 바닥, DC_UPK 위쪽 하늘빛 비중,
+                // DC_CB_*: 적란운 전용 — 빛 각도(°, y-up, 좌상단), 혹 크기, 거대 형태 흡수(낮을수록 덩어리 안쪽 혹까지 빛이 닿음), 실버 라이닝
+                DC_VLIFT: 0.15, DC_SKYBOT: 0.5, DC_UPK: 1.15,
+                DC_CB_SUN: 138, DC_CB_SCALE: 7, DC_CB_ABSORB: 0.8, DC_CB_RIMK: 0.6, DC_CB_RS: 0.75,
+                // DC_LOBE: 덩어리 안쪽(거대 형태 그늘 속)에서도 남는 혹 단위 명암 비중, DC_CREASE: 혹 사이 골짜기 밝기(낮을수록 주름 깊음)
+                DC_LOBE: 0.4, DC_CREASE: 0.5, DC_LOBE_W: 0.75, DC_BAND_LOBE: 0.26,
                 // 새 낮 장면(reference-images/day-empty-ref.png 기반): 가운데 구름 틈의 광원 + 양옆 거대 적운 벽 + 수평선 낮은 구름 띠.
                 // DAY_SCENE: 1 = 새 낮, 0 = 기존 낮(547f49e 하늘·구름·태양, 더미로 보존). 낮 분기(sunVis) 안에서만 갈린다.
                 // DY_LX/LY: 구름 틈 광원 위치(화면/수평선 비율), DY_LIGHT: 광원 세기, DY_F0/F1: 새 낮 구름 → 밤 소멸 구간.
@@ -516,7 +523,8 @@
             // 선택(새 낮 구름용, 없으면 황혼 기본값): o.sun 광원 각도(°, y-up), o.lx/o.ly 핫스팟(콘텐츠 비율),
             // o.cov/o.scale/o.absorb 질감, o.rimC/o.glowC 실버 라이닝·후광 색, o.gd [핫스팟 밝기, 반대편 밝기]
             function duskRender(m, P, o) {
-                const RS = 0.5;
+                // o.rs: 계산 해상도(기본 1/2). 크게 확대해 그리는 적란운은 높여 혹 윤곽이 뭉개지지 않게 한다
+                const RS = o.rs ?? 0.5;
                 const { w0, h0, pad: PAD } = m;
                 const W = Math.ceil(m.width * RS), H = Math.ceil(m.height * RS), N = W * H;
                 const top = PAD * RS, hh = h0 * RS;
@@ -525,6 +533,8 @@
                 const SC = o.scale ?? CFG.DC_SCALE, ABS = o.absorb ?? CFG.DC_ABSORB;
                 // o.skyBot: 아랫쪽 직사광 감쇠 바닥(기본 0.55). o.vLift: 중간톤 리프트(기본 0.35). 새 낮은 혹 단위 대비를 위해 완화해 쓴다
                 const SKYBOT = o.skyBot ?? 0.55, VLIFT = o.vLift ?? 0.35;
+                // o.lobeMin: 거대 형태 그늘 속에서도 남는 혹 단위 음영 비중(기본 0.18), o.crease: 혹 사이 골짜기 밝기(기본 0.72, 낮을수록 주름 깊음)
+                const LOBEMIN = o.lobeMin ?? 0.18, CREASE = o.crease ?? 0.72, LOBEW = o.lobeW ?? 1;   // o.lobeW: 혹 명암 경계 폭(낮을수록 또렷)
                 const ax = o.ax ?? 1, UV = 1 / (DUSK_UV * RS), UX = UV * ax;
                 const seed = o.seed | 0;
                 // 1) 엔벨로프: 퍼프 타원 sdE = 1 - |(p - c) / r| 의 최대값 (랩의 탑 덩어리처럼 1.7배)
@@ -610,14 +620,14 @@
                         const n0 = N5[i];
                         let dn = 0;
                         for (let k = 1; k <= 3; k++) dn += (n0 - N3at(x + Lx * eL * k / UX, y + Ly * eL * k / UV)) / k;
-                        let lobe = ss(-0.24, 0.28, dn);
+                        let lobe = ss(-0.24 * LOBEW, 0.28 * LOBEW, dn);
                         // 주름 그늘: 혹 사이 골짜기(노이즈가 깎인 곳)는 방향과 무관하게 어둡게 — GPU(cloud-live)와 동일식
-                        lobe *= lerp(0.72, 1, ss(0.28, 0.72, n0));
+                        lobe *= lerp(CREASE, 1, ss(0.28, 0.72, n0));
                         // ② 거대 형태 음영
                         let od = 0;
                         for (let k = 1; k <= 4; k++) od += Math.max(Eat(x + Lx * 0.035 * k / UX, y + Ly * 0.035 * k / UV), 0);
                         const macro = Math.exp(-od * ABS * 0.6) * sky;
-                        const T = lobe * lerp(0.18, 1, macro) + 0.15 * macro;
+                        const T = lobe * lerp(LOBEMIN, 1, macro) + 0.15 * macro;
                         const powder = 1 - Math.exp(-d * 4);
                         let v = clamp(lerp(T, T * powder, 0.4), 0, 1);
                         // 덩어리 전체의 빛 분포: 광원 쪽(좌상단) 모서리는 타오르고 반대편은 그늘로 가라앉는다
@@ -702,9 +712,12 @@
                     if (tp < 0.4) duskBillow(P, lr, x + (lr() - 0.5) * R, lerp(y, PAD + h0 * 0.72, 0.6), R * 1.1, 1.3, 0.8, 1);
                 }
                 return duskRender(m, P, {
-                    lit: [[0, [255, 230, 200]], [0.3, [250, 176, 146]], [0.6, [220, 138, 126]], [1, [144, 90, 100]]],
-                    shade: [[0, [206, 132, 128]], [0.4, [174, 104, 108]], [0.7, [128, 80, 94]], [1, [94, 60, 82]]],
-                    glow: null, fade: 0.9, ax: 1.6, seed: (lr() * 1e6) | 0
+                    lit: [[0, [255, 236, 206]], [0.3, [252, 184, 150]], [0.6, [226, 144, 128]], [1, [150, 94, 102]]],
+                    shade: [[0, [192, 116, 120]], [0.4, [158, 92, 104]], [0.7, [116, 72, 92]], [1, [84, 54, 78]]],
+                    glow: null, fade: 0.9, ax: 1.6, seed: (lr() * 1e6) | 0,
+                    vLift: CFG.DC_VLIFT, skyBot: CFG.DC_SKYBOT, upK: CFG.DC_UPK,
+                    // 띠는 가로로 늘여 그려 혹 음영이 세로 줄무늬로 늘어지기 쉬우므로 혹 비중·주름을 적란운보다 약하게 둔다
+                    lobeMin: CFG.DC_BAND_LOBE, crease: lerp(CFG.DC_CREASE, 1, 0.35), lobeW: 1
                 });
             }
             // 황혼 적란운: 넓은 밑동 위로 큰 뭉게 덩어리가 쌓여 솟는다. 꼭대기는 광원에 크림빛, 밑동은 자주빛 그늘.
@@ -737,11 +750,16 @@
                 // 꼭대기 왕관
                 duskBillow(P, lr, PAD + w0 * (0.5 + lean + (lr() - 0.5) * 0.08), PAD + h0 * 0.17, 78, 1.1, 0.8, 6);
                 return duskRender(m, P, {
-                    lit: [[0, [255, 252, 238]], [0.18, [255, 228, 192]], [0.4, [255, 184, 152]], [0.64, [244, 162, 138]],
-                          [0.82, [190, 116, 112]], [1, [136, 84, 96]]],
-                    shade: [[0, [236, 156, 142]], [0.3, [206, 128, 120]], [0.55, [178, 106, 106]], [0.78, [126, 78, 90]],
-                            [1, [90, 58, 80]]],
-                    glow: [PAD + w0 * (0.36 + lean), PAD + h0 * 0.12, w0 * 0.24], fade: 0.92, ax: 1, seed: (lr() * 1e6) | 0
+                    // ref: 혹마다 좌상단 윗면은 크림빛, 혹 사이 골·아랫면은 장밋빛~자주 그늘로 깊게 가라앉는다
+                    lit: [[0, [255, 248, 222]], [0.2, [255, 234, 190]], [0.42, [255, 208, 162]], [0.64, [250, 178, 144]],
+                          [0.84, [214, 134, 124]], [1, [160, 98, 104]]],
+                    shade: [[0, [214, 136, 136]], [0.3, [188, 112, 120]], [0.55, [156, 90, 108]], [0.78, [114, 70, 94]],
+                            [1, [84, 56, 82]]],
+                    glow: [PAD + w0 * (0.36 + lean), PAD + h0 * 0.12, w0 * 0.24], fade: 0.92, ax: 1, seed: (lr() * 1e6) | 0,
+                    sun: CFG.DC_CB_SUN, lx: 0.12, ly: 0, gd: [1.35, 0.6],
+                    scale: CFG.DC_CB_SCALE, absorb: CFG.DC_CB_ABSORB, rimK: CFG.DC_CB_RIMK, rs: CFG.DC_CB_RS,
+                    vLift: CFG.DC_VLIFT, skyBot: CFG.DC_SKYBOT, upK: CFG.DC_UPK,
+                    lobeMin: CFG.DC_LOBE, crease: CFG.DC_CREASE, lobeW: CFG.DC_LOBE_W
                 });
             }
             function buildDuskClouds() {
