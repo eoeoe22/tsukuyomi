@@ -1705,7 +1705,9 @@
 
             // torii standing on the flat in front of the ranges, with its own mirror image
             // torC(본체)/torR(뒤집힌 반사체)은 색·크기가 바뀔 때만 재래스터 (idle 시 60fps 재빌드 제거)
-            function drawTorii(r0, r1) {
+            // 낮 시간대에는 숨김: duskW(낮=0, 황혼/밤=1)를 불투명도로 써서 toDay에서 페이드아웃, day idle에서 스킵
+            function drawTorii(r0, r1, a = 1) {
+                if (a <= 0.01) return;
                 let [red, blk, gold] = keyed(TORII, palQ());
                 const w2 = day2W();
                 if (w2 > 0) {
@@ -1748,6 +1750,7 @@
                 }
 
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                ctx.globalAlpha = a;
                 // row r of the flipped copy lands at torBase + r - pad, where pad is the
                 // strip of empty sprite below the feet
                 const pad = (TB.y + TB.h - TB.base) * torS;
@@ -1766,15 +1769,20 @@
                         ctx.drawImage(torR, 0, r * dpr, torR.width, sh * dpr, torX + dx, y, torW, sh + 0.5);
                     }
                 }
+                ctx.globalAlpha = 1;
                 FG.setTransform(dpr, 0, 0, dpr, 0, 0);
+                FG.globalAlpha = a;
                 FG.drawImage(torC, torX, torY, torW, torH);
+                FG.globalAlpha = 1;
             }
 
             // lantern-front.svg sprites scattered on the flat, all facing the viewer.
             // Reflections ride on the scene canvas with the same ripple as the torii;
             // bodies + night glow ride on FG above the ripple copy.
-            function drawLanterns(r0, r1) {
+            // 낮 시간대에는 숨김: duskW(낮=0, 황혼/밤=1)를 불투명도로 써서 toDay에서 페이드아웃, day idle에서 스킵
+            function drawLanterns(r0, r1, a = 1) {
                 if (!lanReady || !lanterns.length || !lanCW) return;
+                if (a <= 0.01) return;
                 const reflH = Math.max(1, H - HZ);
                 const night = ss(CFG.MOON_A0, CFG.MOON_A1, palQ());
                 const sw = lanCW, shFull = lanCH;
@@ -1795,13 +1803,13 @@
                     const rd = lerp(r0, r1, clamp((L.y - HZ) / reflH + 0.15, 0, 1));
                     if (RM.matches) {
                         ctx.save();
-                        ctx.globalAlpha = (1 - rd) * 0.9;
+                        ctx.globalAlpha = (1 - rd) * 0.9 * a;
                         ctx.translate(0, 2 * L.y);
                         ctx.scale(1, -1);
                         ctx.drawImage(lanC, 0, 0, sw, shBody, L.x - L.w / 2, L.y - dh, L.w, dh);
                         ctx.restore();
                     } else {
-                        ctx.globalAlpha = (1 - rd) * 0.9;
+                        ctx.globalAlpha = (1 - rd) * 0.9 * a;
                         for (let r = 0; r < dh; r += step) {
                             const shD = Math.min(step, dh - r);
                             const y = L.y + r;
@@ -1822,7 +1830,7 @@
                 // bodies + night glow, far-to-near
                 FG.setTransform(dpr, 0, 0, dpr, 0, 0);
                 FG.globalCompositeOperation = 'source-over';
-                FG.globalAlpha = 1;
+                FG.globalAlpha = a;
                 for (const L of lanterns) {
                     if (L.w < 2 || L.h < 3) continue;
                     if (L.x + L.w / 2 < -L.w || L.x - L.w / 2 > W + L.w) continue;
@@ -1981,8 +1989,12 @@
 
                 FG.setTransform(1, 0, 0, 1, 0, 0);
                 FG.clearRect(0, 0, fg.width, fg.height);
-                drawTorii(r0, r1);
-                drawLanterns(r0, r1);
+                // 낮에는 토리이/랜턴 숨김: duskW(낮=0, 황혼/밤=1)로 페이드. toDay에서 사라지고 toNight에서 복원된다
+                const structA = clamp(duskW, 0, 1);
+                if (structA > 0.01) {
+                    drawTorii(r0, r1, structA);
+                    drawLanterns(r0, r1, structA);
+                }
                 FG.setTransform(dpr, 0, 0, dpr, 0, 0);
 
                 const v = lerp(keyed(VIG, qR)[0], keyed(VIG_DAY2, qR)[0], w2);
