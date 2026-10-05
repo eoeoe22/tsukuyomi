@@ -101,12 +101,15 @@
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 8,
                 REFL_SCALE: 1, REFL_AUTO: 1, REFL_MAX_STEP: 8,
                 RIP_MAX: 8, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
-                LANTERN_N: 200, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
+                LANTERN_N: 130, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
                 LANTERN_TX: 1, LANTERN_PAD: 2, LANTERN_DEPTH_K: 2,
                 // 수평선 근접 경량 랜턴: 본 랜턴(3px 이상) 위쪽 띠를 같은 밀도 곡선으로 이어서 채움.
                 // FAR_MUL: 곡선 대비 개수 배율, FAR_Y0: 수평선에서 시작하는 거리(px), FAR_MAX: 개수 상한
                 LANTERN_FAR_MUL: 1, LANTERN_FAR_Y0: 1.5, LANTERN_FAR_MAX: 4000,
-                LANTERN_H: 0.15, LANTERN_GLOW: 0.5, LANTERN_POOL: 0.4,
+                LANTERN_H: 0.15, LANTERN_GLOW: 0.7, LANTERN_POOL: 0.4,
+                // 황혼 글로우: DUSK_GLOW = 황혼(밤 이전) 글로우 강도(밤=1), HALO = 먼 랜턴일수록 후광 반경 확대,
+                // FAR_BLOOM = 수평선 경량 랜턴 띠의 번짐(블룸) 강도
+                LANTERN_DUSK_GLOW: 0.9, LANTERN_HALO: 1, LANTERN_FAR_BLOOM: 1,
                 LANTERN_SEED: 7,
             };
             const CFG_DEFAULTS = JSON.parse(JSON.stringify(CFG));
@@ -1148,6 +1151,32 @@
                     RC.fillRect(x - w / 2, y, w, h * 0.9 + 0.5);
                     farCount++;
                 }
+                bakeFarBloom();
+            }
+            // 랜턴 글로우 가중치: 황혼부터 켜져 있고(DUSK_GLOW) 밤에 최대(1)
+            const lanGlowW = () => Math.max(ss(CFG.MOON_A0, CFG.MOON_A1, palQ()), clamp(CFG.LANTERN_DUSK_GLOW ?? 0.9, 0, 1));
+            // 수평선 띠 블룸: 몸통 띠를 1/4, 1/10로 축소해 두 번 구워 두고 확대 합성 → 저비용 가우시안 근사.
+            // 띠 위아래로 FAR_BLOOM_PAD만큼 여백을 둬 하늘/수면으로 번지게 한다.
+            const farBloomA = document.createElement('canvas');
+            const farBloomB = document.createElement('canvas');
+            const FAR_BLOOM_PAD = 28;
+            function bakeFarBloom() {
+                const pad = FAR_BLOOM_PAD * dpr;
+                const fullW = farBodyC.width, fullH = farBodyC.height + pad * 2;
+                // 축소 평균으로 희석되는 밝기를 gain회 'lighter' 누적으로 보상
+                const bake = (cv, k, gain) => {
+                    cv.width = Math.max(1, Math.round(fullW / k));
+                    cv.height = Math.max(1, Math.round(fullH / k));
+                    const c = cv.getContext('2d');
+                    c.setTransform(1, 0, 0, 1, 0, 0);
+                    c.clearRect(0, 0, cv.width, cv.height);
+                    c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+                    c.globalCompositeOperation = 'lighter';
+                    for (let g = 0; g < gain; g++) c.drawImage(farBodyC, 0, pad / k, cv.width, farBodyC.height / k);
+                    c.globalCompositeOperation = 'source-over';
+                };
+                bake(farBloomA, 4, 3);
+                bake(farBloomB, 10, 5);
             }
             function drawFarLanterns(a, night) {
                 if (!farCount || a <= 0.01) return;
@@ -1165,6 +1194,17 @@
                     FG.globalCompositeOperation = 'lighter';
                     FG.globalAlpha = a * 0.45 * night * CFG.LANTERN_GLOW;
                     FG.drawImage(farBodyC, 0, Math.round(farTop * dpr));
+                    // 번짐: 축소 캔버스를 원래 크기로 늘려 그리면 부드럽게 퍼진다
+                    const bl = a * night * CFG.LANTERN_GLOW * Math.max(0, CFG.LANTERN_FAR_BLOOM ?? 1);
+                    if (bl > 0.005) {
+                        const by = Math.round((farTop - FAR_BLOOM_PAD) * dpr);
+                        const bw = farBodyC.width, bh = farBodyC.height + FAR_BLOOM_PAD * 2 * dpr;
+                        FG.imageSmoothingEnabled = true;
+                        FG.globalAlpha = Math.min(1, bl * 1.1);
+                        FG.drawImage(farBloomA, 0, by, bw, bh);
+                        FG.globalAlpha = Math.min(1, bl * 1.4);
+                        FG.drawImage(farBloomB, 0, by, bw, bh);
+                    }
                     FG.globalCompositeOperation = 'source-over';
                 }
                 FG.globalAlpha = 1;
@@ -1880,7 +1920,7 @@
                 const inPass = pass === 'all' ? () => true
                     : pass === 'back' ? L => L.y <= torBase : L => L.y > torBase;
                 const reflH = Math.max(1, H - HZ);
-                const night = ss(CFG.MOON_A0, CFG.MOON_A1, palQ());
+                const night = lanGlowW();   // 황혼부터 글로우
                 const sw = lanCW, shFull = lanCH;
                 const shBody = lanBodyH || shFull * LAN_FEET;
                 // 랜턴 몸통이 좁아 ROW_STEP이 크면 행 경계마다
@@ -1935,11 +1975,14 @@
                     if (night > 0.01) {
                         const gx = L.x, gy = L.y - L.h * 0.52;
                         FG.globalCompositeOperation = 'lighter';
-                        // halo behind the glass
-                        const hr = L.h * 0.55;
+                        // halo behind the glass: 먼(수평선 쪽) 랜턴일수록 반경을 키워 더 번져 보이게
+                        const farK = 1 - clamp(L.sn, 0, 1);
+                        const hr = L.h * (0.6 + Math.max(0, CFG.LANTERN_HALO ?? 1) * 1.4 * farK * farK);
                         if (hr > 1) {
+                            const ha = 0.6 * night * CFG.LANTERN_GLOW;
                             const hg = FG.createRadialGradient(gx, gy, 0, gx, gy, hr);
-                            hg.addColorStop(0, `rgba(255,190,110,${0.55 * night * CFG.LANTERN_GLOW})`);
+                            hg.addColorStop(0, `rgba(255,196,118,${ha})`);
+                            hg.addColorStop(0.35, `rgba(255,178,96,${ha * 0.45})`);
                             hg.addColorStop(1, 'rgba(255,170,90,0)');
                             FG.fillStyle = hg;
                             FG.beginPath(); FG.arc(gx, gy, hr, 0, Math.PI * 2); FG.fill();
@@ -2089,7 +2132,7 @@
                 const structA = clamp(duskW, 0, 1);
                 if (structA > 0.01) {
                     // 깊이 순서: 수평선 경량 랜턴 → 토리이 뒤 랜턴 → 토리이 → 토리이 앞 랜턴
-                    drawFarLanterns(structA, ss(CFG.MOON_A0, CFG.MOON_A1, palQ()));
+                    drawFarLanterns(structA, lanGlowW());
                     drawLanterns(r0, r1, structA, 'back');
                     drawTorii(r0, r1, structA);
                     drawLanterns(r0, r1, structA, 'front');
