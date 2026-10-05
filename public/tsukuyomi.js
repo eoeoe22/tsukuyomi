@@ -101,8 +101,8 @@
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 8,
                 REFL_SCALE: 1, REFL_AUTO: 1, REFL_MAX_STEP: 8,
                 RIP_MAX: 8, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
-                LANTERN_N: 64, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
-                LANTERN_TX: 0.62, LANTERN_PAD: 2, LANTERN_SN_POW: 1.25,
+                LANTERN_N: 170, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
+                LANTERN_TX: 1, LANTERN_PAD: 2, LANTERN_DEPTH_K: 2.2,
                 LANTERN_H: 0.15, LANTERN_GLOW: 0.5, LANTERN_POOL: 0.4,
                 LANTERN_SEED: 7, LANTERN_EXCL: 1.0,
             };
@@ -1021,46 +1021,44 @@
                 const rng = mulberry32(Math.round(CFG.LANTERN_SEED * 1000 + 11));
                 lanterns = [];
                 const n = Math.max(0, Math.round(CFG.LANTERN_N));
-                const sn0 = Math.min(CFG.LANTERN_SN0, CFG.LANTERN_SN1);
-                const sn1 = Math.max(CFG.LANTERN_SN0, CFG.LANTERN_SN1);
-                // jittered grid (shuffled cells): pure uniform random clumps and leaves
-                // large voids (e.g. a ~35%W gap on the far band at 16:9). One lantern
-                // per grid cell guarantees even coverage with no shared cells.
-                const POW = clamp(CFG.LANTERN_SN_POW ?? 1.25, 0.5, 2.5);
-                if (n === 1) {
-                    lanterns.push({ sn: (sn0 + sn1) / 2, ux: 0, x: 0, y: 0, w: 0, h: 0, s: 0 });
-                } else if (n > 1) {
-                    const cols = Math.ceil(Math.sqrt(n));
-                    const rows = Math.ceil(n / cols);
-                    const cells = [];
-                    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cells.push([r, c]);
-                    for (let i = cells.length - 1; i > 0; i--) {
-                        const j = (rng() * (i + 1)) | 0;
-                        const t = cells[i]; cells[i] = cells[j]; cells[j] = t;
-                    }
-                    for (let i = 0; i < n; i++) {
-                        const cr = cells[i][0], cc = cells[i][1];
-                        // POW > 1 biases depths toward the horizon so the bottom
-                        // band (large bodies) doesn't dominate the coverage.
-                        const t = (cr + 0.15 + 0.7 * rng()) / rows;
-                        const sn = lerp(sn0, sn1, Math.pow(t, POW));
-                        const ux = -1 + 2 * ((cc + 0.15 + 0.7 * rng()) / cols);
-                        lanterns.push({ sn, ux, x: 0, y: 0, w: 0, h: 0, s: 0 });
-                    }
+                // 원근 분포: 수평선 쪽은 작은 랜턴이 빽빽하고 앞으로 올수록 드문드문.
+                // 깊이는 층화 분위수 dq(0=수평선, 1=화면 아래) → projectLanterns에서
+                // 밀도 sn^-K 역CDF로 sn을 구한다(바닥 균일 분포의 물리값은 K=3).
+                // 가로는 황금비 수열 → (깊이, 가로)가 피보나치 격자처럼 고르게 퍼져
+                // 뭉침/빈 구멍이 없다. 약한 지터로 격자 무늬만 흐린다.
+                const PHI = 0.6180339887498949;
+                const fx0 = rng();
+                const jx = 0.6 / Math.sqrt(Math.max(1, n));
+                for (let i = 0; i < n; i++) {
+                    const dq = clamp((i + 0.5 + (rng() - 0.5) * 0.8) / n, 0, 1);
+                    let fx = (fx0 + i * PHI + (rng() - 0.5) * jx) % 1;
+                    if (fx < 0) fx += 1;
+                    lanterns.push({ dq, ux: -1 + 2 * fx, sn: 0, x: 0, y: 0, w: 0, h: 0, s: 0 });
                 }
-                lanterns.sort((a, b) => a.sn - b.sn);   // far-to-near painter order
                 projectLanterns();
             }
             function projectLanterns() {
                 if (!W || !H) return;
                 const reflH = Math.max(1, H - HZ);
-                const minS = Math.max(2, 0.03 * reflH);
+                const minS = 2;
                 const halfW = W * clamp(CFG.LANTERN_GX, 0.05, 0.65);
                 // TX: top-width ratio (1 = rectangle, 0 = vanishing point).
                 // Old hardcoded 0.22 left ~41% of the floor empty at 16:9.
-                const TX = clamp(CFG.LANTERN_TX ?? 0.62, 0.15, 1);
+                const TX = clamp(CFG.LANTERN_TX ?? 1, 0.15, 1);
                 const PAD = Math.max(0, CFG.LANTERN_PAD ?? 2);
+                // 가장 먼 랜턴이 그려지는 최소 높이(3px, drawLanterns 컷)에 맞춰
+                // 깊이 하한을 올린다 → 수평선 띠가 안 보이는 랜턴으로 낭비되지 않음.
+                const lh = Math.max(1e-3, CFG.LANTERN_H);
+                const sn1 = clamp(Math.max(CFG.LANTERN_SN0, CFG.LANTERN_SN1), 0.05, 1);
+                const sn0 = clamp(Math.max(Math.min(CFG.LANTERN_SN0, CFG.LANTERN_SN1), 3.2 / (lh * reflH)), 0.005, sn1 * 0.98);
+                const K = clamp(CFG.LANTERN_DEPTH_K ?? 2.2, 0, 3.5);
+                const snOf = q => {
+                    if (Math.abs(K - 1) < 1e-3) return sn0 * Math.pow(sn1 / sn0, q);
+                    const e = 1 - K, a = Math.pow(sn0, e), b = Math.pow(sn1, e);
+                    return Math.pow(a + q * (b - a), 1 / e);
+                };
                 for (const L of lanterns) {
+                    L.sn = snOf(L.dq);
                     const s = clamp(L.sn * reflH, minS, reflH);
                     L.s = s;
                     L.x = W / 2 + L.ux * halfW * (TX + (1 - TX) * L.sn);
