@@ -5,22 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>구름 브러시 에디터</title>
 <!--
-  구름 셰이더 초안(루트 "구름 셰이더 초안.html")을 브러시 편집 구조로 옮긴 중간 단계.
-  초안의 절차적 엔벨로프(큰 형태) 대신 직접 칠하는 두 장의 편집 맵을 셰이더가 읽는다.
-    ① 밀도 맵(uDen): 엔벨로프 값 자체. 0 근처가 구름 경계, 양수일수록 속이 차고 음수는 빈 하늘.
-       잔 혹(콜리플라워)은 여전히 빌로우 노이즈가 만들고, 거대 형태 음영(광원 쪽 적분)도 이 맵을 따라간다.
-    ② 투과율 보정 맵(uTr): 자기 그림자(거대 형태 투과율 macro)에 더하는 부호 있는 보정값. 0 = 계산값 그대로.
-  두 맵은 문서 좌표(가로 = 화면비 × 세로, 세로 = 1, 아래가 0)의 R16F 텍스처이고,
-  JSON(tsukuyomi-cloud-doc v1)으로 저장/불러오기 해 이후 황혼/낮 장면에 적용한다.
+  구름 셰이더 초안(루트 "구름 셰이더 초안.html")을 브러시 편집 구조로 옮긴 에디터.
+  셰이더·장면 프리셋·문서 형식은 cloud-doc.js(장면 tsukuyomi.js와 공용)에 있다.
+    ① 밀도 맵: 엔벨로프(큰 형태). 잔 혹은 빌로우 노이즈, 거대 형태 음영은 이 맵을 광원 쪽으로 적분.
+    ② 투과율 보정 맵: 자기 그림자(거대 형태 투과율)에 더하는 부호 있는 보정값.
+  장면(황혼/낮)마다 작업본이 따로 있고, "장면에 적용"하면 장면(/)이 같은 셰이더로 구워 그 장면의 구름 대신 그린다.
+  새 문서는 수평선을 장면과 같은 높이에 두므로, 에디터 창과 장면 창 크기가 같으면 보이는 그대로 적용된다.
 -->
 <style>
 :root{
-  --panel:rgba(28,22,44,.74); --ink:#f3e9f0; --muted:#bfaecb; --accent:#ffd9a8; --on-accent:#2a1f36; --line:rgba(255,255,255,.14);
+  --panel:rgba(28,22,44,.74); --ink:#f3e9f0; --muted:#bfaecb; --accent:#ffd9a8; --on-accent:#2a1f36; --line:rgba(255,255,255,.14); --ok:#9fe3b0; --warn:#ffc58a;
   box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
 }
-@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){ --panel:rgba(255,248,252,.8); --ink:#2a1f36; --muted:#6a5878; --accent:#9a4d2c; --on-accent:#fff; --line:rgba(40,20,60,.16);} }
-:root[data-theme="light"]{ --panel:rgba(255,248,252,.8); --ink:#2a1f36; --muted:#6a5878; --accent:#9a4d2c; --on-accent:#fff; --line:rgba(40,20,60,.16);}
-:root[data-theme="dark"]{ --panel:rgba(28,22,44,.74); --ink:#f3e9f0; --muted:#bfaecb; --accent:#ffd9a8; --on-accent:#2a1f36; --line:rgba(255,255,255,.14);}
+@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){ --panel:rgba(255,248,252,.8); --ink:#2a1f36; --muted:#6a5878; --accent:#9a4d2c; --on-accent:#fff; --line:rgba(40,20,60,.16); --ok:#1f7a3a; --warn:#a0520f;} }
+:root[data-theme="light"]{ --panel:rgba(255,248,252,.8); --ink:#2a1f36; --muted:#6a5878; --accent:#9a4d2c; --on-accent:#fff; --line:rgba(40,20,60,.16); --ok:#1f7a3a; --warn:#a0520f;}
+:root[data-theme="dark"]{ --panel:rgba(28,22,44,.74); --ink:#f3e9f0; --muted:#bfaecb; --accent:#ffd9a8; --on-accent:#2a1f36; --line:rgba(255,255,255,.14); --ok:#9fe3b0; --warn:#ffc58a;}
 *,*::before,*::after{box-sizing:inherit}
 html,body{height:100%;margin:0;background:#2b2440;overflow:hidden;font-family:"Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
@@ -35,21 +34,26 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
 .row{display:grid;grid-template-columns:1fr auto;gap:2px 8px;margin:8px 0}
 .row label{color:var(--muted)} .row output{color:var(--accent);font-variant-numeric:tabular-nums}
 .row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent)}
-select,button{font:inherit;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px;padding:4px 8px;cursor:pointer}
+select,button,.btn{font:inherit;color:var(--ink);background:transparent;border:1px solid var(--line);border-radius:8px;padding:4px 8px;cursor:pointer;text-decoration:none}
 button:disabled{opacity:.4;cursor:default}
-select:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+select:focus-visible,button:focus-visible,input:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .grp{margin:8px 0}
 .grp>.lbl{display:block;color:var(--muted);margin-bottom:4px}
 .seg{display:flex;gap:4px;flex-wrap:wrap}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:transparent}
-.chk{display:flex;align-items:center;gap:6px;color:var(--muted);margin:8px 0}
+button.primary{border-color:var(--accent);color:var(--accent);font-weight:600}
+.chk{display:flex;align-items:center;gap:6px;color:var(--muted);margin:6px 0}
 .chk input{accent-color:var(--accent);margin:0}
 details summary{cursor:pointer;color:var(--muted)}
 details summary strong{color:var(--ink)}
 .hint{color:var(--muted);font-size:12px;margin:6px 0 0}
 .stat{color:var(--muted);font-size:12px;margin:8px 0 0;font-variant-numeric:tabular-nums;min-height:1.4em}
+.apply{font-size:12px;margin:6px 0 0;color:var(--muted)}
+.apply b{font-weight:600}
+.apply .on{color:var(--ok)} .apply .stale{color:var(--warn)}
 kbd{font:inherit;font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 4px}
+code{font-size:11px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 #err{position:fixed;left:12px;bottom:12px;max-width:calc(100% - 24px);background:#5a1f2a;color:#fff;border-radius:10px;padding:10px 12px;font-size:13px;display:none}
 </style>
@@ -58,6 +62,21 @@ kbd{font:inherit;font-size:11px;border:1px solid var(--line);border-radius:4px;p
 <canvas id="c" aria-label="구름 편집 캔버스"></canvas>
 <canvas id="cur" aria-hidden="true"></canvas>
 <div class="panel">
+  <details open>
+  <summary><strong>장면</strong></summary>
+  <div class="grp">
+    <div class="seg" role="group" aria-label="편집할 장면">
+      <button type="button" data-scene="dusk" aria-pressed="true">황혼</button>
+      <button type="button" data-scene="day" aria-pressed="false">낮</button>
+    </div></div>
+  <div class="btns">
+    <button type="button" id="apply" class="primary">장면에 적용</button>
+    <button type="button" id="unapply">적용 해제</button>
+    <a class="btn" href="/" target="_blank" rel="noopener">장면 열기 ↗</a>
+  </div>
+  <p class="apply" id="applyStat" aria-live="polite"></p>
+  <label class="chk"><input type="checkbox" id="guides" checked> 화면 비율 가이드(휴대폰 · 16:9)</label>
+  </details>
   <details open>
   <summary><strong>브러시 편집</strong></summary>
   <div class="grp"><span class="lbl">레이어</span>
@@ -103,178 +122,62 @@ kbd{font:inherit;font-size:11px;border:1px solid var(--line);border-radius:4px;p
   <div class="row"><label for="scale">덩어리 크기</label><output id="scaleO"></output><input id="scale" type="range" min="2" max="12" step="0.1" value="5.5"></div>
   <div class="row"><label for="absorb">그림자 깊이</label><output id="absorbO"></output><input id="absorb" type="range" min="0.2" max="4" step="0.05" value="1.6"></div>
   <div class="row"><label for="sun">빛 방향(°)</label><output id="sunO"></output><input id="sun" type="range" min="20" max="160" step="1" value="105"></div>
-  <div class="row"><label for="grain">필름 그레인</label><output id="grainO"></output><input id="grain" type="range" min="0" max="0.12" step="0.005" value="0.05"></div>
+  <div class="row"><label for="grain">필름 그레인(미리보기만)</label><output id="grainO"></output><input id="grain" type="range" min="0" max="0.12" step="0.005" value="0.05"></div>
   <div class="btns"><button type="button" id="anim" aria-pressed="true">흐름 멈추기</button><button type="button" id="theme">패널 테마</button></div>
-  <p class="hint">"자기 그림자" 보기에서 덩어리마다 위가 밝고 아래가 어두워야 콜리플라워 질감이 납니다. 투과율 보정은 그 위에 더해집니다.</p>
+  <p class="hint">"자기 그림자" 보기에서 덩어리마다 위가 밝고 아래가 어두워야 콜리플라워 질감이 납니다. 투과율 보정은 그 위에 더해집니다. 적용 시 흐름은 그 순간의 모양으로 고정됩니다.</p>
   </details>
 </div>
 <div id="err" role="alert"></div>
+<script src="cloud-doc.js"></script>
 <script>
 'use strict';
-const vs=`#version 300 es
-in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
-const fs=`#version 300 es
-precision highp float;
-uniform vec2 uRes; uniform float uTime;
-uniform float uCov,uSharp,uSoft,uScale,uAbsorb,uGrain; uniform vec2 uSun; uniform int uView;
-uniform vec4 uDoc;        // 문서 사각형(캔버스 px, 아래 기준): 원점 xy, 크기 zw
-uniform float uDocA;      // 문서 가로/세로 비
-uniform sampler2D uDen;   // 밀도 맵 = 엔벨로프
-uniform sampler2D uTr;    // 투과율 보정 맵
-uniform int uOverlay,uLayer;
-out vec4 fragColor;
-
-float hash12(vec2 p){vec3 p3=fract(vec3(p.xyx)*.1031);p3+=dot(p3,p3.yzx+33.33);return fract((p3.x+p3.y)*p3.z);}
-vec2 hash22(vec2 p){vec3 p3=fract(vec3(p.xyx)*vec3(.1031,.1030,.0973));p3+=dot(p3,p3.yzx+33.33);return fract((p3.xx+p3.yz)*p3.zy);}
-float vnoise(vec2 p){vec2 i=floor(p),f=fract(p);vec2 u=f*f*(3.-2.*f);
-  return mix(mix(hash12(i),hash12(i+vec2(1,0)),u.x),mix(hash12(i+vec2(0,1)),hash12(i+vec2(1,1)),u.x),u.y);}
-// F1 워리 거리: 셀 중심이 밝은 둥근 혹을 만든다
-float worley(vec2 p){vec2 i=floor(p),f=fract(p);float d=8.;
-  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){vec2 g=vec2(x,y);vec2 o=hash22(i+g);
-    o=.5+.38*sin(uTime*.04+6.2831*o);vec2 r=g+o-f;d=min(d,dot(r,r));}
-  return sqrt(d);}
-// 반전 워리 fbm = 빌로우(뭉게) 노이즈
-float billow(vec2 p,int oct){float n=0.,a=.55,s=0.;
-  for(int i=0;i<5;i++){if(i>=oct)break;n+=a*(1.-worley(p));s+=a;p=p*2.07+vec2(3.1,1.7);a*=.5;}
-  return n/s;}
-float vfbm(vec2 p){float n=0.,a=.5;for(int i=0;i<3;i++){n+=a*vnoise(p);p*=2.1;a*=.5;}return n/.875;}
-
-// 큰 형태(엔벨로프): 초안의 절차적 형태 대신 브러시로 칠한 밀도 맵을 읽는다
-float envelope(vec2 uv){return texture(uDen,vec2(uv.x/uDocA,uv.y)).r;}
-float trEdit(vec2 uv){return texture(uTr,vec2(uv.x/uDocA,uv.y)).r;}
-float lobeNoise(vec2 uv,int oct){
-  vec2 q=uv*uScale+vec2(uTime*.006,0.);
-  q+=.35*vec2(vfbm(q*.5),vfbm(q*.5+7.3))-.17; // 약한 도메인 워프: 격자 티 제거
-  return billow(q,oct);
-}
-// 경계: 위로 향한 면은 날카롭게, 아래로 향한 면은 부드럽게
-float density(vec2 uv,float e,float n){
-  float r=e*.55+(n-.5)*1.25+.5;
-  float up=envelope(uv+vec2(0.,.02))-e; // <0 이면 윗면
-  float edge=mix(uSharp,uSoft,smoothstep(-.02,.06,up));
-  return smoothstep(uCov,uCov+edge,r);
-}
-
-vec3 sky(vec2 s){
-  float y=s.y;
-  vec3 top=vec3(.33,.38,.66),mid=vec3(.62,.58,.82),low=vec3(.92,.62,.74),hor=vec3(.98,.78,.74);
-  vec3 c=mix(hor,low,smoothstep(.12,.30,y));c=mix(c,mid,smoothstep(.30,.60,y));c=mix(c,top,smoothstep(.60,1.,y));
-  return c;
-}
-// 등고선: v가 k를 지나는 곳에 화면 1px 남짓한 선
-float iso(float v,float k,float fw){return 1.-smoothstep(0.,1.3,abs(v-k)/max(fw,1e-4));}
-
-void main(){
-  vec2 dp=(gl_FragCoord.xy-uDoc.xy)/uDoc.zw;   // 문서 좌표 0..1
-  vec2 uv=vec2(dp.x*uDocA,dp.y);
-  float e=envelope(uv), te=trEdit(uv), fw=fwidth(e);
-  if(any(lessThan(dp,vec2(0.)))||any(greaterThan(dp,vec2(1.)))){
-    fragColor=vec4(sky(clamp(dp,0.,1.))*.3,1.);return;}   // 문서 밖: 칠할 수 없는 영역
-  float h=.12;
-  vec2 s=dp;
-  vec3 col=sky(s);
-  if(uView==3){fragColor=vec4(vec3(lobeNoise(uv,5)),1.);return;}
-  if(uView==4){
-    vec3 g=vec3(clamp((e+2.)/4.2,0.,1.));
-    g=mix(g,vec3(1.,.4,.3),iso(e,0.,fw));            // 0 = 평균 구름 경계
-    g=mix(g,vec3(.5,.8,1.),iso(e,1.,fw)*.6);         // 1 = 속이 꽉 찬 영역
-    fragColor=vec4(g,1.);return;}
-  if(uView==5){
-    vec3 g=vec3(.16,.15,.2);
-    g=mix(g,vec3(1.,.78,.42),clamp(te,0.,1.));
-    g=mix(g,vec3(.32,.5,1.),clamp(-te,0.,1.));
-    g=mix(g,vec3(.85),iso(e,0.,fw)*.35);
-    fragColor=vec4(g,1.);return;}
-  float n0=lobeNoise(uv,5);
-  float d=density(uv,e,n0);
-  // ① 덩어리 단위 음영: 노이즈를 태양 방향으로 미분 → 각 혹의 '윗면'이 밝아진다
-  vec2 L=normalize(uSun);
-  float ep=.35/uScale;                   // 혹 크기에 비례한 샘플 간격
-  float dn=0.;
-  for(int i=1;i<=3;i++){dn+=(n0-lobeNoise(uv+L*ep*float(i)*.5,3))/float(i);}
-  float lobe=smoothstep(-.18,.22,dn);
-  // ② 거대 형태 음영: 밀도 맵 두께를 태양 쪽으로 적분 → 칠한 형태 전체의 큰 명암
-  float od=0.;
-  for(int i=1;i<=4;i++){od+=max(envelope(uv+L*.035*float(i)),0.);}
-  // 투과율 보정 맵을 계산된 투과율에 더한다(브러시로 칠한 자기 그림자)
-  float macro=clamp(exp(-od*uAbsorb*.6)*mix(.55,1.,smoothstep(.15,.6,uv.y))+te,0.,1.); // 위로 갈수록 직사광
-  float T=lobe*mix(.18,1.,macro)+.15*macro;
-  float powder=1.-exp(-d*4.);
-  float light=clamp(mix(T,T*powder,.4),0.,1.);
-  if(uView==1){col=vec3(d);}
-  else if(uView==2){col=vec3(mix(.08,1.,light))*step(.01,d)+vec3(.05,.05,.1)*(1.-step(.01,d));}
-  else{
-    float hgt=smoothstep(h,h+.5,uv.y);
-    vec3 shadowC=mix(vec3(.42,.30,.44),vec3(.50,.40,.60),hgt);   // 아랫면: 하늘색 반사 받은 모브
-    vec3 midC=vec3(.93,.60,.60);
-    vec3 litC=vec3(1.,.93,.78);
-    vec3 cc=mix(shadowC,midC,smoothstep(.0,.5,light));
-    cc=mix(cc,litC,smoothstep(.45,.95,light));
-    // 실버 라이닝: 얇은 가장자리 + 빛 정면
-    float rim=(1.-smoothstep(.0,.6,d))*T;
-    cc+=vec3(1.,.85,.7)*rim*.45;
-    // 대기 원근: 수평선 쪽 대비를 낮춰 멀리 보이게
-    float far=1.-smoothstep(h,h+.22,uv.y);
-    cc=mix(cc,sky(s)*vec3(1.,.9,.95),far*.45);
-    col=mix(col,cc,d);
-    // 수평선 아래(데모용 수면)
-    if(uv.y<h){float k=(h-uv.y)/h;col=mix(vec3(.55,.42,.55),vec3(.22,.17,.28),pow(k,.6));}
-  }
-  // 편집 레이어 겹쳐 보기: 밀도는 경계 등고선, 투과율은 보정 부호별 색조
-  if(uOverlay==1){
-    if(uLayer==0){col=mix(col,vec3(.55,.95,1.),iso(e,0.,fw)*.65);}
-    else{col=mix(col,vec3(1.,.72,.3),clamp(te,0.,1.)*.45);col=mix(col,vec3(.3,.5,1.),clamp(-te,0.,1.)*.45);}
-  }
-  if(uView==0)col+=(hash12(gl_FragCoord.xy+fract(uTime*7.)*137.)-.5)*uGrain;   // 필름 그레인
-  fragColor=vec4(clamp(col,0.,1.),1.);
-}`;
-
-// ---------- 유틸 ----------
+const CD=window.CloudDoc;
 const $=id=>document.getElementById(id);
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const ss=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
 const fract=x=>x-Math.floor(x);
 function fail(msg){const e=$('err');e.textContent=msg;e.style.display='block';}
+const store={get(k){try{return localStorage.getItem(k);}catch(e){return null;}},
+  set(k,v){try{localStorage.setItem(k,v);return true;}catch(e){return false;}},
+  del(k){try{localStorage.removeItem(k);}catch(e){}}};
 
-// ---------- WebGL2 ----------
+// ---------- 렌더러 ----------
 const c=$('c');
-const gl=c.getContext('webgl2',{antialias:false,preserveDrawingBuffer:true});
-if(!gl){fail('이 브라우저는 WebGL2를 지원하지 않아 에디터를 열 수 없습니다.');throw new Error('WebGL2 없음');}
-function sh(t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
-  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){const log=gl.getShaderInfoLog(s);console.error(log);fail('셰이더 컴파일 실패: '+log);}return s;}
-const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));
-gl.bindAttribLocation(pr,0,'p');gl.linkProgram(pr);gl.useProgram(pr);
-const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
-gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
-const U=n=>gl.getUniformLocation(pr,n);
-gl.uniform1i(U('uDen'),0);gl.uniform1i(U('uTr'),1);
+const R=CD.createRenderer(c);
+if(!R.ok){fail(R.error+' 에디터를 열 수 없습니다.');throw new Error(R.error);}
 
-// ---------- 문서(편집 맵) ----------
-// 맵 배열은 행 0 = 문서 아래(수면 쪽). 텍스처도 그대로 올려 셰이더 uv와 방향이 같다.
-// min/max: 브러시가 다루는 값 범위(저장 시 16비트 양자화 범위), empty: 비운 상태 값
-const LAY={
-  den:{name:'밀도(형태)',unit:0,min:-2,max:2.2,empty:-2,data:null,tex:gl.createTexture(),dirty:true},
-  tr:{name:'자기 그림자 투과율',unit:1,min:-1,max:1,empty:0,data:null,tex:gl.createTexture(),dirty:true},
-};
-const DOC_H=360;          // 세로 해상도(텍셀). 엔벨로프는 부드러워 이 정도면 충분하고 잔 혹은 노이즈가 만든다
-let DW=0,DH=DOC_H,DA=1;   // 문서 텍셀 크기와 가로/세로 비
-function allocDoc(w,h){
-  DW=w;DH=h;DA=w/h;
-  for(const k in LAY){const L=LAY[k];L.data=new Float32Array(DW*DH).fill(L.empty);
-    gl.activeTexture(gl.TEXTURE0+L.unit);gl.bindTexture(gl.TEXTURE_2D,L.tex);
-    gl.texImage2D(gl.TEXTURE_2D,0,gl.R16F,DW,DH,0,gl.RED,gl.FLOAT,L.data);
-    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-    L.dirty=true;}
-  undoS.length=0;redoS.length=0;syncUndo();layout();
+// ---------- 문서 ----------
+// doc: CloudDoc 문서(den/tr 배열을 브러시가 직접 고친다). 장면마다 작업본이 따로 있다.
+const LAY={den:{name:'밀도(형태)',...CD.RANGE.den},tr:{name:'자기 그림자 투과율',...CD.RANGE.tr}};
+const DOC_H=288;          // 새 문서 세로 해상도(텍셀). 엔벨로프는 부드럽고 잔 혹은 노이즈가 만든다. 두 장면 × 작업본/적용본이 localStorage에 들어가는 크기
+let scene='dusk',doc=null;
+const dirtyL={den:true,tr:true};
+let staleApply=false;     // 적용 이후 수정됨
+function useDoc(d){
+  doc=d;R.alloc(doc.w,doc.h);dirtyL.den=dirtyL.tr=true;
+  undoS.length=0;redoS.length=0;syncUndo();
+  for(const id of CD.PIDS){$(id).value=doc.params[id];showParam(id);}
+  layout();showStat(null);
 }
-function upload(){
-  for(const k in LAY){const L=LAY[k];if(!L.dirty)continue;L.dirty=false;
-    gl.activeTexture(gl.TEXTURE0+L.unit);gl.bindTexture(gl.TEXTURE_2D,L.tex);
-    gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,DW,DH,gl.RED,gl.FLOAT,L.data);}
+function newDocFor(sc){
+  const A=clamp(innerWidth/innerHeight,.5,3.5);
+  const d=CD.blank(sc,Math.round(DOC_H*A),DOC_H,1-CD.SCENE_HZ_RATIO);
+  if(sc==='dusk')fillDraft(d);
+  return d;
 }
+function loadWork(sc){
+  const s=store.get(CD.KEY.work(sc));
+  if(s){try{return CD.parse(JSON.parse(s),sc);}catch(e){console.warn('작업본 복원 실패',e);}}
+  if(sc==='dusk'){   // 첫 판(v1) 자동 저장본은 황혼 작업본으로 옮긴다
+    const old=store.get(CD.KEY.legacy);
+    if(old){try{return CD.parse(JSON.parse(old),'dusk');}catch(e){}}
+  }
+  return newDocFor(sc);
+}
+function upload(){for(const k of ['den','tr'])if(dirtyL[k]){dirtyL[k]=false;R.upload(k,doc[k]);}}
 
-// 초안의 절차적 엔벨로프(수평선 구름띠 + 적란운 탑 + 왼쪽 무리)를 밀도 맵에 굽는다: 시작점/비교용
+// 초안의 절차적 엔벨로프(수평선 구름띠 + 적란운 탑 + 왼쪽 무리)를 밀도 맵에 굽는다.
+// 초안은 수평선 0.12·하늘 0.88 기준이라 문서 하늘 높이에 맞춰 수평선 기준으로 균일하게 줄여 넣는다.
 function hash12(x,y){let a=fract(x*.1031),b=fract(y*.1031),c3=fract(x*.1031);
   const d=a*(b+33.33)+b*(c3+33.33)+c3*(a+33.33);a+=d;b+=d;c3+=d;return fract((a+b)*c3);}
 function vnoise(x,y){const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy,ux=fx*fx*(3-2*fx),uy=fy*fy*(3-2*fy);
@@ -289,15 +192,18 @@ function draftEnv(x,y,A){
   const l=Math.max(sdE(A*.10,.34,.20,.11),sdE(A*.20,.29,.18,.09));
   return Math.max(bank,t*1.9,l*1.6);
 }
-function fillDraft(){const L=LAY.den;
-  for(let y=0;y<DH;y++)for(let x=0;x<DW;x++)L.data[y*DW+x]=clamp(draftEnv((x+.5)/DH,(y+.5)/DH,DA),L.min,L.max);
-  L.dirty=true;}
+function fillDraft(d){
+  const A=d.w/d.h,s=(1-d.horizon)/.88,A0=A/s,L=LAY.den;
+  for(let y=0;y<d.h;y++)for(let x=0;x<d.w;x++){
+    const ux=((x+.5)/d.h-A/2)/s+A0/2,uy=.12+((y+.5)/d.h-d.horizon)/s;
+    d.den[y*d.w+x]=clamp(draftEnv(ux,uy,A0),L.min,L.max);}
+}
 
 // ---------- 실행 취소 ----------
 const undoS=[],redoS=[],UNDO_MAX=30;
-function pushUndo(k){undoS.push({k,d:LAY[k].data.slice()});if(undoS.length>UNDO_MAX)undoS.shift();redoS.length=0;syncUndo();}
-function swapHist(from,to){const s=from.pop();if(!s)return;const L=LAY[s.k];
-  to.push({k:s.k,d:L.data.slice()});L.data.set(s.d);L.dirty=true;syncUndo();scheduleSave();}
+function pushUndo(k){undoS.push({k,d:doc[k].slice()});if(undoS.length>UNDO_MAX)undoS.shift();redoS.length=0;syncUndo();}
+function swapHist(from,to){const s=from.pop();if(!s)return;
+  to.push({k:s.k,d:doc[s.k].slice()});doc[s.k].set(s.d);dirtyL[s.k]=true;syncUndo();edited();}
 function syncUndo(){$('undo').disabled=!undoS.length;$('redo').disabled=!redoS.length;}
 $('undo').onclick=()=>swapHist(undoS,redoS);
 $('redo').onclick=()=>swapHist(redoS,undoS);
@@ -336,7 +242,7 @@ function setSize(v){const el=$('bSize');el.value=clamp(v,+el.min,+el.max);el.dis
 
 // 가로 → 세로 이동 합 박스 블러(문지르기용). 영역 [x0,x1]×[y0,y1] 결과를 영역 크기 배열로 돌려준다
 function boxBlur(src,x0,y0,x1,y1,k){
-  const w=x1-x0+1,h=y1-y0+1,tmp=new Float32Array(w*h),out=new Float32Array(w*h),n=2*k+1;
+  const DW=doc.w,w=x1-x0+1,h=y1-y0+1,tmp=new Float32Array(w*h),out=new Float32Array(w*h),n=2*k+1;
   for(let y=0;y<h;y++){const row=(y+y0)*DW;let s=0;
     for(let i=-k;i<=k;i++)s+=src[row+clamp(x0+i,0,DW-1)];
     for(let x=0;x<w;x++){tmp[y*w+x]=s/n;s+=src[row+clamp(x0+x+k+1,0,DW-1)]-src[row+clamp(x0+x-k,0,DW-1)];}}
@@ -346,14 +252,15 @@ function boxBlur(src,x0,y0,x1,y1,k){
   return out;
 }
 // 한 번 찍기. fx, fy: 텍셀 좌표(연속, 아래 기준), p: 압력(0..1)
-function stamp(L,tool,fx,fy,p){
+function stamp(k,tool,fx,fy,p){
+  const L=LAY[k],D=doc[k],DW=doc.w,DH=doc.h;
   const r=Math.max(1,brush.size*DH),s=brush.str*p,hard=brush.hard;
   const ext=tool==='puff'?2.2:1;          // 퍼프는 원 밖으로도 기울기를 이어 빈 하늘과 매끄럽게 만난다
-  const R=r*ext;
-  const x0=Math.max(0,Math.floor(fx-R)),x1=Math.min(DW-1,Math.ceil(fx+R));
-  const y0=Math.max(0,Math.floor(fy-R)),y1=Math.min(DH-1,Math.ceil(fy+R));
+  const Rr=r*ext;
+  const x0=Math.max(0,Math.floor(fx-Rr)),x1=Math.min(DW-1,Math.ceil(fx+Rr));
+  const y0=Math.max(0,Math.floor(fy-Rr)),y1=Math.min(DH-1,Math.ceil(fy+Rr));
   if(x0>x1||y0>y1)return;
-  const w=x1-x0+1,D=L.data;
+  const w=x1-x0+1;
   const blur=tool==='smooth'?boxBlur(D,x0,y0,x1,y1,Math.max(2,Math.round(r*.18))):null;
   const pk=1.9*s;                          // 퍼프 꼭대기 높이(초안 탑 덩어리 = 1.9)
   for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
@@ -372,42 +279,64 @@ function stamp(L,tool,fx,fy,p){
     }
     D[i]=clamp(v,L.min,L.max);
   }
-  L.dirty=true;
+  dirtyL[k]=true;
 }
 
 // ---------- 레이아웃 / 좌표 ----------
 const cur=$('cur'),CG=cur.getContext('2d');
-let cssW=1,cssH=1,doc={x:0,y:0,w:1,h:1};   // 문서 사각형(CSS px, 위 기준)
+let cssW=1,cssH=1,box={x:0,y:0,w:1,h:1};   // 문서 사각형(CSS px, 위 기준)
+let dirty=true;
 function layout(){
   cssW=innerWidth;cssH=innerHeight;
-  const h=Math.min(cssH,cssW/(DA||1)),w=h*(DA||1);
-  doc={x:(cssW-w)/2,y:(cssH-h)/2,w,h};
+  const A=doc?doc.w/doc.h:1;
+  const h=Math.min(cssH,cssW/A),w=h*A;
+  box={x:(cssW-w)/2,y:(cssH-h)/2,w,h};
   const s=Math.min(devicePixelRatio||1,1)*.8;
-  c.width=Math.round(cssW*s);c.height=Math.round(cssH*s);gl.viewport(0,0,c.width,c.height);
+  c.width=Math.round(cssW*s);c.height=Math.round(cssH*s);
   const dpr=devicePixelRatio||1;cur.width=Math.round(cssW*dpr);cur.height=Math.round(cssH*dpr);
   CG.setTransform(dpr,0,0,dpr,0,0);
   dirty=true;drawCursor();
 }
 addEventListener('resize',layout);
 function toTex(e){const r=c.getBoundingClientRect();
-  return {x:(e.clientX-r.left-doc.x)/doc.w*DW,y:(1-(e.clientY-r.top-doc.y)/doc.h)*DH,cx:e.clientX-r.left,cy:e.clientY-r.top};}
+  return {x:(e.clientX-r.left-box.x)/box.w*doc.w,y:(1-(e.clientY-r.top-box.y)/box.h)*doc.h,cx:e.clientX-r.left,cy:e.clientY-r.top};}
 
-// ---------- 커서 / 상태 ----------
+// ---------- 오버레이: 화면 비율 가이드 + 브러시 커서 ----------
+// 가이드: 장면을 그 화면 크기로 열었을 때 보이는 문서 범위(수평선 위 하늘만). 장면 배치식은 CloudDoc.fit과 같다.
+const GUIDES=[{name:'휴대폰',w:390,h:844},{name:'16:9',w:1920,h:1080}];
 let hover=null;
+function drawGuides(){
+  if(!$('guides').checked)return;
+  const A=doc.w/doc.h;
+  CG.save();CG.font='11px system-ui,sans-serif';CG.lineWidth=1;
+  for(const g of GUIDES){
+    const HZ=g.h*CD.SCENE_HZ_RATIO,f=CD.fit(doc,g.w,HZ);
+    const x0=(0-f.ox)/f.k,x1=(g.w-f.ox)/f.k,yTop=doc.horizon+HZ/f.k;   // 문서 단위
+    const px0=box.x+x0/A*box.w,px1=box.x+x1/A*box.w,pyT=box.y+(1-yTop)*box.h,pyB=box.y+(1-doc.horizon)*box.h;
+    CG.setLineDash([6,5]);CG.strokeStyle='rgba(20,10,30,.5)';CG.strokeRect(px0+1,pyT+1,px1-px0,pyB-pyT);
+    CG.strokeStyle='rgba(255,245,235,.7)';CG.strokeRect(px0,pyT,px1-px0,pyB-pyT);
+    CG.setLineDash([]);CG.fillStyle='rgba(255,245,235,.85)';
+    CG.fillText(g.name,Math.max(box.x,px0)+6,Math.max(box.y,pyT)+14);
+  }
+  CG.restore();
+}
 function drawCursor(){
-  CG.clearRect(0,0,cssW,cssH);if(!hover)return;
-  const r=brush.size*doc.h;
+  CG.clearRect(0,0,cssW,cssH);if(!doc)return;
+  drawGuides();
+  if(!hover)return;
+  const r=brush.size*box.h;
   CG.lineWidth=1.5;CG.strokeStyle='rgba(20,10,30,.55)';CG.beginPath();CG.arc(hover.cx,hover.cy,r+1,0,Math.PI*2);CG.stroke();
   CG.lineWidth=1;CG.strokeStyle='rgba(255,245,235,.9)';CG.beginPath();CG.arc(hover.cx,hover.cy,r,0,Math.PI*2);CG.stroke();
   if(brush.hard>0.05){CG.setLineDash([3,4]);CG.strokeStyle='rgba(255,245,235,.45)';CG.beginPath();CG.arc(hover.cx,hover.cy,r*brush.hard,0,Math.PI*2);CG.stroke();CG.setLineDash([]);}
   CG.fillStyle='rgba(255,245,235,.9)';CG.fillRect(hover.cx-1,hover.cy-1,2,2);
 }
+$('guides').addEventListener('change',drawCursor);
 function showStat(t){
-  if(!t){$('stat').textContent=`문서 ${DW}×${DH} · 화면비 ${DA.toFixed(2)}`;return;}
+  if(!t){$('stat').textContent=`${CD.PRESETS[scene].name} 문서 ${doc.w}×${doc.h} · 화면비 ${(doc.w/doc.h).toFixed(2)} · 수평선 ${doc.horizon.toFixed(2)}`;return;}
   const x=Math.floor(t.x),y=Math.floor(t.y);
-  if(x<0||y<0||x>=DW||y>=DH){$('stat').textContent='문서 밖';return;}
-  const i=y*DW+x;
-  $('stat').textContent=`밀도 ${LAY.den.data[i].toFixed(2)} · 투과율 보정 ${LAY.tr.data[i]>=0?'+':''}${LAY.tr.data[i].toFixed(2)} · (${x}, ${y})`;
+  if(x<0||y<0||x>=doc.w||y>=doc.h){$('stat').textContent='문서 밖';return;}
+  const i=y*doc.w+x,tv=doc.tr[i];
+  $('stat').textContent=`밀도 ${doc.den[i].toFixed(2)} · 투과율 보정 ${tv>=0?'+':''}${tv.toFixed(2)} · (${x}, ${y})`;
 }
 
 // ---------- 그리기 입력 ----------
@@ -419,7 +348,7 @@ c.addEventListener('pointerdown',e=>{
   const k=brush.layer,base=brush.tool[k],inv=e.altKey||e.button===2;
   stroke={id:e.pointerId,k,tool:inv&&INV[base]?INV[base]:base,last:toTex(e)};
   pushUndo(k);c.classList.add('painting');
-  const t=stroke.last;stamp(LAY[k],stroke.tool,t.x,t.y,pressure(e));
+  const t=stroke.last;stamp(k,stroke.tool,t.x,t.y,pressure(e));
   hover=t;drawCursor();showStat(t);
 });
 function pressure(e){return e.pointerType==='pen'&&e.pressure>0?e.pressure:1;}
@@ -427,16 +356,16 @@ c.addEventListener('pointermove',e=>{
   const t=toTex(e);hover=t;c.classList.add('hover');drawCursor();showStat(t);
   if(!stroke||e.pointerId!==stroke.id)return;
   const evs=e.getCoalescedEvents?e.getCoalescedEvents():[e];
-  const L=LAY[stroke.k],step=Math.max(.75,brush.size*DH*.18);
+  const step=Math.max(.75,brush.size*doc.h*.18);
   for(const ev of (evs.length?evs:[e])){
     const q=toTex(ev),a=stroke.last,dist=Math.hypot(q.x-a.x,q.y-a.y);
     if(dist<step)continue;
     const n=Math.floor(dist/step),p=pressure(ev);
-    for(let j=1;j<=n;j++){const u=j*step/dist;stamp(L,stroke.tool,a.x+(q.x-a.x)*u,a.y+(q.y-a.y)*u,p);}
+    for(let j=1;j<=n;j++){const u=j*step/dist;stamp(stroke.k,stroke.tool,a.x+(q.x-a.x)*u,a.y+(q.y-a.y)*u,p);}
     stroke.last={x:a.x+(q.x-a.x)*n*step/dist,y:a.y+(q.y-a.y)*n*step/dist};
   }
 });
-function endStroke(e){if(!stroke||e.pointerId!==stroke.id)return;stroke=null;c.classList.remove('painting');scheduleSave();}
+function endStroke(e){if(!stroke||e.pointerId!==stroke.id)return;stroke=null;c.classList.remove('painting');edited();}
 c.addEventListener('pointerup',endStroke);c.addEventListener('pointercancel',endStroke);
 c.addEventListener('pointerleave',()=>{if(stroke)return;hover=null;c.classList.remove('hover');drawCursor();showStat(null);});
 
@@ -453,82 +382,81 @@ addEventListener('keydown',e=>{
 });
 
 // ---------- 레이어 일괄 동작 ----------
-$('clearL').onclick=()=>{const k=brush.layer;pushUndo(k);LAY[k].data.fill(LAY[k].empty);LAY[k].dirty=true;scheduleSave();};
-$('fromDraft').onclick=()=>{pushUndo('den');fillDraft();scheduleSave();};
+$('clearL').onclick=()=>{const k=brush.layer;pushUndo(k);doc[k].fill(LAY[k].empty);dirtyL[k]=true;edited();};
+$('fromDraft').onclick=()=>{pushUndo('den');fillDraft(doc);dirtyL.den=true;edited();};
 $('newDoc').onclick=()=>{
-  if(!confirm('현재 화면 비율로 새 캔버스를 만듭니다. 두 레이어와 실행 취소 기록이 비워집니다(저장하지 않은 편집은 사라짐).'))return;
-  allocDoc(Math.round(DOC_H*clamp(innerWidth/innerHeight,.5,3)),DOC_H);scheduleSave();showStat(null);};
+  if(!confirm(`${CD.PRESETS[scene].name} 작업본을 현재 화면 비율로 새로 만듭니다. 두 레이어와 실행 취소 기록이 비워집니다(장면에 적용한 문서는 그대로).`))return;
+  useDoc(newDocFor(scene));edited();};
 
-// ---------- 저장 / 불러오기 ----------
-// tsukuyomi-cloud-doc v1: 맵은 [min,max] 범위를 16비트(리틀 엔디언)로 양자화한 base64. 행 0 = 문서 아래.
-function enc(L){const span=L.max-L.min,q=new Uint16Array(L.data.length);
-  for(let i=0;i<q.length;i++)q[i]=Math.round(clamp((L.data[i]-L.min)/span,0,1)*65535);
-  const u8=new Uint8Array(q.buffer);let s='';for(let i=0;i<u8.length;i+=0x8000)s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000));
-  return {min:L.min,max:L.max,enc:'u16le-b64',data:btoa(s)};}
-function dec(o,L){if(o.enc!=='u16le-b64')throw new Error('알 수 없는 인코딩: '+o.enc);
-  const s=atob(o.data),u8=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u8[i]=s.charCodeAt(i);
-  const q=new Uint16Array(u8.buffer);if(q.length!==L.data.length)throw new Error('맵 크기가 맞지 않습니다');
-  const span=o.max-o.min;for(let i=0;i<q.length;i++)L.data[i]=clamp(o.min+q[i]/65535*span,L.min,L.max);L.dirty=true;}
-const PIDS=['cov','sharp','soft','scale','absorb','sun','grain'];
-function serialize(){return {type:'tsukuyomi-cloud-doc',version:1,w:DW,h:DH,aspect:DA,horizon:.12,
-  params:Object.fromEntries(PIDS.map(id=>[id,+$(id).value])),
-  brush:{size:brush.size,str:brush.str,hard:brush.hard},
-  layers:{density:enc(LAY.den),transmittance:enc(LAY.tr)}};}
-function deserialize(o){
-  if(!o||o.type!=='tsukuyomi-cloud-doc'||o.version!==1)throw new Error('구름 문서(tsukuyomi-cloud-doc v1)가 아닙니다');
-  const w=o.w|0,h=o.h|0;if(w<8||h<8||w>4096||h>4096)throw new Error('문서 크기가 올바르지 않습니다');
-  allocDoc(w,h);dec(o.layers.density,LAY.den);dec(o.layers.transmittance,LAY.tr);
-  if(o.params)for(const id of PIDS)if(id in o.params){$(id).value=o.params[id];$(id).dispatchEvent(new Event('input'));}
-  showStat(null);
+// ---------- 장면 / 저장 ----------
+// 작업본은 편집할 때마다 자동 저장, "장면에 적용"은 적용본 키에 따로 써서 장면(/)이 읽는다(다른 탭의 장면도 storage 이벤트로 즉시 갱신).
+let saveT=0,quotaWarn=false;
+function edited(){staleApply=true;showApply();clearTimeout(saveT);saveT=setTimeout(saveWork,500);}
+function saveWork(){clearTimeout(saveT);if(!doc)return;
+  quotaWarn=!store.set(CD.KEY.work(scene),JSON.stringify(CD.serialize(doc)));showApply();}
+function showApply(){
+  const el=$('applyStat'),has=!!store.get(CD.KEY.applied(scene));
+  el.textContent='';
+  const b=document.createElement('b');
+  if(!has){b.textContent='적용 안 됨';el.append(`${CD.PRESETS[scene].name} 장면: `,b,' (기본 구름 사용)');}
+  else if(staleApply){b.textContent='적용 후 수정됨';b.className='stale';el.append(`${CD.PRESETS[scene].name} 장면: `,b);}
+  else{b.textContent='적용됨';b.className='on';el.append(`${CD.PRESETS[scene].name} 장면: `,b);}
+  if(quotaWarn)el.append(' · 브라우저 저장 공간이 부족해 자동 저장하지 못했습니다. JSON으로 저장해 두세요.');
+  $('unapply').disabled=!has;
 }
-const LS_KEY='tsukuyomi.cloudEditor.v1';
-let saveT=0;
-function scheduleSave(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(LS_KEY,JSON.stringify(serialize()));}catch(e){}},500);}
+$('apply').onclick=()=>{
+  if(!store.set(CD.KEY.applied(scene),JSON.stringify(CD.serialize(doc)))){
+    alert('브라우저 저장 공간이 부족해 적용하지 못했습니다. 다른 장면의 적용을 해제하거나 JSON으로 저장해 public/clouds/에 넣어 주세요.');return;}
+  staleApply=false;showApply();};
+$('unapply').onclick=()=>{store.del(CD.KEY.applied(scene));staleApply=true;showApply();};
+function setScene(sc){
+  if(doc)saveWork();
+  scene=sc;
+  document.querySelectorAll('[data-scene]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.scene===sc));
+  staleApply=false;
+  useDoc(loadWork(sc));
+  showApply();
+}
+document.querySelectorAll('[data-scene]').forEach(b=>b.onclick=()=>{if(b.dataset.scene!==scene)setScene(b.dataset.scene);});
 $('save').onclick=()=>{
-  const blob=new Blob([JSON.stringify(serialize())],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download=`cloud-doc-${new Date().toISOString().slice(0,19).replace(/[-:T]/g,'')}.json`;
+  const blob=new Blob([JSON.stringify(CD.serialize(doc))],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${scene}.json`;
   document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
 $('load').onclick=()=>$('file').click();
 $('file').onchange=async()=>{const f=$('file').files[0];$('file').value='';if(!f)return;
-  try{deserialize(JSON.parse(await f.text()));scheduleSave();}catch(err){alert('불러오기 실패: '+err.message);}};
+  try{const d=CD.parse(JSON.parse(await f.text()),scene);
+    if(d.scene!==scene)setScene(d.scene);
+    useDoc(d);edited();}catch(err){alert('불러오기 실패: '+err.message);}};
 
 // ---------- 질감 파라미터 / 보기 ----------
-PIDS.forEach(id=>{const el=$(id),o=$(id+'O');const f=()=>o.textContent=(+el.value).toFixed(id==='sun'?0:2);
-  el.addEventListener('input',()=>{f();dirty=true;scheduleSave();});f();});
+function showParam(id){$(id+'O').textContent=(+$(id).value).toFixed(id==='sun'?0:2);}
+CD.PIDS.forEach(id=>{$(id).addEventListener('input',()=>{showParam(id);doc.params[id]=+$(id).value;dirty=true;edited();});});
 $('view').addEventListener('change',()=>dirty=true);
 $('ovl').addEventListener('change',()=>dirty=true);
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-let animate=!reduce,dirty=true,tAcc=0,last=performance.now();
+let animate=!reduce,last=performance.now();
 const ab=$('anim');
 const syncAnim=()=>{ab.textContent=animate?'흐름 멈추기':'흐름 재생';ab.setAttribute('aria-pressed',animate)};syncAnim();
-ab.onclick=()=>{animate=!animate;syncAnim();dirty=true};
+ab.onclick=()=>{animate=!animate;syncAnim();dirty=true;if(!animate)edited();};
 $('theme').onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==='light'?'dark':'light'};
+addEventListener('pagehide',saveWork);
 
-// ---------- 시작: 자동 저장본 → 없으면 초안 형태 ----------
-(function boot(){
-  let restored=false;
-  try{const s=localStorage.getItem(LS_KEY);if(s){deserialize(JSON.parse(s));restored=true;}}catch(e){console.warn('자동 저장본 복원 실패',e);}
-  if(!restored){allocDoc(Math.round(DOC_H*clamp(innerWidth/innerHeight,.5,3)),DOC_H);fillDraft();}
-  setLayer('den');showStat(null);
-  if(innerWidth<600)document.querySelectorAll('.panel details')[1].open=false;   // 좁은 화면: 칠할 자리 확보
-})();
+// ---------- 시작 ----------
+setLayer('den');
+setScene('dusk');
+if(innerWidth<600)document.querySelectorAll('.panel details')[2].open=false;   // 좁은 화면: 칠할 자리 확보
 
 function frame(now){
-  const dt=(now-last)/1000;last=now;if(animate){tAcc+=dt;dirty=true;}
-  if(LAY.den.dirty||LAY.tr.dirty){upload();dirty=true;}
+  const dt=(now-last)/1000;last=now;
+  if(animate){doc.time+=dt;dirty=true;}   // 흐름 시간은 문서에 실려 적용 시 그 순간의 모양으로 굽힌다
+  if(dirtyL.den||dirtyL.tr){upload();dirty=true;}
   if(dirty){dirty=false;
-    gl.uniform2f(U('uRes'),c.width,c.height);gl.uniform1f(U('uTime'),tAcc+20.);
-    PIDS.forEach(id=>{if(id!=='sun')gl.uniform1f(U('u'+id[0].toUpperCase()+id.slice(1)),+$(id).value)});
-    const a=+$('sun').value*Math.PI/180;gl.uniform2f(U('uSun'),Math.cos(a),Math.sin(a));
-    gl.uniform1i(U('uView'),+$('view').value);
     const k=c.width/cssW;
-    gl.uniform4f(U('uDoc'),doc.x*k,(cssH-doc.y-doc.h)*k,doc.w*k,doc.h*k);gl.uniform1f(U('uDocA'),DA);
-    gl.uniform1i(U('uOverlay'),$('ovl').checked?1:0);gl.uniform1i(U('uLayer'),brush.layer==='den'?0:1);
-    gl.drawArrays(gl.TRIANGLES,0,3);}
+    R.render({rect:[box.x*k,(cssH-box.y-box.h)*k,box.w*k,box.h*k],doc,preset:CD.PRESETS[scene],mode:0,
+      view:+$('view').value,overlay:$('ovl').checked,layer:brush.layer});}
   requestAnimationFrame(frame);
 }
-if(gl)requestAnimationFrame(frame);
+requestAnimationFrame(frame);
 </script>
 </body>
 </html>
