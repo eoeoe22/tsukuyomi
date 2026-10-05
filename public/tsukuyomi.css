@@ -95,8 +95,8 @@
             right: 0;
             bottom: 0;
             display: flex;
-            justify-content: center;
-            padding: 0 var(--space-5) calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+            justify-content: flex-start;
+            padding: 0 0 calc(var(--space-6) + env(safe-area-inset-bottom, 0px)) var(--space-5);
             pointer-events: none;
         }
 
@@ -203,12 +203,12 @@
             }
         }
 
-        /* mobile: icon card stays centred at the bottom */
+        /* mobile: icon card stays at the bottom-left corner */
         @media (max-width: 460px),
         (pointer: coarse) and (max-height: 500px) {
             .dock {
-                justify-content: center;
-                padding: 0 0 calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
+                justify-content: flex-start;
+                padding: 0 0 calc(var(--space-5) + env(safe-area-inset-bottom, 0px)) var(--space-5);
             }
 
             .panel {
