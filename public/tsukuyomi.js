@@ -104,6 +104,8 @@
                 // BLOOM_R 가까운 번짐 반경(하늘 높이 비율), BLOOM_WIDE 넓은 후광 비중
                 BLOOM: 0.7, BLOOM_POW: 4, BLOOM_R: 0.02, BLOOM_WIDE: 0.6,
                 DY_SEED: 3, DY_LX: 0.46, DY_LY: 0.22, DY_LIGHT: 1.05,
+                // DY_GLOW_R: 틈 빛번짐 크기 배율, DY_GLOW_CORE: 중앙부 밝기 배율(코어만), DY_GLOW_A: 전체 밝기 배율(헤일로+코어)
+                DY_GLOW_R: 2, DY_GLOW_CORE: 0.47, DY_GLOW_A: 0.93,
                 DY_F0: 0.2, DY_F1: 0.5,
                 DY_BAND_N: 7, DY_SP: 0.0035, DY_SWAY: 0.01,
                 DY_COV: 0.6, DY_SCALE: 8.0, DY_ABSORB: 1.9,
@@ -1639,23 +1641,25 @@
             // ref: 빛은 틈 안쪽의 좁은 코어 + 그 둘레의 옅은 헤일로뿐, 하늘 전체를 씻는 넓은 글로우가 아니다.
             // 코어/헤일로 2중으로 좁혀 그려 하늘 코발트 그라데이션과 별이 살아나게 한다(수정 전엔 반경 화면절반 글로우가 하늘을 덮었음).
             function drawDay2Light(lx, ly, a) {
-                const A = CFG.DY_LIGHT * a;
+                const A = CFG.DY_LIGHT * (CFG.DY_GLOW_A ?? 1) * a;
+                const RS = CFG.DY_GLOW_R ?? 1;
+                const CK = CFG.DY_GLOW_CORE ?? 1;
                 S.save();
                 S.translate(lx, ly);
-                S.scale(1, 1.4);
+                // 원형: 타원 스케일 제거 (수정 전 scale(1, 1.4))
                 // 헤일로: 틈 둘레 하늘을 옅게 밝히는 청색 산란
-                const hr = HZ * 0.62;
+                const hr = HZ * 0.88 * RS;
                 const hg = S.createRadialGradient(0, 0, 0, 0, 0, hr);
-                hg.addColorStop(0, rgba(hex('#a9d6f0'), Math.min(1, 0.5 * A)));
-                hg.addColorStop(0.4, rgba(hex('#7cb8e2'), 0.18 * A));
+                hg.addColorStop(0, rgba(hex('#a9d6f0'), Math.min(1, 0.2 * A)));
+                hg.addColorStop(0.4, rgba(hex('#7cb8e2'), 0.08 * A));
                 hg.addColorStop(1, 'rgba(80,140,205,0)');
                 S.fillStyle = hg;
                 S.fillRect(-hr, -hr, hr * 2, hr * 2);
                 // 코어: 틈 안쪽의 밝은 빛덩어리 (구름이 그 위에 그려져 아랫부분은 가려진다)
-                const cr = HZ * 0.16;
+                const cr = HZ * 0.21 * RS;
                 const cg = S.createRadialGradient(0, 0, 0, 0, 0, cr);
-                cg.addColorStop(0, rgba(hex('#f4fbff'), Math.min(1, 0.95 * A)));
-                cg.addColorStop(0.35, rgba(hex('#d8edfa'), 0.62 * A));
+                cg.addColorStop(0, rgba(hex('#f4fbff'), Math.min(1, 0.42 * A * CK)));
+                cg.addColorStop(0.35, rgba(hex('#d8edfa'), 0.24 * A * CK));
                 cg.addColorStop(1, 'rgba(160,210,240,0)');
                 S.fillStyle = cg;
                 S.fillRect(-cr, -cr, cr * 2, cr * 2);
