@@ -5,6 +5,11 @@
             const S = sky.getContext('2d');
             const cloudLayer = document.createElement('canvas');
             const CL = cloudLayer.getContext('2d');
+            // 구름 블룸: 구름층만 1/4로 줄여 밝은 부분을 뽑고(색 유지 거듭제곱) 두 반경으로 흐려 하늘에 screen 합성.
+            // bloomA = 밝은 부분(1/4), bloomB = 곱셈용 사본/가까운 번짐, bloomP = 축소 피라미드(1/8, 1/16, 1/32)
+            const bloomA = document.createElement('canvas'), BA = bloomA.getContext('2d');
+            const bloomB = document.createElement('canvas'), BB = bloomB.getContext('2d');
+            const bloomP = [0, 1, 2].map(() => { const c = document.createElement('canvas'); return { c, g: c.getContext('2d') }; });
             // horizon-side blur for the reflection only
             const band = document.createElement('canvas');
             const BD = band.getContext('2d');
@@ -72,8 +77,6 @@
                 DC_CB_N: 3, DC_CB_S0: 0.95, DC_CB_S1: 1.5, DC_CB_SP: 0.4,
                 DC_F0: 0.36, DC_F1: 0.58,
                 DC_LX: 0.16, DC_LY: -0.12, DC_LIGHT: 0.34,
-                // 광원 쪽 구름 반사 오버레이: 세기, 반경(max(W, HZ) 비율). 크림색으로 덮는 방식이라 세면 광원 근처(왼쪽 위)를 지나는 구름의 명암이 씻겨 나간다
-                DC_REFL_A: 0.16, DC_REFL_R: 0.55,
                 // 황혼 구름 질감(적운 셰이더 랩 파라미터): 덮임 정도, 윗면/아랫면 경계 폭, 덩어리 크기, 그림자 깊이, 빛 방향(°, y-up)
                 DC_COV: 0.52, DC_SHARP: 0.105, DC_SOFT: 0.15, DC_SCALE: 8.1, DC_ABSORB: 1.25, DC_SUN: 160,
                 // 새 낮 장면(reference-images/day-empty-ref.png 기반): 가운데 구름 틈의 광원 + 양옆 거대 적운 벽 + 수평선 낮은 구름 띠.
@@ -84,6 +87,9 @@
                 DAY_SCENE: 1,
                 // CLOUD_DOC: 1 = 브러시 구름 문서(디버그 패널 › 구름 › 브러시 구름 편집)가 있으면 황혼/새 낮 구름 대신 그린다, 0 = 항상 절차적 구름.
                 CLOUD_DOC: 1,
+                // 구름 블룸: BLOOM 세기(0 = 끔), BLOOM_POW 밝은 부분 추출 문턱(2/4/8/16, 클수록 가장 밝은 곳만 번진다),
+                // BLOOM_R 가까운 번짐 반경(하늘 높이 비율), BLOOM_WIDE 넓은 후광 비중
+                BLOOM: 0.7, BLOOM_POW: 4, BLOOM_R: 0.02, BLOOM_WIDE: 0.6,
                 DY_SEED: 3, DY_LX: 0.46, DY_LY: 0.22, DY_LIGHT: 1.05,
                 DY_F0: 0.2, DY_F1: 0.5,
                 DY_BAND_N: 7, DY_SP: 0.0035, DY_SWAY: 0.01,
@@ -278,14 +284,18 @@
             // ---------- state ----------
             let W = 0, H = 0, HZ = 0, dpr = 1, R = 1;
             let pole = { x: 0, y: 0 }, sunR = 20, moonR = 18;
-            let state = 'dusk', p = CFG.P_DUSK, tState = 0, tNight = 0;
+            let state = 'toNight', p = 0, tState = 0, tNight = 0;
             // 진행 중인 전환의 시작/목표 p (클릭 시 현재 p에서 캡처 → 어디서든 자연스럽게 전환)
             // P_DAY/P_DUSK가 모두 0이어도 낮/황혼을 구분할 수 있게 목표 타입을 별도로 보관한다.
-            let transFrom = CFG.P_DUSK, transTo = CFG.P_DUSK, transTarget = 'dusk';
+            // 기본값은 밤: 최초 접속 시 구름 없는 빈 낮(p=0, 낮 타입)에서 밤으로 자동 전환한다.
+            let transFrom = 0, transTo = 1, transTarget = 'night';
             // duskW: 0 = 낮 타입(푸른 하늘), 1 = 황혼 타입(주황 하늘). p≈0에서만 색을 가른다.
             // p >= DUSK_Q 구간에서는 duskW와 무관하게 항상 같은 황혼 corridor이므로
             // 낮-밤 전환의 중간부는 타입에 관계없이 항상 황혼을 거친다.
-            let duskW = 1, duskFrom = 1, duskTo = 1;
+            let duskW = 0, duskFrom = 0, duskTo = 1;
+            // 인트로 음소거: 최초 자동 toNight 동안만 구름·틈 빛·반짝임을 숨겨 빈 낮에서 밤으로.
+            // 하단 버튼으로 직접 이동하면 해제되어 기존 장면들을 동일하게 열람한다.
+            let introMuted = true;
             // 유효 팔레트 조회 위치: 낮 분기(p 그대로)와 황혼 분기(max(p, DUSK_Q))를 duskW로 보간.
             // p=0 + 낮 타입 → 0(파랑), p=0 + 황혼 타입 → DUSK_Q(주황), p>=DUSK_Q → 타입 무관 동일값.
             const palQ = () => lerp(p, Math.max(p, DUSK_Q), duskW);
@@ -293,10 +303,11 @@
             // 낮/황혼 idle 모두 nk = 0에서 시작하므로 최대 태양 고도가 동일하고,
             // p와 함께 연속으로만 움직이므로 전환 중 점프가 없다.
             // 태양 위치/소멸/여광이 모두 nk에 묶이며, toNight에서는 T_SUNSET으로 하늘(T_NIGHT)보다 먼저 진다.
-            let nk = 0, nkFrom = 0, nkTo = 0;
+            let nk = 0, nkFrom = 0, nkTo = 1;
             // 태양 원반 가시도: 낮 = 1, 황혼 = 0(원반 없이 좌상단 광원만). toDay/toDusk에서만 보간하고
             // toNight에서는 출발값을 유지한다 (낮→밤은 해가 지고, 황혼→밤은 원반 없이 진행).
-            let sunVis = 0, svFrom = 0, svTo = 0;
+            // 인트로 출발이 빈 낮이므로 초기값은 낮(1)이다.
+            let sunVis = 1, svFrom = 1, svTo = 1;
             const sunK = () => clamp(nk, 0, 1);
             // 낮 분기 안에서 새 낮(DAY_SCENE=1) / 기존 낮(0, 더미) 선택. 가중치는 sunVis에 곱해 쓴다.
             const day2On = () => (CFG.DAY_SCENE >= 0.5 ? 1 : 0);
@@ -841,14 +852,6 @@
                     sun: 90, lx: 0.5, ly: 0, ax: 0.46, al: 0.5, ay: 1.0, hh: 0.42, wmax: 0.26,
                     bot: 0.92, fade: 0.93, gd: [1.5, 0.55], glow: [0.45, 0.1, 0.3], rimK: 0.8, swayK: 0.6
                 },
-                {   // 가운데 틈 아래 음영 메움(음영층): 양옆 앞턱 사이 빈 하늘을 짙은 구름으로 채운다.
-                    // 양 끝은 높게 솟아 양옆 구름 몸통에 묻히고(앞턱이 나중에 그려져 이음매를 덮는다), 가운데는 낮게 꺼져 틈 속 밝은 덩어리 꼭대기가 보인다.
-                    // seed 고정: 공용 rng를 소비하지 않아 기존 덩어리·띠 모양이 그대로 유지된다
-                    layer: 'front', w0: 900, h0: 320, cols: 13, seed: 7741,
-                    prof: [[0, 0.1], [0.12, 0.06], [0.24, 0.26], [0.36, 0.48], [0.5, 0.56], [0.63, 0.46], [0.76, 0.24], [0.88, 0.08], [1, 0.04]],
-                    sun: 90, lx: 0.5, ly: -0.2, ax: 0.52, al: 0.5, ay: 1.0, hh: 0.44, wmax: 0.2, bot: 0.98, fade: 0.94,
-                    gd: [0.95, 0.45], rimK: 0.32, swayK: 1
-                },
                 {   // 왼쪽 앞턱(음영층): 빨간 윤곽 기준 — 바깥은 평평한 데크, 틈 바로 왼쪽에 솟은 타워, 틈 경계는 절벽처럼 떨어진다
                     layer: 'front', w0: 760, h0: 460, cols: 14,
                     prof: [[0, 0.42], [0.35, 0.4], [0.55, 0.38], [0.68, 0.36], [0.76, 0.08], [0.86, 0.06], [0.92, 0.42], [1, 0.62]],
@@ -866,11 +869,6 @@
                 const rng = mulberry32(Math.round((CFG.DY_SEED ?? 3) * 1000 + 313));
                 day2Clouds = [];
                 for (const spec of DAY2_MASS) {
-                    if (spec.seed != null) {   // 고정 시드 덩어리: 공용 rng 순서를 건드리지 않는다
-                        const sr = mulberry32(spec.seed + Math.round((CFG.DY_SEED ?? 3) * 1000));
-                        day2Clouds.push({ kind: 'mass', spec, spr: null, seed: (sr() * 4294967296) >>> 0, ph: sr() * Math.PI * 2 });
-                        continue;
-                    }
                     day2Clouds.push({ kind: 'mass', spec, spr: null, seed: (rng() * 4294967296) >>> 0, ph: rng() * Math.PI * 2 });
                 }
                 const n = Math.max(0, Math.round(CFG.DY_BAND_N));
@@ -965,6 +963,13 @@
                 if (!D.doc || !W || !HZ) return;
                 try { D.spr = window.CloudDoc.bake(D.doc, W, HZ, Math.min(dpr, 1.5)); }
                 catch (e) { console.warn('구름 문서 굽기 실패 (' + k + ')', e); }
+                // 라이브 렌더: 구운 한 장(D.spr)은 폴백/동작 줄이기용으로 두고, 평소엔 매 1/20초 다시 그린 캔버스를 쓴다
+                if (window.CloudDoc.createLive && !RM.matches) {
+                    try {
+                        if (!D.anim || D.animDoc !== D.doc) { D.anim = window.CloudDoc.createLive(D.doc, { fps: 20 }); D.animDoc = D.doc; }
+                        if (D.anim) { D.anim.resize(W, HZ, Math.min(dpr, 1.5) * 0.6); D.anim.tick(clock, true); }
+                    } catch (e) { console.warn('구름 문서 라이브 렌더 실패 (' + k + ')', e); D.anim = null; }
+                }
                 if (D.spr) bandValid = false;
             }
             function loadCloudDoc(k) {
@@ -1453,6 +1458,7 @@
                     if (k >= 1) {
                         state = 'night'; tNight = 0; p = 1; nk = 1;
                         duskW = 1; duskFrom = 1; duskTo = 1;
+                        introMuted = false;
                     }
                 } else if (state === 'night') {
                     tNight += dt;
@@ -1617,8 +1623,10 @@
                 S.fillStyle = g; S.fillRect(0, 0, W, HZ);
 
                 // 새 낮(DAY_SCENE=1) 가중치: 낮 분기(sunVis) 중 새 낮 몫. 나머지(sunVis - w2)가 기존 낮(더미).
+                // 인트로 중에는 0으로 묶어 구름 없는 빈 낮으로 둔다.
                 const w2 = day2W();
-                const d2Live = w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, q));
+                const cloudGain = introMuted ? 0 : 1;
+                const d2Live = w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, q)) * cloudGain;
                 const d2lx = W * CFG.DY_LX, d2ly = HZ * CFG.DY_LY;
                 if (d2Live > 0.005) drawDay2Light(d2lx, d2ly, d2Live);
 
@@ -1666,7 +1674,7 @@
                 // 낮/황혼 구름 세트 가중치: sunVis(낮=1, 황혼=0)로만 갈린다. q와 무관하므로
                 // 낮→밤 전환에는 낮 구름만, 황혼→밤 전환에는 황혼 구름만 나온다.
                 const wD = 1 - sunVis;
-                const dLive = wD * (1 - ss(CFG.DC_F0, CFG.DC_F1, q));
+                const dLive = wD * (1 - ss(CFG.DC_F0, CFG.DC_F1, q)) * cloudGain;
                 // 황혼: 원반 대신 화면 밖 좌상단 광원의 은은한 빛 (구름 상부 반사 방향과 일치)
                 const lx = W * CFG.DC_LX, ly = HZ * CFG.DC_LY;
                 const lA = CFG.DC_LIGHT * dLive;
@@ -1681,13 +1689,17 @@
                 // clouds: 낮 세트(547f49e 로직, 틴트 방식)와 황혼 세트(색 구움)를 sunVis로 크로스페이드
                 const base = clamp(W / 1400, 0.5, 1.1);
                 const drawSet = (set, tint, alpha, light) => {
+                    drawSetInner(set, tint, alpha, light);
+                    if (CFG.BLOOM > 0.005 && alpha > 0.01) drawBloom(alpha);
+                };
+                const drawSetInner = (set, tint, alpha, light) => {
                     CL.setTransform(1, 0, 0, 1, 0, 0);
                     CL.globalCompositeOperation = 'source-over';
                     CL.clearRect(0, 0, cloudLayer.width, cloudLayer.height);
                     CL.setTransform(dpr, 0, 0, dpr, 0, 0);
                     if (set.isDoc) {
                         // 브러시 구름 문서: 하늘 크기 스프라이트 한 장 (편집 중이면 편집기의 라이브 캔버스)
-                        CL.drawImage(set.live || set.spr, 0, 0, W, HZ);
+                        CL.drawImage(set.live || (set.anim && set.anim.canvas) || set.spr, 0, 0, W, HZ);
                     } else if (set === clouds) {
                         // 낮 구름 배치 (547f49e 시점 식 그대로, PAD 여백만 보정)
                         for (const c of set) {
@@ -1737,8 +1749,8 @@
                     if (light > 0.005) {
                         // 광원 쪽 구름일수록 더 밝게 반사
                         CL.globalCompositeOperation = 'source-atop';
-                        const rg = CL.createRadialGradient(lx, ly, 0, lx, ly, Math.max(W, HZ) * CFG.DC_REFL_R);
-                        rg.addColorStop(0, rgba(hex('#fff2dc'), CFG.DC_REFL_A * light));
+                        const rg = CL.createRadialGradient(lx, ly, 0, lx, ly, Math.max(W, HZ) * 0.9);
+                        rg.addColorStop(0, rgba(hex('#fff2dc'), 0.42 * light));
                         rg.addColorStop(1, 'rgba(255,236,210,0)');
                         CL.fillStyle = rg; CL.fillRect(0, 0, W, HZ);
                         // 하부 음영: 수평선 쪽 구름 밑면을 자주빛으로 가라앉힌다
@@ -1760,7 +1772,7 @@
                     S.globalAlpha = 1;
                     S.setTransform(dpr, 0, 0, dpr, 0, 0);
                 };
-                const ca = (1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q)) * (sunVis - w2);
+                const ca = (1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q)) * (sunVis - w2) * cloudGain;
                 if (ca > 0.01) drawSet(clouds, CLOUD_TINT, ca, 0);
                 if (d2Live > 0.01) drawSet(docOn('day') ? docCloud.day : day2Clouds, DAY2_TINT, d2Live, 0);
                 // 브러시 문서는 에디터에서 본 색 그대로 쓰므로 광원 반사·하부 음영(light)을 더하지 않는다
@@ -2010,6 +2022,64 @@
                 FG.globalAlpha = 1;
             }
 
+            // ---------- 구름 블룸 ----------
+            // 방금 cloudLayer에 그린 구름 세트만 원천으로 쓴다(하늘·달·별은 번지지 않는다). drawSet 직후 S(하늘)에 screen으로 얹으므로
+            // 수면 반사(하늘 미러)에도 그대로 비친다. ctx.filter가 있으면 blur, 없으면(구형 Safari) 축소 피라미드 자체를 흐림으로 쓴다.
+            function fitCanvas(c, w, h) { if (c.width !== w || c.height !== h) { c.width = w; c.height = h; } }
+            function drawBloom(alpha) {
+                const cw = cloudLayer.width, ch = cloudLayer.height;
+                if (!cw || !ch) return;
+                const w4 = Math.max(1, Math.round(cw / 4)), h4 = Math.max(1, Math.round(ch / 4));
+                fitCanvas(bloomA, w4, h4); fitCanvas(bloomB, w4, h4);
+                // 1) 밝은 부분: 검정 위에 구름(프리멀티플라이드라 알파가 곧 밝기에 반영) → 자기 자신과 곱해 x^POW (색상 유지)
+                BA.setTransform(1, 0, 0, 1, 0, 0);
+                BA.globalCompositeOperation = 'source-over'; BA.globalAlpha = 1; BA.filter = 'none';
+                BA.fillStyle = '#000'; BA.fillRect(0, 0, w4, h4);
+                BA.imageSmoothingEnabled = true; BA.imageSmoothingQuality = 'medium';
+                BA.drawImage(cloudLayer, 0, 0, w4, h4);
+                const sq = clamp(Math.round(Math.log2(Math.max(1, CFG.BLOOM_POW))), 0, 4);
+                for (let i = 0; i < sq; i++) {
+                    BB.globalCompositeOperation = 'copy'; BB.filter = 'none'; BB.drawImage(bloomA, 0, 0);
+                    BA.globalCompositeOperation = 'multiply'; BA.drawImage(bloomB, 0, 0);
+                }
+                BA.globalCompositeOperation = 'source-over';
+                // 2) 축소 피라미드 1/8 → 1/16 → 1/32 (반씩 줄이면 쌍선형 필터가 쌓여 그 자체로 흐림이 된다)
+                let src = bloomA, sw = w4, sh = h4;
+                for (const P of bloomP) {
+                    sw = Math.max(1, sw >> 1); sh = Math.max(1, sh >> 1);
+                    fitCanvas(P.c, sw, sh);
+                    P.g.globalCompositeOperation = 'copy'; P.g.filter = 'none';
+                    P.g.imageSmoothingEnabled = true; P.g.imageSmoothingQuality = 'medium';
+                    P.g.drawImage(src, 0, 0, sw, sh);
+                    src = P.c;
+                }
+                // 3) 가까운 번짐(near) + 넓은 후광(wide)
+                let near = bloomP[0].c, wide = bloomP[2].c;
+                if (FILTER_OK) {
+                    const r = Math.max(0.5, CFG.BLOOM_R * ch / 4);
+                    BB.globalCompositeOperation = 'copy'; BB.filter = `blur(${r.toFixed(2)}px)`;
+                    BB.drawImage(bloomA, 0, 0); BB.filter = 'none';
+                    near = bloomB;
+                    const P = bloomP[1];   // 1/16에서 넓게: 같은 비용으로 반경 4배
+                    P.g.globalCompositeOperation = 'copy'; P.g.filter = `blur(${(r * 0.75).toFixed(2)}px)`;
+                    P.g.drawImage(P.c, 0, 0); P.g.filter = 'none';
+                    wide = P.c;
+                }
+                S.save();
+                S.setTransform(1, 0, 0, 1, 0, 0);
+                S.globalCompositeOperation = 'screen';
+                S.imageSmoothingEnabled = true; S.imageSmoothingQuality = 'high';
+                const k = CFG.BLOOM * alpha;
+                // screen은 1을 넘지 못하므로 세기 > 1이면 한 번 더 얹는다
+                for (let a = k; a > 0.003; a -= 1) {
+                    S.globalAlpha = Math.min(1, a);
+                    S.drawImage(near, 0, 0, cw, ch);
+                    S.globalAlpha = Math.min(1, a) * CFG.BLOOM_WIDE;
+                    S.drawImage(wide, 0, 0, cw, ch);
+                }
+                S.restore();
+            }
+
             function render() {
                 drawSky();
 
@@ -2117,7 +2187,7 @@
                     wg.addColorStop(1, `rgba(18,70,134,${wa.toFixed(3)})`);
                     ctx.fillStyle = wg; ctx.fillRect(0, HZ, W, H - HZ);
                 }
-                if (w2 > 0.01) drawGlints(w2, qR);
+                if (w2 > 0.01 && !introMuted) drawGlints(w2, qR);
 
                 // seam glow where sky meets its mirror
                 const hor = skyAt(qR)[SKY_STOPS.length - 1];
@@ -2376,6 +2446,9 @@ void main() {
             function goTo(target) {
                 if (target !== 'day' && target !== 'dusk' && target !== 'night') return;
                 if (targetOf(state) === target) return;
+                // 수동 이동이면 인트로 음소거를 풀어 기존 구름 장면을 그대로 보여준다.
+                // (밤 버튼을 눌러 인트로 toNight를 그대로 두는 경우는 위에서 early return되어 유지된다)
+                introMuted = false;
                 transFrom = p;
                 nkFrom = nk;
                 duskFrom = duskW;
@@ -2440,6 +2513,8 @@ void main() {
                 get state() { return state; },
                 set state(v) {
                     state = v;
+                    // 수동 지정은 인트로가 아닌 것으로 간주해 구름을 정상 표시한다.
+                    introMuted = false;
                     if (v === 'day') { p = CFG.P_DAY; transFrom = p; transTo = p; transTarget = 'day'; duskW = 0; duskFrom = 0; duskTo = 0; nk = 0; nkFrom = 0; nkTo = 0; sunVis = svFrom = svTo = 1; phi = 0; phiTail = null; omega = 0; }
                     else if (v === 'dusk') { p = CFG.P_DUSK; transFrom = p; transTo = p; transTarget = 'dusk'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 0; nkFrom = 0; nkTo = 0; sunVis = svFrom = svTo = 0; phi = 0; phiTail = null; omega = 0; }
                     else if (v === 'night') { p = 1; transFrom = 1; transTo = 1; transTarget = 'night'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 1; nkFrom = 1; nkTo = 1; }
@@ -2483,6 +2558,7 @@ void main() {
                 get tNight() { return tNight; }, set tNight(v) { tNight = Number(v) || 0; },
                 get hold() { return debugHold; }, set hold(v) { debugHold = !!v; },
                 get paused() { return debugPaused; }, set paused(v) { debugPaused = !!v; },
+                get introMuted() { return introMuted; }, set introMuted(v) { introMuted = !!v; },
                 get lanterns() { return lanterns; },
                 get lanReady() { return lanReady; },
                 get lanCached() { return lanCW > 0 && lanCH > 0; },
@@ -2536,11 +2612,13 @@ void main() {
                         reflStep = Math.max(1, Math.round(CFG.ROW_STEP)); reflLastBase = reflStep; reflEMA = 16; reflCool = 0;
                         torKey = ''; torRKey = ''; torBuilds = 0;
                         bandValid = false; bandTick = 0; bandLastP = -1; bandBuilds = 0;
-                        transFrom = CFG.P_DUSK; transTo = CFG.P_DUSK; transTarget = 'dusk';
-                        duskW = 1; duskFrom = 1; duskTo = 1;
-                        nk = 0; nkFrom = 0; nkTo = 0;
-                        sunVis = 0; svFrom = 0; svTo = 0;
-                        state = 'dusk'; p = CFG.P_DUSK; tState = 0; tNight = 0;
+                        // 기본값(밤)으로: 빈 낮에서 밤으로 가는 인트로 처음부터 다시 재생한다.
+                        transFrom = 0; transTo = 1; transTarget = 'night';
+                        duskW = 0; duskFrom = 0; duskTo = 1;
+                        nk = 0; nkFrom = 0; nkTo = 1;
+                        sunVis = 1; svFrom = 1; svTo = 1;
+                        state = 'toNight'; p = 0; tState = 0; tNight = 0;
+                        introMuted = true;
                         phi = 0; phiTail = null; omega = 0; debugHold = false; debugPaused = false;
                         buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); resize();
                     },
@@ -2559,6 +2637,11 @@ void main() {
                 const dt = Math.min(0.05, Math.max(0, (now - lastT) / 1000));
                 lastT = now;
                 update(dt);
+                // 브러시 구름 라이브 갱신(편집 중이 아닐 때, 켜진 장면만). 내부에서 fps로 솎아낸다
+                for (const k in docCloud) {
+                    const D = docCloud[k];
+                    if (D.anim && !D.live && docOn(k)) D.anim.tick(clock);
+                }
                 stepRipples(dt);
                 const t0 = performance.now();
                 render();

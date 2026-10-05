@@ -27,8 +27,8 @@
             --radius-md: 12px;
             --radius-lg: 20px;
             --radius-pill: 999px;
-            /* scene backdrop shown before the first frame (dusk idle #E87A5D; noon #6aa0d8 kept as dummy reference) */
-            --scene: #E87A5D;
+            /* scene backdrop shown before the first frame (empty day blue; night #2b2a4e handled below) */
+            --scene: #1b4688;
 
             box-sizing: border-box;
             padding-top: env(safe-area-inset-top, 0px);
