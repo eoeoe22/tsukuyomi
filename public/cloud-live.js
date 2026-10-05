@@ -65,7 +65,7 @@ uniform sampler2D uN;     // 1패스 결과(포장된 N5/N3)
 uniform sampler2D uRamp;  // 256×2: 행 0 = 빛 램프, 행 1 = 그늘 램프 (콘텐츠 높이 0 위 → 1 아래)
 uniform vec2 uNOrg;       // 1패스 텍스처에서 이 스프라이트 영역 원점(텍셀)
 uniform float uTop,uHh,uCOV,uSHARP,uSOFT,uABS,uUV,uUX,uSC,uLive,uRimK,uFade;
-uniform float uSkyBot,uVLift;
+uniform float uSkyBot,uVLift,uLobeMin,uCrease,uLobeW;
 uniform vec2 uL,uLa,uGD; uniform float uLdiag;
 uniform vec3 uGlow,uRimC,uGlowC;
 uniform float uWarp,uRand,uUp;
@@ -110,15 +110,15 @@ void main(){
   Ll=vec2(Ll.x*cos(jit)-Ll.y*sin(jit),Ll.x*sin(jit)+Ll.y*cos(jit));
   float dn=0.;
   for(int k=1;k<=3;k++){float fk=float(k);dn+=(n5-N3at(p+vec2(Ll.x*eL*fk/uUX,Ll.y*eL*fk/uUV)))/fk;}
-  float lobe=smoothstep(-.24,.28,dn);
+  float lobe=smoothstep(-.24*uLobeW,.28*uLobeW,dn);
   // 주름 그늘: 혹 사이 골짜기를 방향 없이 어둡게(경계를 세로선 대신 둥근 초승달로 읽히게)
-  lobe*=mix(.72,1.,smoothstep(.28,.72,n5));
+  lobe*=mix(uCrease,1.,smoothstep(.28,.72,n5));
   // ② 거대 형태 음영
   float od=0.;
   for(int k=1;k<=4;k++){float fk=float(k);od+=max(Ebat(wp+vec2(uL.x*.035*fk/uUX,uL.y*.035*fk/uUV)),0.);}
   float sky=mix(uSkyBot,1.,1.-smoothstep(.35,1.,hy));
   float macro=exp(-od*uABS*.6)*sky;
-  float T=lobe*mix(.18,1.,macro)+.15*macro;
+  float T=lobe*mix(uLobeMin,1.,macro)+.15*macro;
   float powder=1.-exp(-d*4.);
   float v=clamp(mix(T,T*powder,.4),0.,1.);
   float gd=length(vec2(p.x-uLa.x,(p.y-uLa.y)*1.25))/uLdiag;
@@ -275,6 +275,7 @@ void main(){
             gl.uniform1f(U('uABS'), P.ABS); gl.uniform1f(U('uUV'), P.UV); gl.uniform1f(U('uUX'), P.UX); gl.uniform1f(U('uSC'), P.SC);
             gl.uniform1f(U('uLive'), P.live); gl.uniform1f(U('uRimK'), P.rimK); gl.uniform1f(U('uFade'), P.fade);
             gl.uniform1f(U('uSkyBot'), P.skyBot); gl.uniform1f(U('uVLift'), P.vLift);
+            gl.uniform1f(U('uLobeMin'), P.lobeMin); gl.uniform1f(U('uCrease'), P.crease); gl.uniform1f(U('uLobeW'), P.lobeW);
             gl.uniform2f(U('uL'), P.Lx, P.Ly); gl.uniform2f(U('uLa'), P.lax, P.lay); gl.uniform1f(U('uLdiag'), P.ldiag);
             gl.uniform2f(U('uGD'), P.GD0, P.GD1);
             gl.uniform3f(U('uGlow'), P.glow[0], P.glow[1], P.glow[2]);
@@ -319,6 +320,7 @@ void main(){
                     lax: (m.pad + m.w0 * (o.lx ?? 0.1)) * RS, lay: a.top + a.hh * (o.ly ?? 0), ldiag: Math.hypot(m.w0, m.h0) * RS,
                     glow, GD0, GD1, rimC, glowC, rimK: o.rimK ?? 0.45, fade: o.fade ?? 1,
                     skyBot: o.skyBot ?? 0.55, vLift: o.vLift ?? 0.35, upK: o.upK ?? 1,
+                    lobeMin: o.lobeMin ?? 0.18, crease: o.crease ?? 0.72, lobeW: o.lobeW ?? 1,
                 },
             };
             try { upload(h); render(h, 0); }

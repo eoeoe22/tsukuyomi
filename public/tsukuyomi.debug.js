@@ -64,6 +64,10 @@
             ['DC_LX', -0.3, 1.2, 0.01], ['DC_LY', -0.6, 0.6, 0.01], ['DC_LIGHT', 0, 1.5, 0.01],
             ['DC_COV', 0.2, 0.8, 0.01, 'clouds'], ['DC_SHARP', 0.01, 0.3, 0.005, 'clouds'], ['DC_SOFT', 0.05, 0.6, 0.01, 'clouds'],
             ['DC_SCALE', 2, 12, 0.1, 'clouds'], ['DC_ABSORB', 0.2, 4, 0.05, 'clouds'], ['DC_SUN', 20, 160, 1, 'clouds'],
+            ['DC_VLIFT', 0, 0.4, 0.01, 'clouds'], ['DC_SKYBOT', 0.3, 1, 0.01, 'clouds'], ['DC_UPK', 0, 2, 0.05, 'clouds'],
+            ['DC_LOBE', 0, 1, 0.01, 'clouds'], ['DC_CREASE', 0.2, 1, 0.01, 'clouds'], ['DC_LOBE_W', 0.3, 1.5, 0.01, 'clouds'], ['DC_BAND_LOBE', 0, 1, 0.01, 'clouds'],
+            ['DC_CB_SUN', 20, 160, 1, 'clouds'], ['DC_CB_SCALE', 2, 12, 0.1, 'clouds'], ['DC_CB_ABSORB', 0.2, 4, 0.05, 'clouds'],
+            ['DC_CB_RIMK', 0, 1.2, 0.01, 'clouds'], ['DC_CB_RS', 0.5, 1, 0.05, 'clouds'],
         ]},
         { title: '새 낮 (day-empty-ref)', keys: [
             ['DAY_SCENE', 0, 1, 1],
