@@ -833,6 +833,14 @@
                     sun: 90, lx: 0.5, ly: 0, ax: 0.46, al: 0.5, ay: 1.0, hh: 0.42, wmax: 0.26,
                     bot: 0.92, fade: 0.93, gd: [1.5, 0.55], glow: [0.45, 0.1, 0.3], rimK: 0.8, swayK: 0.6
                 },
+                {   // 가운데 틈 아래 음영 메움(음영층): 양옆 앞턱 사이 빈 하늘을 짙은 구름으로 채운다.
+                    // 양 끝은 높게 솟아 양옆 구름 몸통에 묻히고(앞턱이 나중에 그려져 이음매를 덮는다), 가운데는 낮게 꺼져 틈 속 밝은 덩어리 꼭대기가 보인다.
+                    // seed 고정: 공용 rng를 소비하지 않아 기존 덩어리·띠 모양이 그대로 유지된다
+                    layer: 'front', w0: 900, h0: 320, cols: 13, seed: 7741,
+                    prof: [[0, 0.1], [0.12, 0.06], [0.24, 0.26], [0.36, 0.48], [0.5, 0.56], [0.63, 0.46], [0.76, 0.24], [0.88, 0.08], [1, 0.04]],
+                    sun: 90, lx: 0.5, ly: -0.2, ax: 0.52, al: 0.5, ay: 1.0, hh: 0.44, wmax: 0.2, bot: 0.98, fade: 0.94,
+                    gd: [0.95, 0.45], rimK: 0.32, swayK: 1
+                },
                 {   // 왼쪽 앞턱(음영층): 빨간 윤곽 기준 — 바깥은 평평한 데크, 틈 바로 왼쪽에 솟은 타워, 틈 경계는 절벽처럼 떨어진다
                     layer: 'front', w0: 760, h0: 460, cols: 14,
                     prof: [[0, 0.42], [0.35, 0.4], [0.55, 0.38], [0.68, 0.36], [0.76, 0.08], [0.86, 0.06], [0.92, 0.42], [1, 0.62]],
@@ -850,6 +858,11 @@
                 const rng = mulberry32(Math.round((CFG.DY_SEED ?? 3) * 1000 + 313));
                 day2Clouds = [];
                 for (const spec of DAY2_MASS) {
+                    if (spec.seed != null) {   // 고정 시드 덩어리: 공용 rng 순서를 건드리지 않는다
+                        const sr = mulberry32(spec.seed + Math.round((CFG.DY_SEED ?? 3) * 1000));
+                        day2Clouds.push({ kind: 'mass', spec, spr: null, seed: (sr() * 4294967296) >>> 0, ph: sr() * Math.PI * 2 });
+                        continue;
+                    }
                     day2Clouds.push({ kind: 'mass', spec, spr: null, seed: (rng() * 4294967296) >>> 0, ph: rng() * Math.PI * 2 });
                 }
                 const n = Math.max(0, Math.round(CFG.DY_BAND_N));
