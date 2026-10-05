@@ -10,6 +10,9 @@
             const bloomA = document.createElement('canvas'), BA = bloomA.getContext('2d');
             const bloomB = document.createElement('canvas'), BB = bloomB.getContext('2d');
             const bloomP = [0, 1, 2].map(() => { const c = document.createElement('canvas'); return { c, g: c.getContext('2d') }; });
+            // 뒷층 림라이트용 스크래치: 방사형 빛을 그려 수직 페이드로 자른 뒤 CL에 source-atop 합성.
+            // (하부 구름층·수평선에는 닿지 않고 상부·뒷층만 밝힌다)
+            const rimL = document.createElement('canvas'), RL = rimL.getContext('2d');
             // horizon-side blur for the reflection only
             const band = document.createElement('canvas');
             const BD = band.getContext('2d');
@@ -88,6 +91,7 @@
                 // DY_LX/LY: 구름 틈 광원 위치(화면/수평선 비율), DY_LIGHT: 광원 세기, DY_F0/F1: 새 낮 구름 → 밤 소멸 구간.
                 // DY_BAND_N: 수평선 구름 띠 조각 수, DY_SP: 띠 흐름 속도, DY_SWAY: 큰 구름 벽의 좌우 흔들림(화면 비율).
                 // DY_STAR_A: 구름 틈 사이 낮 별 밝기, DY_GLINT_N/A: 수면 반짝임 개수/밝기, DY_WATER: 수면 청색 틴트.
+                // DY_VLIFT: 셰이더 중간톤 리프트(낮추면 그늘이 깊어져 혹 단위 대비 강화), DY_SKYBOT: 구름 아랫쪽 직사광 감쇠 바닥(1=없음).
                 DAY_SCENE: 1,
                 // CLOUD_DOC: 1 = 브러시 구름 문서(디버그 패널 › 구름 › 브러시 구름 편집)가 있으면 황혼/새 낮 구름 대신 그린다, 0 = 항상 절차적 구름.
                 CLOUD_DOC: 1,
@@ -101,8 +105,13 @@
                 DY_SEED: 3, DY_LX: 0.46, DY_LY: 0.22, DY_LIGHT: 1.05,
                 DY_F0: 0.2, DY_F1: 0.5,
                 DY_BAND_N: 7, DY_SP: 0.0035, DY_SWAY: 0.01,
-                DY_COV: 0.54, DY_SCALE: 8.0, DY_ABSORB: 1.45,
+                DY_COV: 0.6, DY_SCALE: 8.0, DY_ABSORB: 1.9,
+                DY_VLIFT: 0.15, DY_SKYBOT: 0.7, DY_UPK: 0.45,
+                // DY_RIMBOT: 뒷층 림라이트가 0이 되는 높이(수평선 비율). 이 아래 하부 구름층·수평선에는 빛이 닿지 않는다.
+                DY_RIMBOT: 0.62,
                 DY_STAR_A: 0.6, DY_GLINT_N: 420, DY_GLINT_A: 1, DY_WATER: 0.34,
+                // DY_DEBRIS_N: 벽 밑동 앞쪽 찢긴 층운 조각 수, DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
+                DY_DEBRIS_N: 3, DY_COLUMN: 0,
                 SUN_PATH: 0.42, SUN_X0: 0.27, SUN_X1: 0.32, SUN_DROP: 2.4,
                 SUN_F0: 0.34, SUN_F1: 0.46,
                 SUN_G0: 0.18, SUN_G1: 0.32, SUN_G2: 0.4, SUN_G3: 0.56,
@@ -285,7 +294,7 @@
             let REFL = [[0, 0.06, 0.20], [0.45, 0.14, 0.34], [0.64, 0.42, 0.60], [1, 0.42, 0.60]];
             let VIG = [[0, 0.05], [0.6, 0.32], [1, 0.32]];
             // 새 낮: 수면이 하늘보다 짙고 가장자리가 가라앉는다
-            let REFL_DAY2 = [[0, 0.08, 0.26], [0.45, 0.2, 0.4], [0.64, 0.42, 0.60], [1, 0.42, 0.60]];
+            let REFL_DAY2 = [[0, 0.12, 0.3], [0.45, 0.2, 0.4], [0.64, 0.42, 0.60], [1, 0.42, 0.60]];
             let VIG_DAY2 = [[0, 0.3], [0.6, 0.32], [1, 0.32]];
 
             // ---------- star brightness levels and colours ----------
@@ -503,6 +512,8 @@
                 const hyOf = y => clamp((y - top) / hh, 0, 1);
                 const COV = o.cov ?? CFG.DC_COV, SHARP = CFG.DC_SHARP, SOFT = CFG.DC_SOFT;
                 const SC = o.scale ?? CFG.DC_SCALE, ABS = o.absorb ?? CFG.DC_ABSORB;
+                // o.skyBot: 아랫쪽 직사광 감쇠 바닥(기본 0.55). o.vLift: 중간톤 리프트(기본 0.35). 새 낮은 혹 단위 대비를 위해 완화해 쓴다
+                const SKYBOT = o.skyBot ?? 0.55, VLIFT = o.vLift ?? 0.35;
                 const ax = o.ax ?? 1, UV = 1 / (DUSK_UV * RS), UX = UV * ax;
                 const seed = o.seed | 0;
                 // 1) 엔벨로프: 퍼프 타원 sdE = 1 - |(p - c) / r| 의 최대값 (랩의 탑 덩어리처럼 1.7배)
@@ -554,7 +565,11 @@
                     return a + (b - a) * ty;
                 };
                 // 3) 광원(DC_SUN, 랩 기준 y-up 각도)을 격자 방향으로: 노이즈 공간 1단위 = 1 / (UX, UV) 격자 px
-                const sa = (o.sun ?? CFG.DC_SUN) * Math.PI / 180, Lx = Math.cos(sa), Ly = -Math.sin(sa);
+                // 위쪽 하늘빛(CL_UP)을 섞되 o.upK로 장면별 강도를 조절한다(황혼=1, 새 낮은 낮춰 틈의 거의 수평인 빛을 유지)
+                const sa = (o.sun ?? CFG.DC_SUN) * Math.PI / 180;
+                const UPMIX = CFG.CL_UP * (o.upK ?? 1);
+                const LN = Math.hypot(Math.cos(sa), -Math.sin(sa) - UPMIX);
+                const Lx = Math.cos(sa) / LN, Ly = (-Math.sin(sa) - UPMIX) / LN;
                 const eL = 0.35 / SC * 0.5;            // 혹 크기에 비례한 미분 간격 (uv)
                 const dU = 0.02 / UV;                   // 윗면/아랫면 판정 간격 (격자 px)
                 const lit = o.lit, shade = o.shade;
@@ -566,7 +581,7 @@
                 for (let y = 1; y < H - 1; y++) {
                     const hy = hyOf(y);
                     const L0 = duskRamp(lit, hy), S0 = duskRamp(shade, hy);
-                    const sky = lerp(0.55, 1, 1 - ss(0.35, 1, hy));   // 아래로 갈수록 직사광이 줄어든다
+                    const sky = lerp(SKYBOT, 1, 1 - ss(0.35, 1, hy));   // 아래로 갈수록 직사광이 줄어든다
                     for (let x = 1; x < W - 1; x++) {
                         const i = y * W + x;
                         if (E[i] < live) continue;
@@ -584,7 +599,9 @@
                         const n0 = N5[i];
                         let dn = 0;
                         for (let k = 1; k <= 3; k++) dn += (n0 - N3at(x + Lx * eL * k / UX, y + Ly * eL * k / UV)) / k;
-                        const lobe = ss(-0.18, 0.22, dn);
+                        let lobe = ss(-0.24, 0.28, dn);
+                        // 주름 그늘: 혹 사이 골짜기(노이즈가 깎인 곳)는 방향과 무관하게 어둡게 — GPU(cloud-live)와 동일식
+                        lobe *= lerp(0.72, 1, ss(0.28, 0.72, n0));
                         // ② 거대 형태 음영
                         let od = 0;
                         for (let k = 1; k <= 4; k++) od += Math.max(Eat(x + Lx * 0.035 * k / UX, y + Ly * 0.035 * k / UV), 0);
@@ -596,7 +613,7 @@
                         const gd = Math.hypot(x - lax, (y - lay) * 1.25) / ldiag;
                         v *= lerp(GD0, GD1, ss(0.05, 0.95, gd));
                         v = ss(0.1, 0.9, v);
-                        v = v + (Math.sqrt(v) - v) * 0.35;   // 밝은 면은 빛에 씻겨 평평하게
+                        v = v + (Math.sqrt(v) - v) * VLIFT;   // 밝은 면은 빛에 씻겨 평평하게 (새 낮은 VLIFT를 낮춰 그늘 유지)
                         let r = S0[0] + (L0[0] - S0[0]) * v;
                         let g = S0[1] + (L0[1] - S0[1]) * v;
                         let b = S0[2] + (L0[2] - S0[2]) * v;
@@ -771,14 +788,15 @@
             // 양옆 거대 적운 벽 + 가운데 아래 밝은 덩어리 + 수평선 낮은 띠. 질감·음영은 황혼 셰이더(duskRender)를 그대로 쓰되
             // 광원이 가운데 구름 틈에 있으므로 덩어리마다 광원 각도(o.sun)와 핫스팟(o.lx/o.ly)을 틈 쪽으로 돌린다.
             // 색: 틈을 향한 윗면만 흰빛, 나머지는 청회색 그늘로 가라앉는다. 색이 구워져 있어 낮 idle에서는 틴트 없음.
-            // ref 대비 강화: 윗면은 더 희게, 그늘은 더 짙은 네이비로 벌려 림 라이트가 얇게 타오르게.
-            const DY_LIT = [[0, [252, 253, 255]], [0.22, [228, 238, 252]], [0.45, [150, 170, 210]], [0.7, [92, 112, 160]], [1, [52, 70, 116]]];
-            const DY_SHADE = [[0, [102, 120, 168]], [0.3, [68, 86, 134]], [0.6, [44, 58, 104]], [1, [26, 36, 72]]];
+            // ref 대비: 혹의 로컬 방향(틈 빛을 받는 윗면)이 흰색을 결정하도록 lit 램프를 높이와 무관하게 평탄하게 두고,
+            // 높이/위치 감쇠는 셰이더의 macro·sky·gd가 담당한다. 그늘은 ref의 짙은 네이비(#1F3152 계열)에 맞춘다.
+            const DY_LIT = [[0, [252, 253, 255]], [0.3, [246, 250, 255]], [0.55, [238, 244, 254]], [0.8, [208, 221, 243]], [1, [152, 171, 207]]];
+            const DY_SHADE = [[0, [96, 114, 164]], [0.3, [64, 82, 132]], [0.6, [40, 54, 98]], [1, [24, 34, 68]]];
             // 2층 분리: 뒷층(림 라이트층)은 틈 빛을 받아 밝고 가장자리가 탐. 앞층(음영층)은 아래에 깔리되 지나치게 꺼멓지 않게.
             const DY_LIT_BACK = DY_LIT;
-            const DY_SHADE_BACK = [[0, [118, 136, 182]], [0.3, [84, 102, 150]], [0.6, [56, 72, 120]], [1, [38, 50, 88]]];
-            const DY_LIT_FRONT = [[0, [224, 232, 246]], [0.25, [178, 192, 218]], [0.5, [128, 144, 182]], [0.75, [88, 104, 144]], [1, [58, 72, 110]]];
-            const DY_SHADE_FRONT = [[0, [100, 116, 156]], [0.3, [76, 92, 132]], [0.6, [54, 68, 108]], [1, [36, 46, 80]]];
+            const DY_SHADE_BACK = [[0, [112, 130, 178]], [0.3, [78, 96, 146]], [0.6, [52, 68, 116]], [1, [34, 46, 84]]];
+            const DY_LIT_FRONT = [[0, [244, 248, 255]], [0.3, [230, 237, 251]], [0.55, [204, 217, 240]], [0.8, [164, 181, 215]], [1, [112, 132, 176]]];
+            const DY_SHADE_FRONT = [[0, [94, 110, 152]], [0.3, [70, 86, 128]], [0.6, [48, 62, 104]], [1, [30, 40, 74]]];
             // spec.prof: 윗면 프로파일 [[u, top], ...] (u = 가로 비율, top = 콘텐츠 상단으로부터의 높이 비율)
             function makeDay2MassSprite(lr, spec) {
                 const { w0, h0 } = spec, PAD = 180;
@@ -810,6 +828,16 @@
                             1.1 + lr() * 0.3, 0.8 + lr() * 0.15, 1 + ((lr() * 2) | 0));
                     }
                 }
+                // 위성 조각: 윗둘레 바깥에 떨어진 작은 혹 — ref처럼 실루엣이 찢어지고 혹 사이로 하늘이 비친다
+                const NS = 3 + ((lr() * 4) | 0);
+                for (let i = 0; i < NS; i++) {
+                    const u = 0.06 + lr() * 0.88;
+                    const tp = topAt(u);
+                    const R = 18 + lr() * 30;
+                    const x = PAD + w0 * u + (lr() - 0.5) * w0 * 0.06;
+                    const y = Math.max(PAD * 0.45, PAD + h0 * tp - R * (1.0 + lr() * 0.9));
+                    duskBillow(P, lr, x, y, R, 1 + lr() * 0.35, 0.75 + lr() * 0.2, 1 + ((lr() * 2) | 0));
+                }
                 const gl = spec.glow;
                 const isFront = spec.layer === 'front';
                 return duskRender(m, P, {
@@ -820,6 +848,7 @@
                     sun: spec.sun, lx: spec.lx, ly: spec.ly, gd: spec.gd ?? (isFront ? [1.25, 0.5] : [1.4, 0.42]),
                     cov: spec.cov ?? (isFront ? Math.min(0.8, CFG.DY_COV + 0.02) : CFG.DY_COV),
                     scale: CFG.DY_SCALE, absorb: spec.absorb ?? (isFront ? CFG.DY_ABSORB + 0.1 : CFG.DY_ABSORB - 0.25),
+                    skyBot: CFG.DY_SKYBOT, vLift: CFG.DY_VLIFT, upK: CFG.DY_UPK,
                     rimC: spec.rimC ?? (isFront ? [222, 232, 248] : [240, 247, 255]),
                     glowC: [250, 252, 255], rimK: spec.rimK ?? (isFront ? 0.5 : 0.85)
                 });
@@ -852,7 +881,8 @@
                     shade: [[0, [60, 78, 120]], [0.5, [44, 60, 100]], [1, [30, 44, 80]]],
                     glow: null, fade: 0.85, ax: 1.6, seed: (lr() * 1e6) | 0,
                     sun: 90, lx: 0.5, gd: [1.1, 0.8],
-                    cov: CFG.DY_COV, scale: CFG.DY_SCALE, absorb: CFG.DY_ABSORB, rimC: [204, 222, 246]
+                    cov: CFG.DY_COV, scale: CFG.DY_SCALE, absorb: CFG.DY_ABSORB, rimC: [204, 222, 246],
+                    skyBot: CFG.DY_SKYBOT, vLift: CFG.DY_VLIFT, upK: CFG.DY_UPK
                 });
             }
             // 큰 덩어리 배치: ax = 기준 x(화면 비율), al = 기준이 콘텐츠의 어디인지(0 왼쪽 끝, 0.5 중심, 1 오른쪽 끝),
@@ -863,31 +893,31 @@
                     layer: 'back', w0: 860, h0: 700, cols: 13,
                     prof: [[0, 0], [0.18, 0.02], [0.32, 0.12], [0.46, 0.05], [0.6, 0.03], [0.72, 0.18], [0.84, 0.34], [0.94, 0.48], [1, 0.6]],
                     sun: 28, lx: 0.85, ly: 0.15, ax: -0.08, al: 0, ay: 1.0, hh: 1.38, wmax: 0.5, bot: 0.97, fade: 0.95,
-                    gd: [1.4, 0.4], rimK: 0.85, swayK: 0.6
+                    gd: [1.5, 0.42], absorb: 1.45, rimK: 0.85, swayK: 0.6
                 },
                 {   // 오른쪽 뒷벽(림층): 왼쪽보다 살짝 낮고 좁아 틈이 왼쪽으로 치우쳐 보인다
                     layer: 'back', w0: 860, h0: 700, cols: 13,
                     prof: [[0, 0.58], [0.08, 0.42], [0.18, 0.26], [0.3, 0.32], [0.42, 0.16], [0.58, 0.06], [0.78, 0.01], [1, 0]],
                     sun: 152, lx: 0.15, ly: 0.15, ax: 1.06, al: 1, ay: 1.0, hh: 1.28, wmax: 0.44, bot: 0.97, fade: 0.95,
-                    gd: [1.36, 0.42], rimK: 0.82, swayK: 0.6
+                    gd: [1.12, 0.42], absorb: 1.65, rimK: 0.82, swayK: 0.6
                 },
                 {   // 가운데 틈 속 먼 덩어리(뒷층): 틈을 막지 않게 낮게 깔린다. 꼭대기만 빛을 받아 희게
                     layer: 'back', w0: 460, h0: 300, cols: 7,
                     prof: [[0, 0.55], [0.25, 0.34], [0.5, 0.24], [0.75, 0.34], [1, 0.55]],
-                    sun: 90, lx: 0.5, ly: 0, ax: 0.46, al: 0.5, ay: 1.0, hh: 0.42, wmax: 0.26,
-                    bot: 0.92, fade: 0.93, gd: [1.5, 0.55], glow: [0.45, 0.1, 0.3], rimK: 0.8, swayK: 0.6
+                    sun: 90, lx: 0.5, ly: 0, ax: 0.46, al: 0.5, ay: 1.0, hh: 0.5, wmax: 0.3,
+                    bot: 0.92, fade: 0.93, gd: [1.25, 0.55], glow: [0.45, 0.1, 0.34], rimK: 0.8, swayK: 0.6
                 },
                 {   // 왼쪽 앞턱(음영층): 빨간 윤곽 기준 — 바깥은 평평한 데크, 틈 바로 왼쪽에 솟은 타워, 틈 경계는 절벽처럼 떨어진다
                     layer: 'front', w0: 760, h0: 460, cols: 14,
                     prof: [[0, 0.42], [0.35, 0.4], [0.55, 0.38], [0.68, 0.36], [0.76, 0.08], [0.86, 0.06], [0.92, 0.42], [1, 0.62]],
                     sun: 35, lx: 0.8, ly: 0.3, ax: -0.04, al: 0, ay: 1.0, hh: 1.02, wmax: 0.48, bot: 0.98, fade: 0.94,
-                    gd: [1.25, 0.5], rimK: 0.5, swayK: 1.4
+                    gd: [1.05, 0.5], rimK: 0.5, swayK: 1.4
                 },
                 {   // 오른쪽 앞턱(음영층): 빨간 윤곽 기준 — 바깥 돔은 높게, 중간에 안장 딥, 틈 쪽으로 경사지게 내려온다
                     layer: 'front', w0: 760, h0: 460, cols: 14,
                     prof: [[0, 0.58], [0.18, 0.45], [0.35, 0.38], [0.52, 0.34], [0.65, 0.42], [0.78, 0.18], [0.9, 0.05], [1, 0.02]],
                     sun: 145, lx: 0.2, ly: 0.3, ax: 1.04, al: 1, ay: 1.0, hh: 0.9, wmax: 0.46, bot: 0.98, fade: 0.94,
-                    gd: [1.22, 0.5], rimK: 0.48, swayK: 1.4
+                    gd: [1.02, 0.5], rimK: 0.48, swayK: 1.4
                 },
             ];
             function buildDay2Clouds() {
@@ -903,7 +933,19 @@
                         xn: -0.3 + (i / Math.max(1, n)) * 1.5 + rng() * 0.06,
                         yn: 0.985 + rng() * 0.025,
                         sp: (CFG.DY_SP ?? 0.0035) * (0.6 + rng() * 0.8),
-                        s: 0.6 + rng() * 0.4, sw: 1.4 + rng() * 0.6, sh: 0.45 + rng() * 0.25
+                        s: 0.85 + rng() * 0.45, sw: 1.4 + rng() * 0.6, sh: 0.45 + rng() * 0.25
+                    });
+                }
+                // 찢긴 하부 층운 조각: 틈 양옆 벽 밑동 앞쪽에 납작한 어두운 띠가 떠 있다 (ref의 torn stratus)
+                const nd = Math.max(0, Math.round(CFG.DY_DEBRIS_N ?? 3));
+                for (let i = 0; i < nd; i++) {
+                    const side = i % 2 === 0;
+                    day2Clouds.push({
+                        kind: 'band', front: true, spr: null, seed: (rng() * 4294967296) >>> 0,
+                        xn: (side ? 0.12 : 0.56) + rng() * 0.16,
+                        yn: 0.84 + rng() * 0.1,
+                        sp: (CFG.DY_SP ?? 0.0035) * (0.4 + rng() * 0.5),
+                        s: 0.7 + rng() * 0.4, sw: 1.5 + rng() * 0.6, sh: 0.5 + rng() * 0.2
                     });
                 }
                 scheduleDay2();
@@ -961,7 +1003,11 @@
                 glints = [];
                 const ng = Math.max(0, Math.round(CFG.DY_GLINT_N));
                 for (let i = 0; i < ng; i++) {
-                    glints.push({ u: rng(), s: 0.04 + Math.pow(rng(), 0.85) * 0.96, ph: rng() * Math.PI * 2, f: 0.7 + rng() * 2.2, z: 0.5 + rng() * 0.8 });
+                    // 60%는 틈 빛 기둥 아래로 몰리게(3균등합 ≈ 종형), 나머지는 수면 전체에 고르게
+                    const u = rng() < 0.6
+                        ? CFG.DY_LX + (rng() + rng() + rng() - 1.5) * 0.22
+                        : rng();
+                    glints.push({ u: clamp(u, 0, 1), s: 0.04 + Math.pow(rng(), 0.85) * 0.96, ph: rng() * Math.PI * 2, f: 0.7 + rng() * 2.2, z: 0.5 + rng() * 0.8 });
                 }
             }
 
@@ -1587,19 +1633,29 @@
 
             // ---------- render ----------
             // 새 낮: 구름 뒤에서 퍼지는 틈의 청백색 빛 + 그 둘레로 비치는 옅은 별
+            // ref: 빛은 틈 안쪽의 좁은 코어 + 그 둘레의 옅은 헤일로뿐, 하늘 전체를 씻는 넓은 글로우가 아니다.
+            // 코어/헤일로 2중으로 좁혀 그려 하늘 코발트 그라데이션과 별이 살아나게 한다(수정 전엔 반경 화면절반 글로우가 하늘을 덮었음).
             function drawDay2Light(lx, ly, a) {
                 const A = CFG.DY_LIGHT * a;
-                const r = Math.max(W, HZ) * 0.5;
                 S.save();
                 S.translate(lx, ly);
-                S.scale(1, 1.3);
-                const g = S.createRadialGradient(0, 0, 0, 0, 0, r);
-                g.addColorStop(0, rgba(hex('#f4fbff'), Math.min(1, 0.95 * A)));
-                g.addColorStop(0.08, rgba(hex('#cfeafa'), 0.78 * A));
-                g.addColorStop(0.28, rgba(hex('#7cb8e2'), 0.38 * A));
-                g.addColorStop(1, 'rgba(80,140,205,0)');
-                S.fillStyle = g;
-                S.fillRect(-r, -r, r * 2, r * 2);
+                S.scale(1, 1.4);
+                // 헤일로: 틈 둘레 하늘을 옅게 밝히는 청색 산란
+                const hr = HZ * 0.62;
+                const hg = S.createRadialGradient(0, 0, 0, 0, 0, hr);
+                hg.addColorStop(0, rgba(hex('#a9d6f0'), Math.min(1, 0.5 * A)));
+                hg.addColorStop(0.4, rgba(hex('#7cb8e2'), 0.18 * A));
+                hg.addColorStop(1, 'rgba(80,140,205,0)');
+                S.fillStyle = hg;
+                S.fillRect(-hr, -hr, hr * 2, hr * 2);
+                // 코어: 틈 안쪽의 밝은 빛덩어리 (구름이 그 위에 그려져 아랫부분은 가려진다)
+                const cr = HZ * 0.16;
+                const cg = S.createRadialGradient(0, 0, 0, 0, 0, cr);
+                cg.addColorStop(0, rgba(hex('#f4fbff'), Math.min(1, 0.95 * A)));
+                cg.addColorStop(0.35, rgba(hex('#d8edfa'), 0.62 * A));
+                cg.addColorStop(1, 'rgba(160,210,240,0)');
+                S.fillStyle = cg;
+                S.fillRect(-cr, -cr, cr * 2, cr * 2);
                 S.restore();
                 const sa = CFG.DY_STAR_A * a;
                 if (sa > 0.01) {
@@ -1750,25 +1806,46 @@
                         }
                     } else if (set === day2Clouds) {
                         ensureDay2();
-                        // 2층 합성: 먼 띠 + 뒷층(림층) 먼저 → 틈 라이트 → 앞턱(음영층) 나중에. 앞이 뒤를 가려 깊이가 생긴다
+                        // 2층 합성: 먼 띠 + 뒷층(림층) 먼저 → 틈 라이트 → 앞턱(음영층)·찢긴 조각 나중에. 앞이 뒤를 가려 깊이가 생긴다
+                        const isFront = c => c.kind === 'mass' ? c.spec.layer === 'front' : !!c.front;
                         CL.globalCompositeOperation = 'source-over';
                         for (const c of set) {
-                            if (c.kind === 'mass' && c.spec.layer === 'front') continue;
+                            if (isFront(c)) continue;
                             const G = day2Geom(c, base);
                             if (G.dx > W || G.dx + G.tw < 0) continue;
                             CL.drawImage(c.spr, G.dx, G.dy, G.tw, G.th);
                         }
-                        // 뒷층 림라이트: 틈의 광원에 가까운 가장자리일수록 청백색으로 타오른다 (앞층 그리기 전이라 뒷층만 밝힌다)
+                        // 뒷층 림라이트: 틈의 광원에 가까운 가장자리일수록 청백색으로 타오른다 (앞층 그리기 전이라 뒷층만 밝힌다).
+                        // 수직 페이드(DY_RIMBOT): 빛을 스크래치에 그려 destination-in 수직 마스크로 자른 뒤 CL에 source-atop 합성.
+                        // 구름 알파는 그대로 두고 빛만 아래로 옅어지므로, 하부 구름층·수평선에는 닿지 않고 상부·뒷층·배경만 밝힌다.
+                        fitCanvas(rimL, cloudLayer.width, cloudLayer.height);
+                        RL.setTransform(1, 0, 0, 1, 0, 0);
+                        RL.globalCompositeOperation = 'source-over';
+                        RL.clearRect(0, 0, rimL.width, rimL.height);
+                        {
+                            const rr = Math.max(W, HZ) * 0.38 * dpr;
+                            const cx = d2lx * dpr, cy = d2ly * dpr;
+                            const rg = RL.createRadialGradient(cx, cy, 0, cx, cy, rr);
+                            rg.addColorStop(0, `rgba(240,250,255,${(0.62 * CFG.DY_LIGHT).toFixed(3)})`);
+                            rg.addColorStop(0.45, `rgba(200,228,250,${(0.16 * CFG.DY_LIGHT).toFixed(3)})`);
+                            rg.addColorStop(1, 'rgba(200,228,250,0)');
+                            RL.fillStyle = rg; RL.fillRect(0, 0, rimL.width, rimL.height);
+                            const cutY = Math.max(d2ly + 2, HZ * (CFG.DY_RIMBOT ?? 0.62)) * dpr;
+                            const mg = RL.createLinearGradient(0, 0, 0, rimL.height);
+                            mg.addColorStop(0, 'rgba(0,0,0,1)');
+                            mg.addColorStop(clamp(cy / rimL.height, 0, 1), 'rgba(0,0,0,1)');
+                            mg.addColorStop(clamp(cutY / rimL.height, 0, 1), 'rgba(0,0,0,0)');
+                            RL.globalCompositeOperation = 'destination-in';
+                            RL.fillStyle = mg; RL.fillRect(0, 0, rimL.width, rimL.height);
+                        }
                         CL.globalCompositeOperation = 'source-atop';
-                        const rg = CL.createRadialGradient(d2lx, d2ly, 0, d2lx, d2ly, Math.max(W, HZ) * 0.38);
-                        rg.addColorStop(0, `rgba(240,250,255,${(0.62 * CFG.DY_LIGHT).toFixed(3)})`);
-                        rg.addColorStop(0.45, `rgba(200,228,250,${(0.16 * CFG.DY_LIGHT).toFixed(3)})`);
-                        rg.addColorStop(1, 'rgba(200,228,250,0)');
-                        CL.fillStyle = rg; CL.fillRect(0, 0, W, HZ);
-                        // 앞턱(음영층): 아래·안쪽에 짙게 깔려 뒷층과 톤이 갈린다
+                        CL.setTransform(1, 0, 0, 1, 0, 0);
+                        CL.drawImage(rimL, 0, 0);
+                        CL.setTransform(dpr, 0, 0, dpr, 0, 0);
+                        // 앞턱(음영층) + 찢긴 하부 조각: 아래·안쪽에 짙게 깔려 뒷층과 톤이 갈린다
                         CL.globalCompositeOperation = 'source-over';
                         for (const c of set) {
-                            if (!(c.kind === 'mass' && c.spec.layer === 'front')) continue;
+                            if (!isFront(c)) continue;
                             const G = day2Geom(c, base);
                             if (G.dx > W || G.dx + G.tw < 0) continue;
                             CL.drawImage(c.spr, G.dx, G.dy, G.tw, G.th);
@@ -1820,6 +1897,21 @@
                 if (dLive > 0.01) {
                     if (docOn('dusk')) drawSet(docCloud.dusk, DCLOUD_TINT, dLive, 0);
                     else drawSet(duskClouds, DCLOUD_TINT, dLive, 1 - ss(DUSK_Q, CFG.DC_F1, q));
+                }
+
+                // 새 낮: 틈 아래 수평선 발광 — 낮은 구름 띠 너머로 빛이 고여 밝은 수평 스트릭이 진다 (수면 미러에도 그대로 비침)
+                if (d2Live > 0.01) {
+                    S.save();
+                    S.translate(d2lx, HZ);
+                    S.scale(1, 0.05);
+                    const hr = W * 0.22;
+                    const hg = S.createRadialGradient(0, 0, 0, 0, 0, hr);
+                    hg.addColorStop(0, rgba(hex('#e8f6ff'), Math.min(1, 0.7 * d2Live)));
+                    hg.addColorStop(0.4, rgba(hex('#9fd3f2'), 0.32 * d2Live));
+                    hg.addColorStop(1, 'rgba(120,180,230,0)');
+                    S.fillStyle = hg;
+                    S.fillRect(-hr, -hr, hr * 2, hr * 2);
+                    S.restore();
                 }
 
                 drawStars();
@@ -2232,6 +2324,23 @@
                     ctx.fillStyle = wg; ctx.fillRect(0, HZ, W, H - HZ);
                 }
                 if (w2 > 0.01 && !introMuted) drawGlints(w2, qR);
+                // 새 낮: 틈 빛의 수면 기둥 — 수평선에서 아래로 퍼지는 청백색 반사. 수평선에 밝고 아래로 갈수록 옅어진다
+                const colA = (CFG.DY_COLUMN ?? 0) * w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, qR)) * (introMuted ? 0 : 1);
+                if (colA > 0.01) {
+                    const cx = W * CFG.DY_LX, rw = W * 0.055;
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.translate(cx, HZ);
+                    ctx.scale(1, (H - HZ) / rw);
+                    const cg = ctx.createRadialGradient(0, 0, 0, 0, 0, rw);
+                    cg.addColorStop(0, `rgba(206,236,252,${Math.min(1, 0.5 * colA).toFixed(3)})`);
+                    cg.addColorStop(0.45, `rgba(150,204,240,${(0.14 * colA).toFixed(3)})`);
+                    cg.addColorStop(1, 'rgba(120,180,230,0)');
+                    ctx.fillStyle = cg;
+                    // 수면 아래만: 위쪽(하늘·하부 구름·수평선)은 건드리지 않는다
+                    ctx.fillRect(-rw, 0, rw * 2, rw);
+                    ctx.restore();
+                }
 
                 // seam glow where sky meets its mirror
                 const hor = skyAt(qR)[SKY_STOPS.length - 1];

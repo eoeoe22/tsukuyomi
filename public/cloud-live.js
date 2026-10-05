@@ -65,6 +65,7 @@ uniform sampler2D uN;     // 1패스 결과(포장된 N5/N3)
 uniform sampler2D uRamp;  // 256×2: 행 0 = 빛 램프, 행 1 = 그늘 램프 (콘텐츠 높이 0 위 → 1 아래)
 uniform vec2 uNOrg;       // 1패스 텍스처에서 이 스프라이트 영역 원점(텍셀)
 uniform float uTop,uHh,uCOV,uSHARP,uSOFT,uABS,uUV,uUX,uSC,uLive,uRimK,uFade;
+uniform float uSkyBot,uVLift;
 uniform vec2 uL,uLa,uGD; uniform float uLdiag;
 uniform vec3 uGlow,uRimC,uGlowC;
 uniform float uWarp,uRand,uUp;
@@ -115,7 +116,7 @@ void main(){
   // ② 거대 형태 음영
   float od=0.;
   for(int k=1;k<=4;k++){float fk=float(k);od+=max(Ebat(wp+vec2(uL.x*.035*fk/uUX,uL.y*.035*fk/uUV)),0.);}
-  float sky=mix(.55,1.,1.-smoothstep(.35,1.,hy));
+  float sky=mix(uSkyBot,1.,1.-smoothstep(.35,1.,hy));
   float macro=exp(-od*uABS*.6)*sky;
   float T=lobe*mix(.18,1.,macro)+.15*macro;
   float powder=1.-exp(-d*4.);
@@ -123,7 +124,7 @@ void main(){
   float gd=length(vec2(p.x-uLa.x,(p.y-uLa.y)*1.25))/uLdiag;
   v*=mix(uGD.x,uGD.y,smoothstep(.05,.95,gd));
   v=smoothstep(.1,.9,v);
-  v=v+(sqrt(v)-v)*.35;
+  v=v+(sqrt(v)-v)*uVLift;
   vec3 L0=texture(uRamp,vec2(hy,.25)).rgb,S0=texture(uRamp,vec2(hy,.75)).rgb;
   vec3 col=mix(S0,L0,v);
   float rim=(1.-smoothstep(0.,.55,d))*T*(1.-.6*hy)*uRimK;
@@ -273,11 +274,12 @@ void main(){
             gl.uniform1f(U('uCOV'), P.COV); gl.uniform1f(U('uSHARP'), P.SHARP); gl.uniform1f(U('uSOFT'), P.SOFT);
             gl.uniform1f(U('uABS'), P.ABS); gl.uniform1f(U('uUV'), P.UV); gl.uniform1f(U('uUX'), P.UX); gl.uniform1f(U('uSC'), P.SC);
             gl.uniform1f(U('uLive'), P.live); gl.uniform1f(U('uRimK'), P.rimK); gl.uniform1f(U('uFade'), P.fade);
+            gl.uniform1f(U('uSkyBot'), P.skyBot); gl.uniform1f(U('uVLift'), P.vLift);
             gl.uniform2f(U('uL'), P.Lx, P.Ly); gl.uniform2f(U('uLa'), P.lax, P.lay); gl.uniform1f(U('uLdiag'), P.ldiag);
             gl.uniform2f(U('uGD'), P.GD0, P.GD1);
             gl.uniform3f(U('uGlow'), P.glow[0], P.glow[1], P.glow[2]);
             gl.uniform3fv(U('uRimC'), P.rimC); gl.uniform3fv(U('uGlowC'), P.glowC);
-            gl.uniform1f(U('uWarp'), cfg.CL_WARP); gl.uniform1f(U('uUp'), cfg.CL_UP); gl.uniform1f(U('uRand'), cfg.CL_RAND);
+            gl.uniform1f(U('uWarp'), cfg.CL_WARP); gl.uniform1f(U('uUp'), cfg.CL_UP * P.upK); gl.uniform1f(U('uRand'), cfg.CL_RAND);
             gl.drawArrays(gl.TRIANGLES, 0, 3);
             // 2D 스프라이트로 복사(격자 → 스프라이트 크기로 확대). 뷰포트는 캔버스 아래쪽에 있다
             const c = h.out, g = h.ctx;
@@ -316,6 +318,7 @@ void main(){
                     Lx: Math.cos(sa), Ly: -Math.sin(sa),
                     lax: (m.pad + m.w0 * (o.lx ?? 0.1)) * RS, lay: a.top + a.hh * (o.ly ?? 0), ldiag: Math.hypot(m.w0, m.h0) * RS,
                     glow, GD0, GD1, rimC, glowC, rimK: o.rimK ?? 0.45, fade: o.fade ?? 1,
+                    skyBot: o.skyBot ?? 0.55, vLift: o.vLift ?? 0.35, upK: o.upK ?? 1,
                 },
             };
             try { upload(h); render(h, 0); }
