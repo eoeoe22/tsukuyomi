@@ -70,12 +70,162 @@
         const undoS = [], redoS = [], UNDO_MAX = 30;
         let geo = { W: 1, HZ: 1, k: 1, ox: 0 };   // 문서 → 화면 배치 (CloudDoc.fit)
 
+        // ---------- 레퍼런스 오버레이 (트레이싱용, png 3종) ----------
+        // public/reference-images/*.png (repo 루트 reference-images/와 동일본, svg 제외).
+        // 조작 모드(manip)가 켜져 있을 때만 이미지를 클릭/드래그/모서리 리사이즈할 수 있고,
+        // 그 외에는 pointer-events:none으로 보이기만 한다 (브러시·장면에 영향 없음).
+        const REF_IMGS = [
+            ['none', '없음'],
+            ['twilight-ref1.png', '황혼 정면 (twilight-ref1)'],
+            ['twilight-ref2.png', '황혼 측면 (twilight-ref2)'],
+            ['day-empty-ref.png', '낮 (day-empty-ref)'],
+        ];
+        const REF_BASE = 'reference-images/';
+        const REF_LS = 'tsukuyomi.cloudEdit.ref.v1';
+        const ref = { name: 'none', opacity: 0.5, show: true, manip: false, placed: false, loaded: false, x: 0, y: 0, w: 0, imgW: 0, imgH: 0 };
+
         // ---------- 하늘 위 입력 패드 + 커서/가이드 ----------
         const pad = el('div', { class: 'tsce-pad', 'aria-label': '구름 브러시 편집 영역' });
         const cur = el('canvas', { class: 'tsce-cur', 'aria-hidden': 'true' });
         pad.append(cur);
         document.body.append(pad);
         const CG = cur.getContext('2d');
+
+        // ----- 레퍼런스 오버레이 DOM + 조작 (장면 전체 덮음, 디버그 패널 z 9999 아래) -----
+        const refWrap = el('div', { class: 'tsce-ref', 'aria-label': '레퍼런스 오버레이' });
+        const refImg = el('img', { class: 'tsce-ref-img', alt: '', draggable: false });
+        refImg.draggable = false;
+        refWrap.append(refImg);
+        for (const pos of ['nw', 'ne', 'sw', 'se']) refWrap.append(el('div', { class: 'tsce-ref-handle', 'data-handle': pos }));
+        refWrap.style.display = 'none';
+        document.body.append(refWrap);
+        function refH() { return ref.imgW > 0 ? ref.w * ref.imgH / ref.imgW : 0; }
+        function refApply() {
+            if (ref.name === 'none' || !ref.show || !ref.loaded) { refWrap.style.display = 'none'; return; }
+            refWrap.style.display = 'block';
+            refWrap.style.transform = `translate(${Math.round(ref.x)}px, ${Math.round(ref.y)}px)`;
+            refWrap.style.width = Math.round(ref.w) + 'px';
+            refWrap.style.height = Math.round(refH()) + 'px';
+            refImg.style.opacity = String(ref.opacity);
+            refWrap.classList.toggle('manip', ref.manip);
+        }
+        function refSave() {
+            const W = window.innerWidth || 1, H = window.innerHeight || 1;
+            store.set(REF_LS, JSON.stringify({
+                name: ref.name, opacity: ref.opacity, show: ref.show,
+                xr: ref.x / W, yr: ref.y / H, wr: ref.w / W, placed: ref.placed,
+            }));
+        }
+        function refFit() {
+            const W = window.innerWidth, H = window.innerHeight;
+            if (!ref.imgW || !ref.imgH) { ref.x = 0; ref.y = 0; ref.w = W; ref.placed = true; refApply(); return; }
+            const s = Math.max(W / ref.imgW, H / ref.imgH);   // 화면 전체 덮기(cover) → 수평선 근처 구름 바로 비교
+            ref.w = Math.max(1, Math.round(ref.imgW * s));
+            ref.x = Math.round((W - ref.w) / 2);
+            ref.y = Math.round((H - ref.imgH * s) / 2);
+            ref.placed = true;
+            refSave(); refApply();
+        }
+        function refCenter() {
+            const W = window.innerWidth, H = window.innerHeight, h = refH();
+            if (!ref.w) return;
+            ref.x = Math.round((W - ref.w) / 2); ref.y = Math.round((H - h) / 2);
+            ref.placed = true; refSave(); refApply();
+        }
+        function refSetSource(name, geom) {
+            ref.name = name; ref.loaded = false; ref.placed = false;
+            if (ui.refSel) ui.refSel.value = name;
+            if (ui.refStat) ui.refStat.textContent = '';
+            if (name === 'none') { refImg.removeAttribute('src'); refApply(); refSave(); return; }
+            if (ui.refStat) ui.refStat.textContent = name + ' 불러오는 중…';
+            const probe = new Image();
+            probe.onload = () => {
+                ref.imgW = probe.naturalWidth; ref.imgH = probe.naturalHeight;
+                ref.loaded = true;
+                refImg.src = REF_BASE + name;
+                if (geom && geom.wr > 0) {   // 저장된 배치 복원(화면 비율 기준)
+                    const W = window.innerWidth, H = window.innerHeight;
+                    ref.w = Math.max(40, geom.wr * W);
+                    ref.x = (geom.xr || 0) * W; ref.y = (geom.yr || 0) * H;
+                    ref.placed = true; refApply();
+                } else refFit();
+                if (ui.refStat) ui.refStat.textContent = `${name} · ${ref.imgW}×${ref.imgH} · 화면에 맞춤됨 (드래그·모서리로 조정)`;
+                refSave();
+            };
+            probe.onerror = () => {
+                ref.loaded = false; refApply();
+                if (ui.refStat) ui.refStat.textContent = name + ' 을 불러오지 못했다. public/reference-images/에 png가 있는지 확인.';
+            };
+            probe.src = REF_BASE + name;
+        }
+        function setRefManip(on) {
+            ref.manip = on;
+            if (ui.refManip) ui.refManip.checked = on;
+            refWrap.classList.toggle('manip', on);
+            pad.classList.toggle('refmanip', on);
+            pad.style.pointerEvents = on ? 'none' : '';   // 조작 모드에서는 브러시 입력 완전 차단
+            if (on && (ref.name === 'none' || !ref.loaded) && ui.refStat)
+                ui.refStat.textContent = '먼저 레퍼런스 이미지 3종 중 하나를 선택한다 (png만, svg 제외).';
+            if (ui.refHint) ui.refHint.textContent = on
+                ? '오버레이 조작 중 — 이미지를 드래그해서 이동, 모서리를 잡고 크기 조절. 브러시는 잠시 멈춤.'
+                : '반투명 비교용. 위치·크기를 바꾸려면 "오버레이 조작"을 켠다 (켠 동안 브러시 입력 멈춤).';
+            drawCursor();
+        }
+        let refDrag = null;
+        refWrap.addEventListener('pointerdown', e => {
+            if (!ref.manip || !ref.loaded) return;
+            e.preventDefault(); e.stopPropagation();
+            try { refWrap.setPointerCapture(e.pointerId); } catch (err) { /* 무시 */ }
+            const hd = (e.target && e.target.dataset && e.target.dataset.handle) || null;
+            const h = refH();
+            if (hd) {
+                const corners = { nw: [ref.x, ref.y], ne: [ref.x + ref.w, ref.y], sw: [ref.x, ref.y + h], se: [ref.x + ref.w, ref.y + h] };
+                const opp = { nw: 'se', se: 'nw', ne: 'sw', sw: 'ne' }[hd];
+                const [ox, oy] = corners[opp];
+                const d0 = Math.max(20, Math.hypot(e.clientX - ox, e.clientY - oy));
+                refDrag = { id: e.pointerId, type: 'resize', ox, oy, opp, w0: ref.w, d0 };
+            } else {
+                refDrag = { id: e.pointerId, type: 'move', sx: e.clientX, sy: e.clientY, x0: ref.x, y0: ref.y };
+            }
+        });
+        refWrap.addEventListener('pointermove', e => {
+            if (!refDrag || e.pointerId !== refDrag.id) return;
+            e.preventDefault();
+            if (refDrag.type === 'move') {
+                const W = window.innerWidth, H = window.innerHeight, h = refH();
+                ref.x = Math.min(W - 40, Math.max(40 - ref.w, refDrag.x0 + e.clientX - refDrag.sx));
+                ref.y = Math.min(H - 40, Math.max(40 - h, refDrag.y0 + e.clientY - refDrag.sy));
+            } else {
+                const d = Math.max(10, Math.hypot(e.clientX - refDrag.ox, e.clientY - refDrag.oy));
+                const w = Math.max(40, Math.min(window.innerWidth * 4, refDrag.w0 * d / refDrag.d0));
+                const h = w * ref.imgH / ref.imgW, { ox, oy, opp } = refDrag;
+                ref.w = w;
+                if (opp === 'nw') { ref.x = ox; ref.y = oy; }
+                else if (opp === 'se') { ref.x = ox - w; ref.y = oy - h; }
+                else if (opp === 'sw') { ref.x = ox; ref.y = oy - h; }
+                else { ref.x = ox - w; ref.y = oy; }   // opp ne
+            }
+            ref.placed = true;
+            refApply();
+        });
+        const refEnd = e => {
+            if (!refDrag || (e && e.pointerId !== refDrag.id)) return;
+            refDrag = null; refSave();
+        };
+        refWrap.addEventListener('pointerup', refEnd);
+        refWrap.addEventListener('pointercancel', refEnd);
+        window.addEventListener('resize', () => {
+            if (ref.name === 'none' || !ref.loaded) return;
+            try {   // 화면 비율 기준으로 저장된 배치를 새 화면에 투영
+                const o = JSON.parse(store.get(REF_LS));
+                if (o && o.wr > 0) {
+                    const W = window.innerWidth, H = window.innerHeight;
+                    ref.w = Math.max(40, o.wr * W); ref.x = (o.xr || 0) * W; ref.y = (o.yr || 0) * H;
+                    refApply(); return;
+                }
+            } catch (err) { /* 저장값이 없으면 맞춤으로 */ }
+            refFit();
+        });
 
         function layout() {
             const W = b.W, HZ = b.HZ;
@@ -113,7 +263,7 @@
         }
         function drawCursor() {
             CG.clearRect(0, 0, geo.W, geo.HZ);
-            if (!editing || !doc) return;
+            if (!editing || ref.manip || !doc) return;
             drawGuides();
             if (!hover) return;
             const r = brush.size * geo.k;
@@ -238,6 +388,7 @@
         const pressure = e => e.pointerType === 'pen' && e.pressure > 0 ? e.pressure : 1;
         pad.addEventListener('contextmenu', e => e.preventDefault());
         pad.addEventListener('pointerdown', e => {
+            if (ref.manip) return;   // 오버레이 조작 모드에서는 브러시 입력 차단
             if (e.button !== 0 && e.button !== 2) return;
             e.preventDefault(); pad.setPointerCapture(e.pointerId);
             const k = brush.layer, base = brush.tool[k], inv = e.altKey || e.button === 2;
@@ -248,6 +399,7 @@
             hover = p; drawCursor(); showStat(t);
         });
         pad.addEventListener('pointermove', e => {
+            if (ref.manip) return;   // 조작 모드에서는 커서·획 모두 멈춤
             const p = local(e), t = toTex(p.px, p.py);
             hover = p; drawCursor(); showStat(t);
             if (!stroke || e.pointerId !== stroke.id) return;
@@ -266,7 +418,10 @@
         pad.addEventListener('pointercancel', endStroke);
         pad.addEventListener('pointerleave', () => { if (stroke) return; hover = null; drawCursor(); showStat(null); });
         window.addEventListener('keydown', e => {
-            if (!editing) return;
+            if (!editing || ref.manip) {   // 조작 모드에서는 브러시 단축키 멈춤 (Esc로 조작 모드 해제)
+                if (ref.manip && e.key === 'Escape' && !(e.target instanceof Element && e.target.closest('input,textarea,select,[contenteditable="true"]'))) setRefManip(false);
+                return;
+            }
             if (e.target instanceof Element && e.target.closest('input,textarea,select,[contenteditable="true"]')) return;
             const mod = e.ctrlKey || e.metaKey, k = (e.key || '').toLowerCase();
             if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? swapHist(redoS, undoS) : swapHist(undoS, redoS); return; }
@@ -422,6 +577,30 @@
         };
         const viewSel = el('select', { class: 'tsce-select' }, ...VIEWS.map((t, i) => el('option', { value: String(i), textContent: t })));
         viewSel.addEventListener('change', () => { view = +viewSel.value; dirty = true; });
+        // ----- 레퍼런스 오버레이 UI (png 3종 · 반투명 트레이싱) -----
+        try {
+            const o = JSON.parse(store.get(REF_LS));
+            if (o) {
+                if (REF_IMGS.some(([v]) => v === o.name)) ref.name = o.name;
+                if (isFinite(+o.opacity)) ref.opacity = clamp(+o.opacity, 0.05, 1);
+                if (typeof o.show === 'boolean') ref.show = o.show;
+            }
+        } catch (err) { /* 저장값이 없으면 기본값 */ }
+        ui.refSel = el('select', { class: 'tsce-select' }, ...REF_IMGS.map(([v, t]) => el('option', { value: v, textContent: t })));
+        ui.refSel.value = ref.name;
+        ui.refSel.addEventListener('change', () => {
+            let geom = null;
+            try { const o = JSON.parse(store.get(REF_LS)); if (o && o.name === ui.refSel.value && o.wr > 0) geom = o; } catch (err) { /* 무시 */ }
+            refSetSource(ui.refSel.value, geom);
+        });
+        const [refShowLbl, refShowChk] = check('표시 (반투명 비교)', ref.show, v => { ref.show = v; refApply(); refSave(); });
+        ui.refShow = refShowChk;
+        const [refManipLbl, refManipChk] = check('오버레이 조작 — 드래그 이동 · 모서리 크기 조절', false, v => setRefManip(v));
+        ui.refManip = refManipChk;
+        ui.refOpacity = slider('투명도', 0.05, 1, 0.01, ref.opacity, v => { ref.opacity = v; refApply(); refSave(); });
+        ui.refStat = el('div', { class: 'tsd-hint', 'aria-live': 'polite' });
+        ui.refHint = el('div', { class: 'tsd-hint' });
+        ui.refHint.textContent = '반투명 비교용. 위치·크기를 바꾸려면 "오버레이 조작"을 켠다 (켠 동안 브러시 입력 멈춤).';
         const [ovlLbl] = check('편집 레이어 겹쳐 보기(경계선 · 보정 색조)', overlay, v => { overlay = v; dirty = true; });
         const [gdLbl] = check('화면 비율 가이드(휴대폰 · 16:9)', guides, v => { guides = v; drawCursor(); });
         const [anLbl] = check('흐름 재생(적용 시 그 순간 모양으로 고정)', animate, v => { animate = v; dirty = true; if (!v) edited(); });
@@ -455,6 +634,12 @@
                     useDoc(newDocFor(scene)); edited();
                 })),
             el('div', { class: 'tsd-hint', textContent: 'Alt/우클릭 반대 동작 · [ ] 크기 · 1 2 레이어 · Ctrl+Z 취소 (편집 모드에서)' }),
+            el('div', { class: 'tsd-hint', textContent: '레퍼런스 오버레이 — 구름 모양 트레이싱·색감 조정용 (png 3종, svg 제외). 조작 모드에서만 이동·리사이즈, 그 외에는 보이기만.' }),
+            el('div', { class: 'tsd-row tsce-viewrow' }, el('label', { textContent: '레퍼런스' }), ui.refSel),
+            refShowLbl, refManipLbl,
+            ui.refOpacity.row,
+            el('div', { class: 'tsd-btnrow' }, btn('화면에 맞춤', () => refFit()), btn('가운데', () => refCenter())),
+            ui.refHint, ui.refStat,
             ui.stat,
             el('div', { class: 'tsd-row tsce-viewrow' }, el('label', { textContent: '보기' }), viewSel),
             ovlLbl, gdLbl, anLbl,
@@ -464,6 +649,18 @@
 
         setLayer('den');
         setScene('dusk');
+        // 저장된 레퍼런스 선택 복원 (이미지 로드 + 화면 비율 기준 배치)
+        try {
+            const o = JSON.parse(store.get(REF_LS));
+            if (o && o.name && o.name !== 'none') {
+                ui.refSel.value = o.name;
+                ref.opacity = clamp(isFinite(+o.opacity) ? +o.opacity : ref.opacity, 0.05, 1);
+                ui.refOpacity.set(ref.opacity, false);
+                ref.show = o.show !== false;
+                ui.refShow.checked = ref.show;
+                refSetSource(o.name, o.wr > 0 ? o : null);
+            }
+        } catch (err) { /* 복원 실패 시 없음으로 */ }
     }
 
     window.TsukuyomiCloudEdit = { mount };
