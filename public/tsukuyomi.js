@@ -80,6 +80,8 @@
                 // DY_BAND_N: 수평선 구름 띠 조각 수, DY_SP: 띠 흐름 속도, DY_SWAY: 큰 구름 벽의 좌우 흔들림(화면 비율).
                 // DY_STAR_A: 구름 틈 사이 낮 별 밝기, DY_GLINT_N/A: 수면 반짝임 개수/밝기, DY_WATER: 수면 청색 틴트.
                 DAY_SCENE: 1,
+                // CLOUD_DOC: 1 = 브러시 구름 문서(디버그 패널 › 구름 › 브러시 구름 편집)가 있으면 황혼/새 낮 구름 대신 그린다, 0 = 항상 절차적 구름.
+                CLOUD_DOC: 1,
                 DY_SEED: 3, DY_LX: 0.46, DY_LY: 0.22, DY_LIGHT: 1.05,
                 DY_F0: 0.2, DY_F1: 0.5,
                 DY_BAND_N: 7, DY_SP: 0.0035, DY_SWAY: 0.01,
@@ -919,6 +921,54 @@
                 }
             }
 
+            // ---------- 브러시 구름 문서 (편집: tsukuyomi.cloudedit.js, 셰이더·형식: cloud-doc.js) ----------
+            // 출처 우선순위: 편집기에서 "장면에 적용"한 문서(localStorage) → public/clouds/index.json에 등록된 파일 → 없음(절차적 구름).
+            // 문서는 하늘(W × HZ) 크기 투명 스프라이트로 구워 두고(resize마다 다시 굽는다) drawSet이 통째로 그린다.
+            // 굽는 순간의 모양으로 고정되며 흐르지 않는다. 밤으로 갈 때는 기존 세트처럼 틴트로만 어두워진다.
+            // live: 편집 모드에서 편집기가 매 획마다 다시 그리는 캔버스. 있으면 구운 스프라이트 대신 그린다(반사·틴트까지 그대로).
+            const docCloud = {
+                dusk: { isDoc: true, doc: null, spr: null, live: null, src: '' },
+                day: { isDoc: true, doc: null, spr: null, live: null, src: '' }
+            };
+            let cloudIndex = null;
+            const docOn = k => CFG.CLOUD_DOC >= 0.5 && !!(docCloud[k].live || docCloud[k].spr);
+            function setCloudDoc(k, json, src) {
+                const D = docCloud[k];
+                try { D.doc = window.CloudDoc.parse(typeof json === 'string' ? JSON.parse(json) : json, k); D.src = src; }
+                catch (e) { console.warn('구름 문서 읽기 실패 (' + k + ', ' + src + ')', e); D.doc = null; D.src = ''; }
+                bakeCloudDoc(k);
+            }
+            function bakeCloudDoc(k) {
+                const D = docCloud[k];
+                D.spr = null;
+                if (!D.doc || !W || !HZ) return;
+                try { D.spr = window.CloudDoc.bake(D.doc, W, HZ, Math.min(dpr, 1.5)); }
+                catch (e) { console.warn('구름 문서 굽기 실패 (' + k + ')', e); }
+                if (D.spr) bandValid = false;
+            }
+            function loadCloudDoc(k) {
+                let applied = null;
+                try { applied = localStorage.getItem(window.CloudDoc.KEY.applied(k)); } catch (e) { /* 저장소 차단 */ }
+                if (applied) { setCloudDoc(k, applied, 'editor'); return; }
+                const file = cloudIndex && cloudIndex[k];
+                if (!file) { docCloud[k].doc = null; docCloud[k].spr = null; docCloud[k].src = ''; return; }
+                fetch('clouds/' + file, { cache: 'no-cache' })
+                    .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+                    .then(j => setCloudDoc(k, j, 'file:' + file))
+                    .catch(e => console.warn('구름 문서 파일을 불러오지 못함: clouds/' + file, e));
+            }
+            function loadCloudDocs() {
+                if (!window.CloudDoc) return;
+                fetch('clouds/index.json', { cache: 'no-cache' })
+                    .then(r => r.ok ? r.json() : null).catch(() => null)
+                    .then(ix => { cloudIndex = ix || {}; for (const k of window.CloudDoc.SCENES) loadCloudDoc(k); });
+            }
+            // 에디터(다른 탭)에서 적용/해제하면 바로 반영
+            window.addEventListener('storage', e => {
+                if (!window.CloudDoc || !e.key) return;
+                for (const k of window.CloudDoc.SCENES) if (e.key === window.CloudDoc.KEY.applied(k)) loadCloudDoc(k);
+            });
+
             // 낮 구름 세트 (547f49e 시점 로직 그대로)
             function buildClouds() {
                 const rng = mulberry32(42);
@@ -1225,6 +1275,7 @@
                 }
                 pole = { x: W * CFG.POLE_X, y: HZ * CFG.POLE_Y };
                 placeDuskCb();
+                for (const k in docCloud) bakeCloudDoc(k);
                 const m = Math.min(W, H);
                 sunR = clamp(m * CFG.SUN_F, CFG.SUN_MIN, CFG.SUN_MAX);
                 moonR = clamp(m * CFG.MOON_F, CFG.MOON_MIN, CFG.MOON_MAX);
@@ -1502,7 +1553,10 @@
                     CL.globalCompositeOperation = 'source-over';
                     CL.clearRect(0, 0, cloudLayer.width, cloudLayer.height);
                     CL.setTransform(dpr, 0, 0, dpr, 0, 0);
-                    if (set === clouds) {
+                    if (set.isDoc) {
+                        // 브러시 구름 문서: 하늘 크기 스프라이트 한 장 (편집 중이면 편집기의 라이브 캔버스)
+                        CL.drawImage(set.live || set.spr, 0, 0, W, HZ);
+                    } else if (set === clouds) {
                         // 낮 구름 배치 (547f49e 시점 식 그대로, PAD 여백만 보정)
                         for (const c of set) {
                             const k = base * lerp(1, 0.4, (c.yn - CFG.CLOUD_Y0) / (CFG.CLOUD_YR || 1));
@@ -1576,8 +1630,12 @@
                 };
                 const ca = (1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q)) * (sunVis - w2);
                 if (ca > 0.01) drawSet(clouds, CLOUD_TINT, ca, 0);
-                if (d2Live > 0.01) drawSet(day2Clouds, DAY2_TINT, d2Live, 0);
-                if (dLive > 0.01) drawSet(duskClouds, DCLOUD_TINT, dLive, 1 - ss(DUSK_Q, CFG.DC_F1, q));
+                if (d2Live > 0.01) drawSet(docOn('day') ? docCloud.day : day2Clouds, DAY2_TINT, d2Live, 0);
+                // 브러시 문서는 에디터에서 본 색 그대로 쓰므로 광원 반사·하부 음영(light)을 더하지 않는다
+                if (dLive > 0.01) {
+                    if (docOn('dusk')) drawSet(docCloud.dusk, DCLOUD_TINT, dLive, 0);
+                    else drawSet(duskClouds, DCLOUD_TINT, dLive, 1 - ss(DUSK_Q, CFG.DC_F1, q));
+                }
 
                 drawStars();
 
@@ -2083,7 +2141,7 @@ void main() {
             const dragPts = new Map();   // pointerId -> { x, y, t } (anchor of last spawned ripple)
             const DRAG_MIN_DIST = 24;    // css px between spawned ripples
             const DRAG_MIN_DT = 0.06;    // seconds between spawned ripples
-            const overUI = t => (t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab');
+            const overUI = t => (t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad');
 
             window.addEventListener('pointerdown', e => {
                 if (!gl || RM.matches || e.button > 0) return;
@@ -2248,6 +2306,14 @@ void main() {
                 },
                 get mode() { return targetOf(state); }, set mode(v) { goTo(v); },
                 get sunK() { return sunK(); },
+                get W() { return W; }, get HZ() { return HZ; }, get dpr() { return dpr; },
+                // 브러시 구름 편집기(tsukuyomi.cloudedit.js)용: 라이브 캔버스 연결, 적용본 다시 읽기
+                cloudEdit: {
+                    setLive(k, canvas) { if (docCloud[k]) { docCloud[k].live = canvas || null; bandValid = false; } },
+                    touch() { bandValid = false; },
+                    reload(k) { loadCloudDoc(k); },
+                },
+                get cloudDocs() { return Object.fromEntries(Object.entries(docCloud).map(([k, D]) => [k, D.doc ? { src: D.src, w: D.doc.w, h: D.doc.h, baked: !!D.spr } : null])); },
                 get nk() { return nk; }, set nk(v) { nk = clamp(Number(v) || 0, 0, 1); },
                 get sunVis() { return sunVis; }, set sunVis(v) { sunVis = svFrom = svTo = clamp(Number(v) || 0, 0, 1); },
                 get p() { return p; }, set p(v) { p = clamp(Number(v) || 0, 0, 1); },
@@ -2303,6 +2369,7 @@ void main() {
                 actions: {
                     resize, buildStars, buildMountains, buildLanterns,
                     buildClouds() { buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); },
+                    reloadCloudDocs: loadCloudDocs,
                     goTo,
                     toNight() { goTo('night'); },
                     toDay() { goTo('day'); },
@@ -2362,6 +2429,7 @@ void main() {
             buildLanterns();
             loadLanternSprite();
             resize();
+            loadCloudDocs();
             requestAnimationFrame(t => { lastT = t; frame(t); });
         })();
     

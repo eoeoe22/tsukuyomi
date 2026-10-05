@@ -57,6 +57,7 @@
             ['DC_SEED', 0, 50, 1, 'clouds'], ['DC_N', 0, 16, 1, 'clouds'],
             ['DC_Y0', 0.6, 1.1, 0.01, 'clouds'], ['DC_YR', 0, 0.3, 0.01, 'clouds'],
             ['DC_CB_N', 0, 6, 1, 'clouds'], ['DC_CB_S0', 0.3, 2.5, 0.01, 'clouds'], ['DC_CB_S1', 0.3, 2.5, 0.01, 'clouds'], ['DC_CB_SP', 0, 1.5, 0.05, 'clouds'],
+            ['CLOUD_DOC', 0, 1, 1],
             ['DC_F0', 0.3, 1, 0.01], ['DC_F1', 0.3, 1, 0.01],
             ['DC_LX', -0.3, 1.2, 0.01], ['DC_LY', -0.6, 0.6, 0.01], ['DC_LIGHT', 0, 1.5, 0.01],
             ['DC_COV', 0.2, 0.8, 0.01, 'clouds'], ['DC_SHARP', 0.01, 0.3, 0.005, 'clouds'], ['DC_SOFT', 0.05, 0.6, 0.01, 'clouds'],
@@ -338,6 +339,19 @@
             det.appendChild(sum);
             const sec = document.createElement('div');
             sec.className = 'tsd-sec';
+            // 구름 탭 맨 위: 브러시 구름 편집기(tsukuyomi.cloudedit.js)
+            if (g.title === '구름' && window.TsukuyomiCloudEdit) {
+                const ed = document.createElement('details');
+                ed.className = 'tsce';
+                const es = document.createElement('summary');
+                es.textContent = '브러시 구름 편집 (황혼 / 낮)';
+                const eh = document.createElement('div');
+                eh.className = 'tsd-sec';
+                ed.appendChild(es); ed.appendChild(eh);
+                sec.appendChild(ed);
+                try { window.TsukuyomiCloudEdit.mount(eh, b); }
+                catch (e) { console.error(e); eh.textContent = '편집기 초기화 실패: ' + e.message; }
+            }
             for (const [key, min, max, step, rebuild] of g.keys) {
                 if (!(key in b.cfg)) continue;
                 const row = document.createElement('div');
