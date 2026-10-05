@@ -45,6 +45,7 @@
             ['POLARIS_R', 0, 5, 0.05, 'stars'], ['HALO_R', 0, 12, 0.1], ['HALO_A', 0, 1, 0.01],
         ]},
         { title: '산', keys: [
+            ['MTN_SHOW', 0, 1, 1, 'mountains'],
             ['MTN_H', 0, 0.06, 0.001], ['MTN_MIN', 0, 20, 0.5], ['MTN_MAX', 4, 40, 0.5],
             ['MTN_TH', 0, 0.8, 0.005, 'mountains'], ['MTN_POW', 0.3, 3, 0.01, 'mountains'],
             ['MTN_W0', 0, 1, 0.01, 'mountains'], ['MTN_W1', 0, 1, 0.01, 'mountains'], ['MTN_W2', 0, 1, 0.01, 'mountains'],

@@ -66,6 +66,8 @@
                 POLARIS_R: 0.7, HALO_R: 4, HALO_A: 0.35,
                 MTN_H: 0.022, MTN_MIN: 6, MTN_MAX: 20, MTN_TH: 0.47, MTN_POW: 1.15,
                 MTN_W0: 0.62, MTN_W1: 0.28, MTN_W2: 0.10,
+                // MTN_SHOW: 1 = 산 표시, 0 = 숨김. 숨김 상태가 기본값이며 생성·착색 코드는 더미로 보존(1로 되돌리면 복원).
+                MTN_SHOW: 0,
                 // 낮 구름 세트(CLOUD_*): 547f49e 시점 로직 그대로. 황혼 세트(DC_*)와 코드·값을 공유하지 않는다.
                 CLOUD_N: 7, CLOUD_SP0: 0.003, CLOUD_SP1: 0.005, CLOUD_Y0: 0.5, CLOUD_YR: 0.34,
                 CLOUD_X0: -0.25, CLOUD_SPREAD: 1.4,
@@ -119,6 +121,16 @@
                 LANTERN_SEED: 10,
             };
             const CFG_DEFAULTS = JSON.parse(JSON.stringify(CFG));
+            // 모바일 레이아웃에서는 랜턴 기본값 축소 (PC 130 → 모바일 30). 이하 디버그 미조작 시 기준값.
+            const LANTERN_N_PC = 130, LANTERN_N_MOBILE = 30;
+            let lastMobile = false;
+            try {
+                lastMobile = window.matchMedia('(max-width: 460px), (pointer: coarse) and (max-height: 500px)').matches;
+            } catch (e) { /* matchMedia 미지원 시 PC 값 유지 */ }
+            if (lastMobile) {
+                CFG.LANTERN_N = LANTERN_N_MOBILE;
+                CFG_DEFAULTS.LANTERN_N = LANTERN_N_MOBILE;
+            }
             // 수동 스크럽용 플래그 (debug UI에서 토글)
             let debugHold = false;    // true면 p 자동 진행을 멈추고 슬라이더 값을 그대로 유지
             let debugPaused = false;  // true면 update/stepRipples 전체를 멈춤 (렌더는 계속)
@@ -368,6 +380,8 @@
             }
 
             function buildMountains() {
+                // MTN_SHOW=0(숨김)이면 생성 스킵. 아래 생성 코드는 더미로 보존되어 1로 되돌리면 복원된다.
+                if (!(CFG.MTN_SHOW >= 0.5)) { mtn = []; return; }
                 const rng = mulberry32(21);
                 const octave = n => Array.from({ length: n }, () => rng());
                 const a1 = octave(9), a2 = octave(31), a3 = octave(97);
@@ -1391,14 +1405,29 @@
             // ---------- layout ----------
             // 모바일 레이아웃(CSS .dock 브레이크포인트와 동일)에서는 토리이/달을
             // 화면 정가운데(x=0.5)에 고정. PC 레이아웃에서는 CFG.TORII_X 그대로.
-            function effToriiX() {
+            function isMobileLayout() {
                 try {
-                    if (window.matchMedia('(max-width: 460px), (pointer: coarse) and (max-height: 500px)').matches) return 0.5;
-                } catch (e) { /* matchMedia 미지원 시 PC 값으로 폴백 */ }
+                    return window.matchMedia('(max-width: 460px), (pointer: coarse) and (max-height: 500px)').matches;
+                } catch (e) { /* matchMedia 미지원 시 PC 값으로 폴백 */ return false; }
+            }
+            function effToriiX() {
+                if (isMobileLayout()) return 0.5;
                 return CFG.TORII_X;
             }
             function resize() {
                 W = window.innerWidth; H = window.innerHeight;
+                // 레이아웃 전환 시 랜턴 기본값 추종: 사용자가 N을 직접 바꾸지 않은 경우에만 전환.
+                const mob = isMobileLayout();
+                if (mob !== lastMobile) {
+                    const prevDef = lastMobile ? LANTERN_N_MOBILE : LANTERN_N_PC;
+                    const nextDef = mob ? LANTERN_N_MOBILE : LANTERN_N_PC;
+                    lastMobile = mob;
+                    CFG_DEFAULTS.LANTERN_N = nextDef;
+                    if (Math.round(CFG.LANTERN_N) === prevDef) {
+                        CFG.LANTERN_N = nextDef;
+                        buildLanterns();
+                    }
+                }
                 dpr = Math.min(CFG.DPR_MAX, window.devicePixelRatio || 1);
                 if (W * H * dpr * dpr > CFG.PIX_BUDGET) dpr = Math.max(1, Math.sqrt(CFG.PIX_BUDGET / (W * H)));
                 HZ = Math.round(H * CFG.HZ_RATIO);
@@ -1811,16 +1840,18 @@
                 hg.addColorStop(0, rgba(hl, 0)); hg.addColorStop(1, rgba(hl, CFG.HAZE_A));
                 S.fillStyle = hg; S.fillRect(0, HZ * 0.86, W, HZ * 0.14);
 
-                // distant ranges on the horizon
-                const mh = clamp(H * CFG.MTN_H, CFG.MTN_MIN, CFG.MTN_MAX);
-                const mc = keyed(MOUNT, q)[0];
-                S.fillStyle = rgba(w2 > 0 ? mix(mc, keyed(MOUNT_DAY2, q)[0], w2) : mc);
-                S.beginPath();
-                S.moveTo(0, HZ);
-                for (let i = 0; i < mtn.length; i++) S.lineTo((i / (mtn.length - 1)) * W, HZ - mtn[i] * mh);
-                S.lineTo(W, HZ);
-                S.closePath();
-                S.fill();
+                // distant ranges on the horizon (MTN_SHOW=0이면 숨김, 더미로 보존)
+                if (CFG.MTN_SHOW >= 0.5) {
+                    const mh = clamp(H * CFG.MTN_H, CFG.MTN_MIN, CFG.MTN_MAX);
+                    const mc = keyed(MOUNT, q)[0];
+                    S.fillStyle = rgba(w2 > 0 ? mix(mc, keyed(MOUNT_DAY2, q)[0], w2) : mc);
+                    S.beginPath();
+                    S.moveTo(0, HZ);
+                    for (let i = 0; i < mtn.length; i++) S.lineTo((i / (mtn.length - 1)) * W, HZ - mtn[i] * mh);
+                    S.lineTo(W, HZ);
+                    S.closePath();
+                    S.fill();
+                }
             }
 
             // ---------- reflection adaptive step ----------
