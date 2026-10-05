@@ -1,8 +1,9 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
-	// 로컬 미리보기 전용. Pages/Workers에 배포하지 않음.
-	// 실행: wrangler dev  -> http://localhost:8787/
-	"name": "tsukuyomi-preview",
+	// 로컬 미리보기: wrangler dev  -> http://localhost:8787/
+	// Cloudflare Workers Builds(Git 연동)가 브랜치/PR 푸시마다 `wrangler preview`로 프리뷰 빌드를 만든다.
+	// name은 대시보드에 연결된 Worker 이름(tsukuyomi)과 같아야 빌드가 통과한다.
+	"name": "tsukuyomi",
 	"compatibility_date": "2026-08-01",
 	"main": "preview-worker.js",
 	"assets": {
@@ -14,6 +15,8 @@
 	"dev": {
 		"port": 8787
 	},
-	// 실수로 배포되는 것을 방지: workers.dev 노출 끔
+	// `wrangler preview`(Workers Builds 프리뷰 명령)는 이 블록이 있어야 동작한다. 비어 있어도 됨.
+	"previews": {},
+	// production workers.dev 노출은 끔
 	"workers_dev": false
 }
