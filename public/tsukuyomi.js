@@ -1615,7 +1615,7 @@
                     }
                     const base = clamp(W / 1400, 0.5, 1.1);
                     for (const c of duskClouds) {
-                        c.xn += c.sp * dt;
+                        c.xn += c.sp * dt * 0.75;
                         const G = duskGeom(c, base);
                         // 왼쪽이 화면 오른쪽 밖으로 완전히 나가면 너비만큼 왼쪽 밖으로 되돌림 (팝인 없음)
                         if (G.dx > W) c.xn = (-G.tw - 8 + G.px) / W;
