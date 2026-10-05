@@ -37,6 +37,7 @@
             { id: 'puff', name: '퍼프', hint: '원뿔 덩어리를 겹쳐 찍어 큰 형태를 쌓는다. 원 테두리 ≈ 구름 경계, 세기 = 덩어리 높이. 반대: 깎기' },
             { id: 'add', name: '쌓기', hint: '밀도를 서서히 더해 경계를 밖으로 민다. 반대: 깎기' },
             { id: 'sub', name: '깎기', hint: '밀도를 서서히 덜어 형태를 파낸다. 반대: 쌓기' },
+            { id: 'erase', name: '지우개', hint: '칠한 곳을 빈 하늘(엔벨로프 최소값)로 바로 지운다. 깎기보다 빠르고 깔끔하게. 반대: 쌓기' },
             { id: 'smooth', name: '문지르기', hint: '형태를 부드럽게 뭉갠다. 퍼프 사이 골을 메울 때.' },
         ],
         tr: [
@@ -46,7 +47,7 @@
             { id: 'smooth', name: '문지르기', hint: '보정 경계를 부드럽게 푼다.' },
         ],
     };
-    const INV = { puff: 'sub', add: 'sub', sub: 'add', light: 'dark', dark: 'light' };
+    const INV = { puff: 'sub', add: 'sub', sub: 'add', erase: 'add', light: 'dark', dark: 'light' };
     const PARAM_UI = [
         ['cov', '덮임 정도', 0.2, 0.8, 0.01], ['sharp', '윗면 경계', 0.01, 0.3, 0.005], ['soft', '아랫면 흐림', 0.05, 0.6, 0.01],
         ['scale', '덩어리 크기', 2, 12, 0.1], ['absorb', '그림자 깊이', 0.2, 4, 0.05], ['sun', '빛 방향(°)', 20, 160, 1],
@@ -372,6 +373,7 @@
                     case 'puff': { const cone = d < 1 ? pk * (1 - d) : -1.9 * (d - 1); if (cone > v) v = cone; break; }
                     case 'add': v += s * .18 * f; break;
                     case 'sub': v -= s * .18 * f; break;
+                    case 'erase': v += (L.empty - v) * Math.min(1, s * .5 * f); break;
                     case 'smooth': v += (blur[(y - y0) * w + x - x0] - v) * Math.min(1, s * .6 * f); break;
                     case 'light': v += s * .06 * f; break;
                     case 'dark': v -= s * .06 * f; break;
