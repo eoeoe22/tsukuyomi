@@ -98,13 +98,17 @@
             ['RIP_STR', 0, 0.15, 0.001], ['FOCAL', 0.3, 2, 0.01],
         ]},
         { title: '랜턴', keys: [
-            ['LANTERN_N', 0, 256, 1, 'lanterns'], ['LANTERN_SEED', 0, 99, 1, 'lanterns'],
+            ['LANTERN_N', 0, 400, 1, 'lanterns'], ['LANTERN_SEED', 0, 99, 1, 'lanterns'],
             ['LANTERN_GX', 0.05, 0.6, 0.01, 'lanterns'], ['LANTERN_TX', 0.15, 1, 0.01, 'lanterns'],
             ['LANTERN_SN0', 0.02, 0.5, 0.01, 'lanterns'],
             ['LANTERN_SN1', 0.4, 1, 0.01, 'lanterns'], ['LANTERN_H', 0.15, 1.2, 0.01, 'lanterns'],
-            ['LANTERN_EXCL', 0, 2.5, 0.05, 'lanterns'], ['LANTERN_PAD', 0, 6, 0.5, 'lanterns'],
-            ['LANTERN_SN_POW', 0.7, 2, 0.05, 'lanterns'],
-            ['LANTERN_GLOW', 0, 1, 0.01], ['LANTERN_POOL', 0, 1, 0.01],
+            ['LANTERN_PAD', 0, 6, 0.5, 'lanterns'],
+            ['LANTERN_DEPTH_K', 0, 3.5, 0.05, 'lanterns'],
+            ['LANTERN_FAR_MUL', 0, 4, 0.05, 'lanterns'], ['LANTERN_FAR_Y0', 0.5, 12, 0.5, 'lanterns'],
+            ['LANTERN_FAR_MAX', 0, 8000, 100, 'lanterns'],
+            ['LANTERN_GLOW', 0, 1.5, 0.01], ['LANTERN_POOL', 0, 1, 0.01],
+            ['LANTERN_DUSK_GLOW', 0, 1, 0.01], ['LANTERN_HALO', 0, 3, 0.05],
+            ['LANTERN_FAR_BLOOM', 0, 3, 0.05],
         ]},
     ];
     const PALETTES = ['SKY', 'SKY_DAY', 'SKY_DAY2', 'MOUNT', 'MOUNT_DAY2', 'TORII', 'TORII_DAY2', 'CLOUD_TINT', 'DCLOUD_TINT', 'DAY2_TINT', 'REFL', 'REFL_DAY2', 'VIG', 'VIG_DAY2', 'LV', 'COLS'];
