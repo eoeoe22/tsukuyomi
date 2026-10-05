@@ -101,10 +101,13 @@
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 8,
                 REFL_SCALE: 1, REFL_AUTO: 1, REFL_MAX_STEP: 8,
                 RIP_MAX: 8, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
-                LANTERN_N: 170, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
-                LANTERN_TX: 1, LANTERN_PAD: 2, LANTERN_DEPTH_K: 2.2,
+                LANTERN_N: 200, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
+                LANTERN_TX: 1, LANTERN_PAD: 2, LANTERN_DEPTH_K: 2,
+                // 수평선 근접 경량 랜턴: 본 랜턴(3px 이상) 위쪽 띠를 같은 밀도 곡선으로 이어서 채움.
+                // FAR_MUL: 곡선 대비 개수 배율, FAR_Y0: 수평선에서 시작하는 거리(px), FAR_MAX: 개수 상한
+                LANTERN_FAR_MUL: 1, LANTERN_FAR_Y0: 1.5, LANTERN_FAR_MAX: 4000,
                 LANTERN_H: 0.15, LANTERN_GLOW: 0.5, LANTERN_POOL: 0.4,
-                LANTERN_SEED: 7, LANTERN_EXCL: 1.0,
+                LANTERN_SEED: 7,
             };
             const CFG_DEFAULTS = JSON.parse(JSON.stringify(CFG));
             // 수동 스크럽용 플래그 (debug UI에서 토글)
@@ -1051,7 +1054,7 @@
                 const lh = Math.max(1e-3, CFG.LANTERN_H);
                 const sn1 = clamp(Math.max(CFG.LANTERN_SN0, CFG.LANTERN_SN1), 0.05, 1);
                 const sn0 = clamp(Math.max(Math.min(CFG.LANTERN_SN0, CFG.LANTERN_SN1), 3.2 / (lh * reflH)), 0.005, sn1 * 0.98);
-                const K = clamp(CFG.LANTERN_DEPTH_K ?? 2.2, 0, 3.5);
+                const K = clamp(CFG.LANTERN_DEPTH_K ?? 2, 0, 3.5);
                 const snOf = q => {
                     if (Math.abs(K - 1) < 1e-3) return sn0 * Math.pow(sn1 / sn0, q);
                     const e = 1 - K, a = Math.pow(sn0, e), b = Math.pow(sn1, e);
@@ -1066,22 +1069,106 @@
                     L.h = Math.max(2, CFG.LANTERN_H * s);
                     L.w = L.h * LAN_WHR;
                 }
-                // keep clear of the torii and the bottom control card
-                const tcx = torX + torW / 2;
+                // keep clear of the bottom control card. 토리이와는 겹침 방지 없이
+                // 앞/뒤 레이어로만 구분한다(drawLanterns의 pass, 기준은 torBase).
                 const narrow = W <= 460;
                 const cardCx = narrow ? 90 : W / 2;
                 const cardHalf = narrow ? 110 : 250;
                 const cardTop = H - (narrow ? 90 : 170);
-                // torii x-push first (vertical composition); card uses
-                // least-penetration with upward bias inside the resolver.
-                for (const L of lanterns) {
-                    const m = CFG.LANTERN_EXCL;
-                    const tExp = (torW / 2 + L.w / 2) * m;
-                    if (Math.abs(L.x - tcx) < tExp && L.y - L.h < torBase && L.y > torY) {
-                        L.x = tcx + (L.x < tcx ? -tExp : tExp);
+                // card uses least-penetration with upward bias inside the resolver.
+                resolveLanternOverlaps(PAD, { cardCx, cardHalf, cardTop });
+                buildFarLanterns(reflH, sn0, K, halfW, TX, lh, lanterns.length / densInt(K, sn0, sn1));
+            }
+            // ∫ sn^-K dsn over [a, b]
+            function densInt(K, a, b) {
+                if (b <= a) return 0;
+                if (Math.abs(K - 1) < 1e-3) return Math.log(b / a);
+                const e = 1 - K;
+                return (Math.pow(b, e) - Math.pow(a, e)) / e;
+            }
+            // ---------- 수평선 근접 경량 랜턴 ----------
+            // 본 랜턴 밀도 곡선(c·sn^-K)을 수평선 쪽으로 이어 붙인 수천 개의 점 랜턴.
+            // 스프라이트/그라디언트 없이 사각형 몇 개로 오프스크린 띠 캔버스에 1회 굽고
+            // 매 프레임 drawImage 2~3회로 끝낸다(몸통=FG, 반사=scene ctx, 야간 글로우=lighter).
+            const farBodyC = document.createElement('canvas');
+            const farReflC = document.createElement('canvas');
+            let farTop = 0, farBodyH = 0, farReflTop = 0, farReflH = 0, farCount = 0;
+            function buildFarLanterns(reflH, snMain0, K, halfW, TX, lh, c) {
+                farCount = 0;
+                const y0 = Math.max(0.5, CFG.LANTERN_FAR_Y0 ?? 1.5);
+                const snF0 = y0 / reflH;
+                if (!(snF0 < snMain0) || !(c > 0)) { farBodyH = farReflH = 0; return; }
+                const mul = Math.max(0, CFG.LANTERN_FAR_MUL ?? 1);
+                const n = Math.min(Math.round(c * mul * densInt(K, snF0, snMain0)), Math.max(0, CFG.LANTERN_FAR_MAX ?? 4000) | 0);
+                if (n <= 0) { farBodyH = farReflH = 0; return; }
+                const snOf = q => {
+                    if (Math.abs(K - 1) < 1e-3) return snF0 * Math.pow(snMain0 / snF0, q);
+                    const e = 1 - K, a = Math.pow(snF0, e), b = Math.pow(snMain0, e);
+                    return Math.pow(a + q * (b - a), 1 / e);
+                };
+                const maxH = lh * snMain0 * reflH;
+                // 띠 영역: 몸통은 수평선 약간 위 ~ 본 랜턴 시작선, 반사는 그 아래로 같은 높이만큼
+                farTop = Math.floor(HZ - maxH - 2);
+                farBodyH = Math.ceil(snMain0 * reflH + maxH + 4);
+                farReflTop = Math.floor(HZ);
+                farReflH = Math.ceil(snMain0 * reflH + maxH * LAN_FEET + 4);
+                const bw = Math.max(1, Math.round(W * dpr)), bh = Math.max(1, Math.round(farBodyH * dpr));
+                const rh = Math.max(1, Math.round(farReflH * dpr));
+                farBodyC.width = bw; farBodyC.height = bh;
+                farReflC.width = bw; farReflC.height = rh;
+                const BC = farBodyC.getContext('2d'), RC = farReflC.getContext('2d');
+                BC.setTransform(dpr, 0, 0, dpr, 0, -farTop * dpr);
+                RC.setTransform(dpr, 0, 0, dpr, 0, -farReflTop * dpr);
+                BC.clearRect(0, farTop, W, farBodyH); RC.clearRect(0, farReflTop, W, farReflH);
+                const rng = mulberry32(Math.round((CFG.LANTERN_SEED ?? 7) * 1000 + 977));
+                const PHI = 0.6180339887498949, fx0 = rng();
+                const jx = 0.6 / Math.sqrt(n);
+                // 먼 것부터(위→아래) 칠해 가까운 점이 위에 오도록
+                for (let i = 0; i < n; i++) {
+                    const q = clamp((i + 0.5 + (rng() - 0.5) * 0.8) / n, 0, 1);
+                    let fx = (fx0 + i * PHI + (rng() - 0.5) * jx) % 1;
+                    if (fx < 0) fx += 1;
+                    const sn = snOf(q);
+                    const x = W / 2 + (-1 + 2 * fx) * halfW * (TX + (1 - TX) * sn);
+                    if (x < -4 || x > W + 4) continue;
+                    const y = HZ + sn * reflH;
+                    const t = sn / snMain0;                       // 0 = 수평선, 1 = 본 랜턴 경계
+                    const h = Math.max(0.8, lh * sn * reflH);
+                    const w = Math.max(0.8, h * 0.62);
+                    const al = 0.45 + 0.55 * t;                   // 대기 원근: 멀수록 옅게
+                    // 몸통: 따뜻한 유리 + 위쪽 지붕 1/6
+                    BC.fillStyle = `rgba(255,222,150,${al.toFixed(3)})`;
+                    BC.fillRect(x - w / 2, y - h, w, h);
+                    if (h >= 2) {
+                        BC.fillStyle = `rgba(70,46,40,${(al * 0.8).toFixed(3)})`;
+                        BC.fillRect(x - w * 0.6, y - h - h * 0.16, w * 1.2, h * 0.16);
                     }
+                    // 반사: 아래로 늘어진 옅은 기둥
+                    RC.fillStyle = `rgba(255,206,132,${(al * 0.55).toFixed(3)})`;
+                    RC.fillRect(x - w / 2, y, w, h * 0.9 + 0.5);
+                    farCount++;
                 }
-                resolveLanternOverlaps(PAD, { tcx, cardCx, cardHalf, cardTop });
+            }
+            function drawFarLanterns(a, night) {
+                if (!farCount || a <= 0.01) return;
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = a;
+                ctx.drawImage(farReflC, 0, Math.round(farReflTop * dpr));
+                ctx.globalAlpha = 1;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                FG.setTransform(1, 0, 0, 1, 0, 0);
+                FG.globalCompositeOperation = 'source-over';
+                FG.globalAlpha = a;
+                FG.drawImage(farBodyC, 0, Math.round(farTop * dpr));
+                if (night > 0.01) {
+                    FG.globalCompositeOperation = 'lighter';
+                    FG.globalAlpha = a * 0.45 * night * CFG.LANTERN_GLOW;
+                    FG.drawImage(farBodyC, 0, Math.round(farTop * dpr));
+                    FG.globalCompositeOperation = 'source-over';
+                }
+                FG.globalAlpha = 1;
+                FG.setTransform(dpr, 0, 0, dpr, 0, 0);
             }
             // AABB relaxation in screen space: bodies must not intersect.
             // Sizes stay fixed (depth cue); only positions move. Deterministic
@@ -1146,17 +1233,9 @@
                             }
                         }
                     }
-                    // torii stays x-only (protects the vertical composition);
                     // card keeps least-penetration with upward bias.
-                    const tcx = obs.tcx;
                     for (const L of lanterns) {
                         if (hidden(L)) continue;
-                        const m = CFG.LANTERN_EXCL;
-                        const tExp = (torW / 2 + L.w / 2) * m + PAD * 0.5;
-                        if (Math.abs(L.x - tcx) < tExp && L.y - L.h < torBase && L.y > torY) {
-                            L.x = tcx + (L.x < tcx ? -tExp : tExp);
-                            sync(L);
-                        }
                         const hh = hhOf(L);
                         const lx0 = L.x - L.w / 2, lx1 = L.x + L.w / 2;
                         const ly0 = L.y - hh, ly1 = L.y;
@@ -1793,9 +1872,13 @@
             // Reflections ride on the scene canvas with the same ripple as the torii;
             // bodies + night glow ride on FG above the ripple copy.
             // 낮 시간대에는 숨김: duskW(낮=0, 황혼/밤=1)를 불투명도로 써서 toDay에서 페이드아웃, day idle에서 스킵
-            function drawLanterns(r0, r1, a = 1) {
+            // pass: 'back' = 발이 토리이 발(torBase)보다 위(=더 멀리), 'front' = 그 외.
+            // 렌더 순서 back → 토리이 → front 로 뒤 랜턴이 토리이 앞에 그려지지 않게 한다.
+            function drawLanterns(r0, r1, a = 1, pass = 'all') {
                 if (!lanReady || !lanterns.length || !lanCW) return;
                 if (a <= 0.01) return;
+                const inPass = pass === 'all' ? () => true
+                    : pass === 'back' ? L => L.y <= torBase : L => L.y > torBase;
                 const reflH = Math.max(1, H - HZ);
                 const night = ss(CFG.MOON_A0, CFG.MOON_A1, palQ());
                 const sw = lanCW, shFull = lanCH;
@@ -1808,7 +1891,7 @@
                 ctx.globalCompositeOperation = 'source-over';
                 // reflections, far-to-near
                 for (const L of lanterns) {
-                    if (L.w < 2 || L.h < 3) continue;
+                    if (L.w < 2 || L.h < 3 || !inPass(L)) continue;
                     if (L.x + L.w / 2 < -20 || L.x - L.w / 2 > W + 20) continue;
                     if (L.y < HZ - 2) continue;
                     const dh = Math.min(L.h * LAN_FEET, H - L.y);
@@ -1845,7 +1928,7 @@
                 FG.globalCompositeOperation = 'source-over';
                 FG.globalAlpha = a;
                 for (const L of lanterns) {
-                    if (L.w < 2 || L.h < 3) continue;
+                    if (L.w < 2 || L.h < 3 || !inPass(L)) continue;
                     if (L.x + L.w / 2 < -L.w || L.x - L.w / 2 > W + L.w) continue;
                     const top = L.y - L.h * LAN_FEET;
                     FG.drawImage(lanC, L.x - L.w / 2, top, L.w, L.h);
@@ -2005,8 +2088,11 @@
                 // 낮에는 토리이/랜턴 숨김: duskW(낮=0, 황혼/밤=1)로 페이드. toDay에서 사라지고 toNight에서 복원된다
                 const structA = clamp(duskW, 0, 1);
                 if (structA > 0.01) {
+                    // 깊이 순서: 수평선 경량 랜턴 → 토리이 뒤 랜턴 → 토리이 → 토리이 앞 랜턴
+                    drawFarLanterns(structA, ss(CFG.MOON_A0, CFG.MOON_A1, palQ()));
+                    drawLanterns(r0, r1, structA, 'back');
                     drawTorii(r0, r1, structA);
-                    drawLanterns(r0, r1, structA);
+                    drawLanterns(r0, r1, structA, 'front');
                 }
                 FG.setTransform(dpr, 0, 0, dpr, 0, 0);
 
