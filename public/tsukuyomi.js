@@ -80,6 +80,8 @@
                 POLE_X: 0.25, POLE_Y: 0.27,
                 SUN_F: 0.03, SUN_MIN: 14, SUN_MAX: 34,
                 MOON_F: 0.026, MOON_MIN: 12, MOON_MAX: 28,
+                // MOON_SIZE: 달(미러볼) 크기 배율. moonR 계산 마지막에 곱한다.
+                MOON_SIZE: 2,
                 TORII_SCALE: 0.7, TORII_X: 0.76, TORII_BASE: 0.75,
                 // TORII_X는 토리이 중심과 달 중심이 공유하는 수직선 (항상 같은 x)
                 MOON_Y: 0.34,
@@ -398,6 +400,413 @@
             let lanCW = 0, lanCH = 0, lanBodyH = 0;
             // reflection adaptive step governor (ROW_STEP=최소, REFL_MAX_STEP=상한)
             let reflStep = 8, reflLastBase = 8, reflEMA = 16, reflCool = 0;
+
+            // ---------- mirrorball moon (미러볼 SVG 생성기 기본값) ----------
+            // 생성기 기본값에서 step 10으로 조정: tilt -16, step 10, gap 0.14, jit 0.06, off 1, seed 11,
+            // tile #dfe4ea, grout #202932, dark #26313e, light #eaf7ff, glowC #fff3f1,
+            // pole 0.9, poleR 35, veil 0.55, veilR 0.46, haze 0.18, bloom 0.8,
+            // glint 0.1, gcount 6, gturn 0.22, ghold 0.14, gacc 0.08, gspd 2.5, gwhite 0.74.
+            // 40초 주기로 균일 자전. 본체는 캐시 캔버스에 굽고(0.6° 이상 돌아야 다시 그림),
+            // 줄눈 빛줄기는 하늘에 라이브로 그린다. 발사 트리거는 미러볼 클릭.
+            const MB = {
+                tilt: -16, step: 10, gap: 0.14, jit: 0.06, off: 1, seed: 11,
+                tile: '#dfe4ea', grout: '#202932', dark: '#26313e', light: '#eaf7ff', glowC: '#fff3f1',
+                pole: 0.9, poleR: 35, veil: 0.55, veilR: 0.46, haze: 0.18, bloom: 0.8,
+                glint: 0.1, gcount: 6, gturn: 0.22, ghold: 0.14, gacc: 0.08, gspd: 2.5, gwhite: 0.74
+            };
+            const MB_REF = { amb: 0.30, glow: 1.15, pw: 1.4, njit: 1.2 };
+            const MB_PERIOD = 40;
+            const MB_DEFAULTS = JSON.parse(JSON.stringify(MB));
+            const MB_S = 280, MB_C = 140, MB_R = 124;
+            const MB_DR = hex(MB.dark), MB_TR = hex(MB.tile), MB_LR = hex(MB.light);
+            const MB_POLE_LIMIT = 60, MB_SLOW = 0.1, MB_LN10 = Math.LN10;
+            const MB_LON_SPAN = 300;   // 줄눈 경로의 총 경도 이동 한계(극周回=수바퀴 맴돎 방지)
+            let mbTiles = [], mbRows = [], mbRot = 0, mbT = 0, mbStreaks = [];
+            let mbSpin = true;   // false면 자전 정지 (빛줄기 진행은 계속)
+            let mbMX = 0, mbMY = 0, mbMR = 0, mbMV = 0;   // 클릭 히트 판정용(화면 px)
+            const mbBody = document.createElement('canvas');
+            mbBody.width = MB_S; mbBody.height = MB_S;
+            const MBG = mbBody.getContext('2d');
+            let mbBodyRot = NaN;
+            const mbRad = d => d * Math.PI / 180;
+            const mbSys = tilt => { const T = mbRad(tilt); return { ct: Math.cos(T), st: Math.sin(T) }; };
+            const mbV = (lat, lon, s) => {
+                const la = mbRad(lat), lo = mbRad(lon);
+                const x = Math.cos(la) * Math.sin(lo), y = Math.sin(la), z = Math.cos(la) * Math.cos(lo);
+                return [x, y * s.ct - z * s.st, y * s.st + z * s.ct];
+            };
+            const mbPj = (lat, lon, s) => { const q = mbV(lat, lon, s); return [MB_C + MB_R * q[0], MB_C - MB_R * q[1]]; };
+            function mbBuildAll() {
+                const rnd = mulberry32(MB.seed), rndR = mulberry32((MB.seed ^ 0x85ebca6b) >>> 0);
+                mbTiles = [];
+                const rows = Math.ceil(180 / MB.step);
+                for (let i = 0; i < rows; i++) {
+                    const lat = -90 + i * MB.step, lat2 = Math.min(90, lat + MB.step), mid = (lat + lat2) / 2;
+                    const n = Math.max(4, Math.round(360 * Math.cos(mbRad(mid)) / MB.step));
+                    const ws = []; let sum = 0;
+                    for (let j = 0; j < n; j++) { const w = 1 + (rnd() * 2 - 1) * MB.jit; ws.push(w); sum += w; }
+                    const lonStart = (rnd() * MB.off) * (360 / n);
+                    let lon = lonStart;
+                    for (let j = 0; j < n; j++) {
+                        const tw = ws[j] * 360 / sum;
+                        mbTiles.push({
+                            lat, lat2, mid, lon0: lon, tw,
+                            jLat: (rndR() * 2 - 1) * MB_REF.njit, jLon: (rndR() * 2 - 1) * MB_REF.njit
+                        });
+                        lon += tw;
+                    }
+                }
+                const m = new Map();
+                for (const t of mbTiles) {
+                    let r = m.get(t.lat);
+                    if (!r) { r = { lat: t.lat, lat2: t.lat2, edges: [] }; m.set(t.lat, r); }
+                    r.edges.push(((t.lon0 % 360) + 360) % 360);
+                }
+                mbRows = [...m.values()].sort((a, b) => a.lat - b.lat);
+                mbRows.forEach(r => r.edges.sort((a, b) => a - b));
+                mbStreaks = []; mbBodyRot = NaN;
+            }
+            function mbLit(n, mid) {
+                const nz = Math.max(0, n[2]);
+                const bb = (MB_REF.amb + MB_REF.glow * Math.pow(Math.max(0, -n[1]), MB_REF.pw)) * (0.45 + 0.55 * nz);
+                const pr = Math.max(0.001, mbRad(MB.poleR));
+                const pu = Math.max(0, 1 - mbRad(mid + 90) / pr);
+                const f = pu * pu * (3 - 2 * pu);
+                const b = bb + MB.pole * f * 1.2;
+                let fr, fg, fb;
+                if (b < 1) {
+                    const u = Math.max(0, b);
+                    fr = MB_DR[0] + (MB_TR[0] - MB_DR[0]) * u; fg = MB_DR[1] + (MB_TR[1] - MB_DR[1]) * u; fb = MB_DR[2] + (MB_TR[2] - MB_DR[2]) * u;
+                } else {
+                    const u = Math.min(1, b - 1);
+                    fr = MB_TR[0] + (MB_LR[0] - MB_TR[0]) * u; fg = MB_TR[1] + (MB_LR[1] - MB_TR[1]) * u; fb = MB_TR[2] + (MB_LR[2] - MB_TR[2]) * u;
+                }
+                return { b, f, front: [fr, fg, fb], side: [fr * 0.5, fg * 0.5, fb * 0.5] };
+            }
+            function mbRenderBody() {
+                const g = MBG, s = mbSys(MB.tilt), K = 1 - MB.gap, fk = MB_R / 200;
+                g.setTransform(1, 0, 0, 1, 0, 0);
+                g.clearRect(0, 0, MB_S, MB_S);
+                g.save();
+                g.beginPath(); g.arc(MB_C, MB_C, MB_R, 0, Math.PI * 2);
+                g.fillStyle = MB.grout; g.fill(); g.clip();
+                const tops = [], bots = [], capQ = [];
+                for (const t of mbTiles) {
+                    const midLon = t.lon0 + t.tw / 2 + mbRot;
+                    if (mbV(t.mid, midLon, s)[2] <= 0) continue;
+                    const lon0 = t.lon0 + mbRot, lon1 = lon0 + t.tw;
+                    const pts = [mbPj(t.lat, lon0, s), mbPj(t.lat, lon1, s), mbPj(t.lat2, lon1, s), mbPj(t.lat2, lon0, s)];
+                    const cx = (pts[0][0] + pts[1][0] + pts[2][0] + pts[3][0]) / 4;
+                    const cy = (pts[0][1] + pts[1][1] + pts[2][1] + pts[3][1]) / 4;
+                    const fx = pts.map(q => [cx + (q[0] - cx) * K, cy + (q[1] - cy) * K]);
+                    const L = mbLit(mbV(t.mid + t.jLat, midLon + t.jLon, s), t.mid);
+                    g.beginPath();
+                    pts.forEach((q, k) => { k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); });
+                    g.closePath(); g.fillStyle = rgba(L.side); g.fill();
+                    g.beginPath();
+                    fx.forEach((q, k) => { k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); });
+                    g.closePath();
+                    const FS = rgba(L.front);
+                    g.fillStyle = FS; g.fill();
+                    tops.push([fx[3], fx[2]]); bots.push([fx[0], fx[1]]);
+                    if (L.f > 0.15) capQ.push([fx, FS]);
+                }
+                g.strokeStyle = 'rgba(215,240,255,0.85)'; g.lineWidth = 1.2 * fk;
+                g.beginPath();
+                for (const [a, b] of tops) { g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
+                g.stroke();
+                g.strokeStyle = 'rgba(0,0,0,0.28)'; g.lineWidth = 1 * fk;
+                g.beginPath();
+                for (const [a, b] of bots) { g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
+                g.stroke();
+                if (MB.veil > 0 || MB.haze > 0) {
+                    const cy = MB_C + MB_R * (s.st < 0 ? s.ct : 1), rg = MB_R * 2.1;
+                    const gr = g.createRadialGradient(MB_C, cy, 0, MB_C, cy, rg);
+                    const sm = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+                    const GC = hex(MB.glowC);
+                    for (let k = 0; k <= 16; k++) {
+                        const t = k / 16;
+                        const u = t / Math.max(0.02, MB.veilR);
+                        const core = Math.exp(-2.2 * u * u);
+                        const skirt = 0.35 * (1 - sm(0, 1, u * 0.55));
+                        const tail = MB.haze * (1 - 0.5 * t);
+                        const a = Math.min(0.96, Math.max(0, 1 - (1 - MB.veil * core) * (1 - MB.veil * skirt) * (1 - tail)));
+                        gr.addColorStop(t, `rgba(${GC[0] | 0},${GC[1] | 0},${GC[2] | 0},${a.toFixed(3)})`);
+                    }
+                    g.fillStyle = gr; g.fillRect(0, 0, MB_S, MB_S);
+                }
+                if (MB.bloom > 0 && capQ.length && FILTER_OK) {
+                    g.save();
+                    g.beginPath(); g.arc(MB_C, MB_C, MB_R, 0, Math.PI * 2); g.clip();
+                    g.globalCompositeOperation = 'lighter';
+                    g.globalAlpha = MB.bloom * 0.65;
+                    g.filter = `blur(${((4 + MB.bloom * 10) * fk).toFixed(1)}px)`;
+                    for (const [q, c] of capQ) {
+                        g.beginPath();
+                        q.forEach((p, k) => { k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); });
+                        g.closePath(); g.fillStyle = c; g.fill();
+                    }
+                    g.restore();
+                }
+                g.restore();
+                mbBodyRot = mbRot;
+            }
+            // ---- 줄눈 빛줄기: 타일 사이 줄눈을 따라 흐르는 글린트 (생성기와 동일 경로 규칙) ----
+            const mbRowOK = i => { const r = mbRows[i]; return !!r && Math.abs(r.lat) <= MB_POLE_LIMIT && Math.abs(r.lat2) <= MB_POLE_LIMIT; };
+            function mbTileAt(i, L) {
+                const E = mbRows[i].edges, n = E.length, Ln = ((L % 360) + 360) % 360;
+                let j = n - 1;
+                for (let q = 0; q < n; q++) { if (E[q] <= Ln) j = q; else break; }
+                let ta = E[j], tb = E[(j + 1) % n];
+                if (tb <= ta) tb += 360;
+                if (Ln < ta) { ta -= 360; tb -= 360; }
+                const off = L - Ln;
+                return { i, a: ta + off, b: tb + off };
+            }
+            function mbTileCluster(t) {
+                const out = [t, mbTileAt(t.i, t.a - 0.01), mbTileAt(t.i, t.b + 0.01)];
+                const m = (t.a + t.b) / 2;
+                for (const r of [t.i + 1, t.i - 1]) {
+                    if (!mbRowOK(r)) continue;
+                    const T = mbTileAt(r, m);
+                    out.push(T, m < (T.a + T.b) / 2 ? mbTileAt(r, T.a - 0.01) : mbTileAt(r, T.b + 0.01));
+                }
+                return out;
+            }
+            function mbBuildPath(st0) {
+                const s = mbSys(MB.tilt), nR = mbRows.length, pg = MB.gturn;
+                const zv = (la, lo) => mbV(la, lo + mbRot, s)[2];
+                let la = st0.la, x = st0.x, st = st0, last = 0;
+                const P = [[la, x]];
+                let arc = 0;
+                const x0 = x;
+                if (Math.abs(la) > MB_POLE_LIMIT) return { P, cum: [0], total: 0 };
+                for (let it = 0; it < 800; it++) {
+                    if (st.mode === 'v') {
+                        const row = mbRows[st.i];
+                        const nl = st.dv > 0 ? row.lat2 : row.lat;
+                        if (Math.abs(nl) > MB_POLE_LIMIT) break;   // 극캡 진입 차단: 하부 극점 맴돎 방지
+                        arc += Math.abs(nl - la); la = nl; P.push([la, x]);
+                        if (zv(la, x) < -0.2) break;
+                        const side = last ? -last : (Math.random() < 0.5 ? -1 : 1);
+                        const east = st.dv > 0 ? side === 1 : side === -1;
+                        last = side;
+                        st = { mode: 'h', k: st.dv > 0 ? st.i + 1 : st.i, dh: east ? 1 : -1 };
+                    } else {
+                        if (Math.abs(la) > MB_POLE_LIMIT) break;   // 극 위도선 위 주행 금지
+                        const k = st.k, up = k < nR ? mbRows[k] : null, dn = k >= 1 ? mbRows[k - 1] : null;
+                        let best = 1e9, kind = 0;
+                        const scan = (E, kd) => {
+                            for (const e of E) {
+                                const d = (((e - x) * st.dh) % 360 + 360) % 360;
+                                if (d < 1e-6) continue;
+                                if (d < best - 1e-6) { best = d; kind = kd; } else if (d < best + 1e-6) kind |= kd;
+                            }
+                        };
+                        if (up) scan(up.edges, 1);
+                        if (dn) scan(dn.edges, 2);
+                        if (best > 360) break;
+                        x += st.dh * best; arc += best * Math.cos(mbRad(la)); P.push([la, x]);
+                        if (zv(la, x) < -0.2 || arc > 720 || Math.abs(x - x0) > MB_LON_SPAN) break;   // 극周回 차단
+                        if (Math.random() < pg) {
+                            const c = [];
+                            if ((kind & 1) && mbRowOK(k)) c.push({ side: st.dh > 0 ? -1 : 1, dv: 1, i: k });
+                            if ((kind & 2) && mbRowOK(k - 1)) c.push({ side: st.dh > 0 ? 1 : -1, dv: -1, i: k - 1 });
+                            const ok = c.filter(q => q.side !== last);
+                            if (ok.length) { const q = ok[Math.floor(Math.random() * ok.length)]; last = q.side; st = { mode: 'v', i: q.i, dv: q.dv }; }
+                        }
+                    }
+                }
+                const cum = [0];
+                for (let j = 1; j < P.length; j++) cum.push(cum[j - 1] + Math.abs(P[j][0] - P[j - 1][0]) + Math.abs(P[j][1] - P[j - 1][1]) * Math.cos(mbRad(P[j][0])));
+                return { P, cum, total: cum[cum.length - 1] };
+            }
+            // ---- 위아래행 줄눈 경로: 자오선(세로 줄눈)을 따라 단조롭게 상승/하강 ----
+            // 행 경계마다 다음 행의 가장 가까운 세로 줄눈으로 미세 스냅(수평 조그 최소)하고 계속 직진한다.
+            // 좌우 대각선 경로(계단형)와 1:2 비율로 섞어 쓴다.
+            function mbBuildPathV(st0) {
+                const s = mbSys(MB.tilt);
+                const zv = (la, lo) => mbV(la, lo + mbRot, s)[2];
+                let la = st0.la, x = st0.x, i = st0.j;
+                const dir = st0.dv > 0 ? 1 : -1;
+                const P = [[la, x]];
+                let arc = 0;
+                const x0 = x;
+                if (!mbRows[i] || Math.abs(la) > MB_POLE_LIMIT) return { P, cum: [0], total: 0 };
+                for (let it = 0; it < 40; it++) {
+                    if (!mbRowOK(i)) break;
+                    const row = mbRows[i];
+                    let bj = 0, found = false;
+                    for (const e of row.edges) {
+                        let d = ((e - x) % 360 + 360) % 360;
+                        if (d > 180) d -= 360;
+                        if (!found || Math.abs(d) < Math.abs(bj)) { bj = d; found = true; }
+                    }
+                    if (!found) break;
+                    if (Math.abs(bj) > 1e-6) {
+                        x += bj; arc += Math.abs(bj) * Math.cos(mbRad(la)); P.push([la, x]);
+                    }
+                    const nl = dir > 0 ? row.lat2 : row.lat;
+                    if (Math.abs(nl) > MB_POLE_LIMIT) break;
+                    arc += Math.abs(nl - la); la = nl; P.push([la, x]);
+                    if (zv(la, x) < -0.2 || arc > 720 || Math.abs(x - x0) > MB_LON_SPAN) break;
+                    i += dir;
+                }
+                const cum = [0];
+                for (let j = 1; j < P.length; j++) cum.push(cum[j - 1] + Math.abs(P[j][0] - P[j - 1][0]) + Math.abs(P[j][1] - P[j - 1][1]) * Math.cos(mbRad(P[j][0])));
+                return { P, cum, total: cum[cum.length - 1] };
+            }
+            function mbPathAt(pt, sv) {
+                const { P, cum } = pt;
+                let j = 0;
+                while (j < cum.length - 2 && cum[j + 1] < sv) j++;
+                const d = cum[j + 1] - cum[j], t = d > 0 ? Math.min(1, Math.max(0, (sv - cum[j]) / d)) : 0;
+                return [P[j][0] + (P[j + 1][0] - P[j][0]) * t, P[j][1] + (P[j + 1][1] - P[j][1]) * t];
+            }
+            function mbFire() {
+                if (!mbRows.length || MB.glint <= 0 || RM.matches) return;
+                const s = mbSys(MB.tilt), dg = 180 / Math.PI;
+                let center = null;
+                for (let tries = 0; tries < 30 && !center; tries++) {
+                    const X = Math.random() * 2 - 1, Y = Math.random() * 2 - 1, Z2 = 1 - X * X - Y * Y;
+                    if (Z2 < 0.25) continue;
+                    const Z = Math.sqrt(Z2);
+                    const y = Y * s.ct + Z * s.st, z = -Y * s.st + Z * s.ct;
+                    const lat = Math.asin(Math.max(-1, Math.min(1, y))) * dg;
+                    const i = Math.floor((lat + 90) / MB.step);
+                    if (!mbRowOK(i) || !mbRowOK(i + 1) || !mbRowOK(i - 1)) continue;
+                    center = mbTileAt(i, Math.atan2(X, z) * dg - mbRot);
+                }
+                if (!center) return;
+                const cl = mbTileCluster(center);
+                for (let q = cl.length - 1; q > 0; q--) { const r = Math.floor(Math.random() * (q + 1));[cl[q], cl[r]] = [cl[r], cl[q]]; }
+                for (let n = 0; n < MB.gcount; n++) {
+                    const T = cl[n % cl.length], row = mbRows[T.i];
+                    const top = Math.random() < 0.5, left = Math.random() < 0.5;
+                    const la = top ? row.lat2 : row.lat, x = left ? T.a : T.b;
+                    const vert = Math.random() < 1 / 3;   // 위아래행: 좌우 대각선의 절반 확률
+                    let path;
+                    if (vert) {
+                        const dir = Math.random() < 0.5 ? 1 : -1;
+                        const j = dir > 0 ? (top ? T.i + 1 : T.i) : (top ? T.i : T.i - 1);
+                        if (!mbRowOK(j)) continue;
+                        path = mbBuildPathV({ la, x, j, dv: dir });
+                    } else {
+                        const k = top ? T.i + 1 : T.i;
+                        const r = Math.random();
+                        const st0 = r < 0.34 ? { mode: 'v', i: T.i, dv: top ? -1 : 1, la, x }
+                            : { mode: 'h', k, dh: r < 0.67 ? 1 : -1, la, x };
+                        path = mbBuildPath(st0);
+                    }
+                    if (path.total < 1) continue;
+                    const red0 = Math.random() < 0.5;   // 초기 색상: 50% 빨강, 나머지 초록
+                    mbStreaks.push({
+                        path, spd: (300 + Math.random() * 160) * MB.gspd, len: 32 + Math.random() * 30,
+                        hold: MB.ghold, acc: MB.gacc, t0: mbT + (n === 0 ? 0 : Math.random() * 0.08),
+                        ph: Math.random(), k: 0.85 + Math.random() * 0.25,
+                        red0, backG: red0 && Math.random() < 0.5   // 빨강 중 50%만 가속 중간에 초록으로 복귀
+                    });
+                }
+            }
+            function mbTravel(st, age) {
+                if (age <= 0) return 0;
+                const v = st.spd, h = st.hold, a = st.acc;
+                if (age < h) return v * MB_SLOW * age;
+                let d = v * MB_SLOW * h, t = age - h;
+                if (a > 0) {
+                    if (t < a) return d + v * MB_SLOW * a / MB_LN10 * (Math.pow(10, t / a) - 1);
+                    d += v * (1 - MB_SLOW) * a / MB_LN10; t -= a;
+                }
+                return d + v * t;
+            }
+            function mbUpdateStreaks() {
+                mbStreaks = mbStreaks.filter(st => mbTravel(st, mbT - st.t0) - st.len < st.path.total);
+            }
+            function mbHsl(h, sat, l) {
+                const a = sat * Math.min(l, 1 - l);
+                const f = n => { const kk = (n + h / 30) % 12; return 255 * (l - a * Math.max(-1, Math.min(kk - 3, 9 - kk, 1))); };
+                return [f(0), f(8), f(4)];
+            }
+            function mbGlintRGB(p, w) {
+                const h = 60 * (1 - Math.cos(2 * Math.PI * p));
+                const c = mbHsl(h, 1, 0.55);
+                return [255 * w + c[0] * (1 - w), 255 * w + c[1] * (1 - w), 255 * w + c[2] * (1 - w)];
+            }
+            function mbStreakGeom() {
+                const s = mbSys(MB.tilt), w = MB.gwhite;
+                const gapPx = Math.max(0.6, MB.gap * MB_R * mbRad(MB.step));
+                const segs = [];
+                const sm = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+                for (const st of mbStreaks) {
+                    if (mbT < st.t0) continue;
+                    const pt = st.path, sHead = mbTravel(st, mbT - st.t0), sTail = sHead - st.len;
+                    const a = Math.max(0, sTail), b = Math.min(pt.total, sHead);
+                    if (b - a < 0.05) continue;
+                    const sv = [a, b];
+                    for (let v = a + 1; v < b; v += 1) sv.push(v);
+                    for (const c of pt.cum) if (c > a && c < b) sv.push(c);
+                    sv.sort((p, q) => p - q);
+                    const env = MB.glint * st.k;
+                    const P = sv.map(v => { const [la, lo] = mbPathAt(pt, v); const q = mbV(la, lo + mbRot, s); return [MB_C + MB_R * q[0], MB_C - MB_R * q[1], q[2], (v - sTail) / st.len]; });
+                    for (let j = 1; j < P.length; j++) {
+                        const u = (P[j][3] + P[j - 1][3]) / 2;
+                        const z = (P[j][2] + P[j - 1][2]) / 2;
+                        const prof = Math.pow(u, 1.2) * Math.min(1, (1 - u) * 14 + 0.15);
+                        const al = env * prof * sm(0.02, 0.3, z);
+                        if (al < 0.01) continue;
+                        let ph;
+                        if (st.red0 !== undefined) {
+                            const ageC = mbT - st.t0, midAcc = st.hold + st.acc * 0.5;
+                            const redNow = st.red0 && !(st.backG && ageC >= midAcc);
+                            ph = (redNow ? 0 : 0.5) + u * 0.08 + Math.max(0, ageC) * 0.03;
+                        } else {
+                            ph = st.ph + u * 0.55 + mbT * 0.22;
+                        }
+                        segs.push({ x0: P[j - 1][0], y0: P[j - 1][1], x1: P[j][0], y1: P[j][1], a: al, halo: mbGlintRGB(ph, w * 0.7), core: mbGlintRGB(ph, 1 - (1 - w) * 0.3) });
+                    }
+                }
+                return { segs, gapPx, hw: gapPx * 2.8 + 3, mw: gapPx * 1.1 + 0.6, cw: Math.max(0.7, gapPx * 0.42) };
+            }
+            const mbPM = (c, a) => { const k = Math.min(1, a); return `rgb(${c[0] * k | 0},${c[1] * k | 0},${c[2] * k | 0})`; };
+            function mbDrawStreaks(mx, my, mr, m) {
+                if (!mbStreaks.length || MB.glint <= 0 || m <= 0.01) return;
+                const G = mbStreakGeom();
+                if (!G.segs.length) return;
+                const k = mr / MB_R;
+                S.save();
+                S.beginPath(); S.arc(mx, my, mr, 0, Math.PI * 2); S.clip();
+                S.globalCompositeOperation = 'lighter';
+                S.lineCap = 'round';
+                const X = x => mx + (x - MB_C) * k, Y = y => my + (y - MB_C) * k;
+                const passes = [[G.hw, 'halo', 0.9, true], [G.mw, 'halo', 0.85, false], [G.cw, 'core', 1.15, false]];
+                for (const [wd, key, kk, blur] of passes) {
+                    S.lineWidth = Math.max(0.6, wd * k);
+                    S.filter = (blur && FILTER_OK) ? `blur(${(wd * k * 0.45).toFixed(1)}px)` : 'none';
+                    for (const sg of G.segs) {
+                        S.strokeStyle = mbPM(sg[key], sg.a * kk * m);
+                        S.beginPath(); S.moveTo(X(sg.x0), Y(sg.y0)); S.lineTo(X(sg.x1), Y(sg.y1)); S.stroke();
+                    }
+                }
+                S.filter = 'none';
+                S.restore();
+            }
+            function mbDrawMoon(mx, my, mr, m) {
+                mbMX = mx; mbMY = my; mbMR = mr; mbMV = m;
+                if (m <= 0.001) return;
+                // 기존 외곽 후광은 유지 (밤 하늘·수면 반사에 어우러지도록)
+                const mg = S.createRadialGradient(mx, my, mr * 0.8, mx, my, mr * CFG.MOON_GLOW);
+                mg.addColorStop(0, `rgba(200,215,255,${CFG.MOON_A * m})`);
+                mg.addColorStop(1, 'rgba(200,215,255,0)');
+                S.fillStyle = mg;
+                S.beginPath(); S.arc(mx, my, mr * CFG.MOON_GLOW, 0, Math.PI * 2); S.fill();
+                const d = Math.abs(mbRot - mbBodyRot);
+                if (!(d <= 0.6) && !(d >= 359.4)) mbRenderBody();
+                S.save();
+                S.globalAlpha = m;
+                S.drawImage(mbBody, mx - mr, my - mr, mr * 2, mr * 2);
+                S.restore();
+                mbDrawStreaks(mx, my, mr, m);
+            }
 
             const starAlpha = () => ss(CFG.STAR_A0, CFG.STAR_A1, palQ());
 
@@ -1645,7 +2054,7 @@
                 for (const k in docCloud) bakeCloudDoc(k);
                 const m = Math.min(W, H);
                 sunR = clamp(m * CFG.SUN_F, CFG.SUN_MIN, CFG.SUN_MAX);
-                moonR = clamp(m * CFG.MOON_F, CFG.MOON_MIN, CFG.MOON_MAX);
+                moonR = clamp(m * CFG.MOON_F, CFG.MOON_MIN, CFG.MOON_MAX) * (CFG.MOON_SIZE ?? 1);
                 // torii: centred on the shared vertical line (CFG.TORII_X), standing on the flat with
                 // its base three quarters of the way up from the bottom edge to the horizon
                 torS = CFG.TORII_SCALE * Math.min(HZ * 0.30 / 356, W * 0.40 / 428);
@@ -1653,10 +2062,10 @@
                 torBase = H - CFG.TORII_BASE * (H - HZ);
                 torX = W * effToriiX() - (340 - TB.x) * torS;
                 torY = torBase - (TB.base - TB.y) * torS;
-                for (const c of [torC, torR]) {
-                    c.width = Math.max(1, Math.ceil(torW * dpr));
-                    c.height = Math.max(1, Math.ceil(torH * dpr));
-                }
+                for (const c of [torC, torR]) fitCanvas(c, Math.max(1, Math.ceil(torW * dpr)), Math.max(1, Math.ceil(torH * dpr)));
+                // NOTE: 같은 값을 대입해도 비트맵이 지워지므로 fitCanvas 가드가 필수.
+                // 무조건 대입하면 토리이 형상과 무관한 resize(MOON_SIZE 등) 때
+                // 캐시 키가 그대로라 스프라이트가 다시 그려지지 않고 토리이가 사라진다.
                 fg.width = cv.width; fg.height = cv.height;
                 resizeRipple();
                 buildStars();
@@ -1771,6 +2180,13 @@
                         const G = day2Geom(c, base);
                         if (G.dx > W) c.xn = (-G.tw - 8 + G.px) / W;
                     }
+                }
+
+                // 미러볼 자전(40초/회) + 줄눈 빛줄기 진행. 동작 줄이기 설정이면 회전·빛줄기 모두 정지.
+                if (!RM.matches) {
+                    if (mbSpin) mbRot = (mbRot + dt * 360 / MB_PERIOD) % 360;
+                    mbT += dt;
+                    mbUpdateStreaks();
                 }
             }
 
@@ -2059,27 +2475,15 @@
 
                 drawStars();
 
-                // moon
+                // mirrorball moon (생성기 기본값 볼 + 클릭 발사 줄눈 빛줄기)
                 const m = ss(CFG.MOON_A0, CFG.MOON_A1, q);
                 if (m > 0.001) {
                     const mt = 1 - Math.pow(1 - m, 3);
                     // 달은 토리이와 항상 같은 수직선상: x는 effToriiX() 공유, y만 MOON_Y로 조절
                     const mx = W * effToriiX();
                     const my = lerp(HZ + moonR * 2.2, HZ * CFG.MOON_Y, mt);
-                    const mg = S.createRadialGradient(mx, my, moonR * 0.8, mx, my, moonR * CFG.MOON_GLOW);
-                    mg.addColorStop(0, `rgba(200,215,255,${CFG.MOON_A * m})`);
-                    mg.addColorStop(1, 'rgba(200,215,255,0)');
-                    S.fillStyle = mg;
-                    S.beginPath(); S.arc(mx, my, moonR * CFG.MOON_GLOW, 0, Math.PI * 2); S.fill();
-                    const md = S.createRadialGradient(mx - moonR * 0.35, my - moonR * 0.35, moonR * 0.1, mx, my, moonR);
-                    md.addColorStop(0, '#fbf8ec'); md.addColorStop(1, '#d6d3c6');
-                    S.fillStyle = md;
-                    S.beginPath(); S.arc(mx, my, moonR, 0, Math.PI * 2); S.fill();
-                    S.fillStyle = 'rgba(140,140,128,0.14)';
-                    for (const [cx, cy, cr] of [[-0.3, -0.2, 0.22], [0.25, 0.1, 0.28], [-0.05, 0.42, 0.16], [0.38, -0.38, 0.12]]) {
-                        S.beginPath(); S.arc(mx + cx * moonR, my + cy * moonR, cr * moonR, 0, Math.PI * 2); S.fill();
-                    }
-                }
+                    mbDrawMoon(mx, my, moonR, m);
+                } else { mbMV = 0; }
 
                 // horizon haze
                 const hl = mix(hor, [255, 255, 255], CFG.HAZE_MIX);
@@ -2687,6 +3091,15 @@ void main() {
             window.addEventListener('pointercancel', endDrag);
             window.addEventListener('blur', () => dragPts.clear());
 
+            // 미러볼(달) 클릭 → 줄눈 빛줄기 발사. 하늘 클릭이라 수면 ripple과 겹치지 않는다.
+            window.addEventListener('pointerdown', e => {
+                if (e.button > 0 || RM.matches) return;
+                if (overUI(e.target)) return;
+                if (mbMV < 0.05 || mbMR < 2) return;
+                const dx = e.clientX - mbMX, dy = e.clientY - mbMY, rr = mbMR * 1.5;
+                if (dx * dx + dy * dy <= rr * rr) mbFire();
+            });
+
             function stepRipples(dt) {
                 if (debugPaused) return;
                 for (let i = ripples.length - 1; i >= 0; i--) {
@@ -2981,6 +3394,13 @@ void main() {
                 get phi() { return phi; }, set phi(v) { phi = Number(v) || 0; },
                 get phiTail() { return phiTail; }, set phiTail(v) { phiTail = v; },
                 get moonMT() { return moonMT(palQ()); },
+                get mbRot() { return mbRot; },
+                set mbRot(v) { mbRot = ((Number(v) || 0) % 360 + 360) % 360; mbBodyRot = NaN; },
+                get mbSpin() { return mbSpin; },
+                set mbSpin(v) { mbSpin = !!v; },
+                get mb() { return MB; },
+                get mbDefaults() { return MB_DEFAULTS; },
+                get mbStreaks() { return mbStreaks.length; },
                 get omega() { return omega; }, set omega(v) { omega = Number(v) || 0; },
                 get clock() { return clock; },
                 get tState() { return tState; }, set tState(v) { tState = Number(v) || 0; },
@@ -3050,8 +3470,11 @@ void main() {
                         // 인트로 리플레이: 전환 UI를 다시 숨겼다가 완료 시점에 올린다
                         introDone = false;
                         if (elPanel) { elPanel.classList.remove('intro-enter'); elPanel.classList.add('intro-hidden'); }
-                        buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); resize();
+                        buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); Object.assign(MB, JSON.parse(JSON.stringify(MB_DEFAULTS))); mbSpin = true; mbBuildAll(); mbRot = 0; resize();
                     },
+                    mirrorburst() { mbFire(); },
+                    mbBuild() { mbBuildAll(); },
+                    mbTouch() { mbBodyRot = NaN; },
                     ripple(xn = 0.5, sn = 0.5) {
                         const cap = Math.min(RIP_SLOTS, Math.max(1, Math.round(CFG.RIP_MAX)));
                         if (ripples.length >= cap) ripples.shift();
@@ -3091,6 +3514,7 @@ void main() {
 
             initGL();
             buildMountains();
+            mbBuildAll();
             buildClouds();
             buildDuskClouds();
             buildDay2Clouds();

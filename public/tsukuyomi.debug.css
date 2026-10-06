@@ -114,6 +114,28 @@
     font: inherit;
 }
 
+.tsd-row input[type="text"] {
+    width: 100%;
+    background: #0d1117;
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    padding: 2px 4px;
+    font: inherit;
+}
+
+.tsd-row input[type="color"] {
+    width: 100%;
+    height: 24px;
+    background: #0d1117;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    padding: 1px 2px;
+    cursor: pointer;
+}
+
+.tsd-sub { color: #fff; font-weight: 700; font-size: 11px; margin: 8px 0 2px; }
+
 .tsd-check { display: flex; align-items: center; gap: 6px; margin: 5px 0; color: #c3cbdb; }
 .tsd-check input { accent-color: #4b70e2; }
 

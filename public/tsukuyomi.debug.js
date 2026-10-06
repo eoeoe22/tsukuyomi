@@ -84,6 +84,7 @@
         { title: '달 / 안개', keys: [
             ['MOON_A0', 0, 1, 0.005], ['MOON_A1', 0, 1, 0.005],
             ['MOON_GLOW', 2, 16, 0.1], ['MOON_A', 0, 1, 0.005],
+            ['MOON_SIZE', 0.2, 3, 0.05, 'resize'],
             ['HAZE_MIX', 0, 1, 0.005], ['HAZE_A', 0, 1, 0.005],
         ]},
         { title: '반사', keys: [
@@ -147,6 +148,7 @@
         '<div class="tsd-body" id="tsdBody">' +
         '<div class="tsd-status" id="tsdStatus">bridge 대기 중…</div>' +
         '<details open><summary>장면 상태 (수동 스크럽)</summary><div class="tsd-sec" id="tsdScene"></div></details>' +
+        '<details><summary>미러볼 (달)</summary><div class="tsd-sec" id="tsdMirror"></div></details>' +
         '<div id="tsdGroups"></div>' +
         '<details><summary>팔레트 (색/레벨 JSON)</summary><div class="tsd-sec" id="tsdPal"></div></details>' +
         '<details><summary>가져오기 / 내보내기</summary><div class="tsd-sec" id="tsdIO"></div></details>' +
@@ -407,7 +409,197 @@
             r.num.value = String(b.cfg[r.key]);
         }
         syncSceneUI();
+        refreshMirror(b);
         buildPaletteEditors(b, true);
+    }
+
+    // ---------- 미러볼 (미러볼 SVG 생성기 파라미터 이식) ----------
+    // rebuild 'build' = 타일 토폴로지 재생성(mbBuild), 그 외는 본체 캐시 무효화(mbTouch).
+    const MB_GROUPS = [
+        { title: '타일 배치', keys: [
+            ['tilt', -90, 90, 1], ['step', 3, 15, 0.5, 'build'], ['gap', 0.02, 0.4, 0.01],
+            ['jit', 0, 0.2, 0.005, 'build'], ['off', 0, 1, 0.05, 'build'],
+        ]},
+        { title: '반사·발광', keys: [
+            ['pole', 0, 3, 0.05], ['poleR', 0, 90, 1], ['veil', 0, 1.5, 0.05],
+            ['veilR', 0.05, 1, 0.01], ['haze', 0, 0.6, 0.01], ['bloom', 0, 1, 0.05],
+        ]},
+        { title: '줄눈 빛줄기', keys: [
+            ['glint', 0, 2, 0.05], ['gcount', 1, 12, 1], ['gturn', 0, 1, 0.01],
+            ['gspd', 0.3, 2.5, 0.05], ['ghold', 0, 1.5, 0.01], ['gacc', 0, 0.6, 0.01], ['gwhite', 0.3, 1, 0.01],
+        ]},
+    ];
+    const MB_COLORS = [
+        ['tile', '타일'], ['grout', '줄눈'], ['dark', '반사 어둠'], ['light', '반사 밝음'], ['glowC', '발광'],
+    ];
+    const mbRowRefs = [];
+    function mbNumRow(host, b, key, min, max, step, rebuild) {
+        const row = document.createElement('div');
+        row.className = 'tsd-row';
+        const lab = document.createElement('label');
+        lab.textContent = key;
+        lab.title = '기본값 ' + fmt(b.mbDefaults[key]);
+        const range = document.createElement('input');
+        range.type = 'range';
+        range.min = String(min); range.max = String(max); range.step = String(step);
+        range.value = String(b.mb[key]);
+        const num = document.createElement('input');
+        num.type = 'number';
+        num.min = String(min); num.max = String(max); num.step = String(step);
+        num.value = String(b.mb[key]);
+        const apply = (v, from) => {
+            const n = Number(v);
+            if (!isFinite(n)) return;
+            b.mb[key] = n;
+            if (from !== range) range.value = String(Math.min(max, Math.max(min, n)));
+            if (from !== num) num.value = String(n);
+            if (rebuild) b.actions.mbBuild(); else b.actions.mbTouch();
+        };
+        range.addEventListener('input', () => apply(range.value, range));
+        num.addEventListener('change', () => apply(num.value, num));
+        row.appendChild(lab); row.appendChild(range); row.appendChild(num);
+        host.appendChild(row);
+        mbRowRefs.push({ key, range, num, kind: 'num' });
+    }
+    function buildMirror(b) {
+        if (!b.mb) return;
+        const host = document.getElementById('tsdMirror');
+        host.innerHTML = '';
+        mbRowRefs.length = 0;
+        for (const g of MB_GROUPS) {
+            const sub = document.createElement('div');
+            sub.className = 'tsd-sub';
+            sub.textContent = g.title;
+            host.appendChild(sub);
+            for (const [key, min, max, step, rebuild] of g.keys) mbNumRow(host, b, key, min, max, step, rebuild);
+        }
+        // 색상 5종 (생성기와 동일)
+        const csub = document.createElement('div');
+        csub.className = 'tsd-sub';
+        csub.textContent = '색상';
+        host.appendChild(csub);
+        for (const [key, label] of MB_COLORS) {
+            const row = document.createElement('div');
+            row.className = 'tsd-row';
+            const lab = document.createElement('label');
+            lab.textContent = label + ' (' + key + ')';
+            lab.title = '기본값 ' + b.mbDefaults[key];
+            const col = document.createElement('input');
+            col.type = 'color';
+            col.value = b.mb[key];
+            const hex = document.createElement('input');
+            hex.type = 'text';
+            hex.value = b.mb[key];
+            hex.spellcheck = false;
+            col.addEventListener('input', () => {
+                b.mb[key] = col.value; hex.value = col.value;
+                b.actions.mbTouch();
+            });
+            hex.addEventListener('change', () => {
+                let v = hex.value.trim();
+                if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+                    b.mb[key] = v.toLowerCase(); col.value = b.mb[key];
+                    b.actions.mbTouch();
+                } else hex.value = b.mb[key];
+            });
+            row.appendChild(lab); row.appendChild(col); row.appendChild(hex);
+            host.appendChild(row);
+            mbRowRefs.push({ key, range: col, num: hex, kind: 'color' });
+        }
+        // 시드
+        const ssub = document.createElement('div');
+        ssub.className = 'tsd-sub';
+        ssub.textContent = '시드·회전·발사';
+        host.appendChild(ssub);
+        const srow = document.createElement('div');
+        srow.className = 'tsd-row';
+        const slab = document.createElement('label');
+        slab.textContent = 'seed';
+        slab.title = '기본값 ' + fmt(b.mbDefaults.seed);
+        const snum = document.createElement('input');
+        snum.type = 'number';
+        snum.min = '0'; snum.max = '999999'; snum.step = '1';
+        snum.value = String(b.mb.seed);
+        const reroll = document.createElement('button');
+        reroll.type = 'button'; reroll.textContent = '다시 생성';
+        const applySeed = v => {
+            const n = Math.max(0, Math.round(Number(v) || 0));
+            b.mb.seed = n; snum.value = String(n);
+            b.actions.mbBuild();
+        };
+        snum.addEventListener('change', () => applySeed(snum.value));
+        reroll.addEventListener('click', () => applySeed(Math.floor(Math.random() * 100000)));
+        srow.appendChild(slab); srow.appendChild(snum); srow.appendChild(reroll);
+        host.appendChild(srow);
+        mbRowRefs.push({ key: 'seed', range: snum, num: snum, kind: 'seed' });
+        // 회전각 + 자전 토글
+        const rrow = document.createElement('div');
+        rrow.className = 'tsd-row';
+        const rlab = document.createElement('label');
+        rlab.textContent = '회전각 (rot)';
+        rlab.title = '현재 자전 각도 0..359';
+        const rrange = document.createElement('input');
+        rrange.type = 'range';
+        rrange.min = '0'; rrange.max = '359'; rrange.step = '1';
+        rrange.value = String(Math.round(b.mbRot || 0));
+        const rnum = document.createElement('input');
+        rnum.type = 'number';
+        rnum.min = '0'; rnum.max = '359'; rnum.step = '1';
+        rnum.value = String(Math.round(b.mbRot || 0));
+        const applyRot = v => {
+            b.mbRot = v;
+            rrange.value = String(Math.round(b.mbRot)); rnum.value = String(Math.round(b.mbRot));
+        };
+        rrange.addEventListener('input', () => applyRot(rrange.value));
+        rnum.addEventListener('change', () => applyRot(rnum.value));
+        rrow.appendChild(rlab); rrow.appendChild(rrange); rrow.appendChild(rnum);
+        host.appendChild(rrow);
+        mbRowRefs.push({ key: '__rot', range: rrange, num: rnum, kind: 'rot' });
+        const spinLbl = document.createElement('label');
+        spinLbl.className = 'tsd-check';
+        const spinChk = document.createElement('input');
+        spinChk.type = 'checkbox'; spinChk.checked = !!b.mbSpin;
+        spinLbl.appendChild(spinChk);
+        spinLbl.appendChild(document.createTextNode('자전 (40초/회)'));
+        host.appendChild(spinLbl);
+        spinChk.addEventListener('change', () => { b.mbSpin = spinChk.checked; });
+        host._spinChk = spinChk;
+        // 발사 / 리셋
+        const brow = document.createElement('div');
+        brow.className = 'tsd-btnrow';
+        const mkBtn = (label, fn) => {
+            const btn = document.createElement('button');
+            btn.type = 'button'; btn.textContent = label;
+            btn.addEventListener('click', fn);
+            brow.appendChild(btn);
+        };
+        mkBtn('빛줄기 발사', () => b.actions.mirrorburst());
+        mkBtn('미러볼 리셋', () => {
+            Object.assign(b.mb, JSON.parse(JSON.stringify(b.mbDefaults)));
+            b.mbSpin = true;
+            b.actions.mbBuild();
+            refreshMirror(b);
+        });
+        host.appendChild(brow);
+    }
+    function refreshMirror(b) {
+        if (!b.mb) return;
+        const host = document.getElementById('tsdMirror');
+        if (!host || !host.firstChild) return;
+        for (const r of mbRowRefs) {
+            if (r.kind === 'rot') {
+                // 자전 중에는 슬라이더를 덮어쓰지 않는다 (드래그와 충돌)
+                continue;
+            }
+            if (r.kind === 'color') {
+                if (document.activeElement !== r.num) r.num.value = b.mb[r.key];
+                if (document.activeElement !== r.range) r.range.value = b.mb[r.key];
+                continue;
+            }
+            if (document.activeElement !== r.range) r.range.value = String(b.mb[r.key]);
+            if (r.num !== r.range && document.activeElement !== r.num) r.num.value = String(b.mb[r.key]);
+        }
+        if (host._spinChk) host._spinChk.checked = !!b.mbSpin;
     }
 
     // ---------- 팔레트 ----------
@@ -480,6 +672,7 @@
         exp.addEventListener('click', () => {
             const snap = {
                 cfg: b.cfg,
+                mb: b.mb ? JSON.parse(JSON.stringify(b.mb)) : undefined,
                 palettes: b.palettes,
                 scene: { state: b.state, mode: b.mode, p: b.p, phi: b.phi, hold: b.hold, paused: b.paused, nk: b.sunK },
             };
@@ -503,6 +696,10 @@
                 }
                 if (snap.palettes) for (const k of Object.keys(snap.palettes)) {
                     try { b.setPalette(k, snap.palettes[k]); } catch (e) { /* 개별 실패 무시 */ }
+                }
+                if (snap.mb && b.mb) {
+                    Object.assign(b.mb, snap.mb);
+                    b.actions.mbBuild();
                 }
                 if (snap.scene) {
                     // p/nk를 state보다 먼저 복원: 전이 상태 세터가 transFrom/nkFrom을 올바르게 캡처한다.
@@ -539,7 +736,8 @@
             '\nlanterns=' + (b.lanterns ? b.lanterns.length : 0) + '  lanReady=' + (b.lanReady ? 'yes' : 'no') +
             '  lanCached=' + (b.lanCached ? 'yes' : 'no') +
             '\nreflStep=' + b.reflStep + '  reflCost=' + fmt(b.reflCost) + 'ms' +
-            '  tor=' + b.torBuilds + '  band=' + b.bandBuilds;
+            '  tor=' + b.torBuilds + '  band=' + b.bandBuilds +
+            (b.mb ? '\nmbRot=' + fmt(b.mbRot) + '  streaks=' + b.mbStreaks : '');
     }
 
     // ---------- 감지 ----------
@@ -585,6 +783,7 @@
             if (!b) return;
             buildScene(b);
             buildGroups(b);
+            buildMirror(b);
             buildPaletteEditors(b, false);
             buildIO(b);
             renderSrc();
