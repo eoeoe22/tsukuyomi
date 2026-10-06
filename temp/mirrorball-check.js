@@ -1,34 +1,4 @@
-<!DOCTYPE html>
-<html lang="ko">
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Rotating ball</title>
-    <style>
-        html,
-        body {
-            margin: 0;
-            height: 100%;
-        }
-
-        body {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: transparent;
-        }
-
-        canvas {
-            width: min(440px, 100vw);
-            aspect-ratio: 1 / 1;
-        }
-    </style>
-</head>
-
-<body>
-    <canvas id="ball"></canvas>
-    <script>
         // mirrorball.svg 기준 (미러볼 SVG 생성기 설정값):
         // tilt -16°, step 6°, gap 0.14, jit 0.06, off 1, seed 11,
         // tile #dfe4ea, grout #6b7480 — 같은 시드·난수 순서로 타일 배치 재생성 후 회전
@@ -153,7 +123,4 @@
 
         draw();
         requestAnimationFrame(loop);
-    </script>
-</body>
-
-</html>
+    

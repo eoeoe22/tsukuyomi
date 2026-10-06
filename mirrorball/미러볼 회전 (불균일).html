@@ -34,7 +34,8 @@
         // tile #dfe4ea, grout #6b7480 — 같은 시드·난수 순서로 타일 배치 재생성 후 회전
         const OPT = {
             tilt: -16, step: 6, gap: 0.14, jit: 0.06, off: 1, seed: 11,
-            tile: '#dfe4ea', grout: '#6b7480'
+            tile: '#dfe4ea', grout: '#6b7480',
+            twist: 4, sdev: 0.06, cdev: 0.06 // 개별 타일 비틀림(도), 크기 편차, 모서리 뒤틀림
         };
         const cv = document.getElementById('ball');
         const ctx = cv.getContext('2d');
@@ -65,9 +66,11 @@
         }
 
         // 타일 토폴로지 1회 생성 (난수 호출 순서는 SVG 생성기와 동일: 행마다 폭 n개 → 오프셋 1개)
+        // 개별 뒤틀림은 별도 난수열(rndD)로 부여 → 배치는 SVG 생성기와 동일하게 유지
         const tiles = [];
         {
             const rnd = mulberry32(OPT.seed);
+            const rndD = mulberry32((OPT.seed ^ 0x9e3779b9) >>> 0);
             const rows = Math.ceil(180 / OPT.step);
             for (let i = 0; i < rows; i++) {
                 const lat = -90 + i * OPT.step, lat2 = Math.min(90, lat + OPT.step), mid = (lat + lat2) / 2;
@@ -78,7 +81,14 @@
                 let lon = lonStart;
                 for (let j = 0; j < n; j++) {
                     const tw = ws[j] * 360 / sum;
-                    tiles.push({ lat, lat2, mid, lon0: lon, tw });
+                    const a = (rndD() * 2 - 1) * rad(OPT.twist);
+                    const j8 = []; for (let k = 0; k < 8; k++) j8.push(rndD() * 2 - 1);
+                    tiles.push({
+                        lat, lat2, mid, lon0: lon, tw,
+                        rc: Math.cos(a), rs: Math.sin(a), // 미세 회전(비틀림)
+                        sc: 1 + (rndD() * 2 - 1) * OPT.sdev, // 크기 편차
+                        j8 // 모서리 뒤틀림(±1, 그리기 때 타일 크기에 비례 적용)
+                    });
                     lon += tw;
                 }
             }
@@ -102,16 +112,27 @@
             ctx.fill();
             ctx.clip();
             // 타일 질감(형태만 — 반사/색상은 나중에):
-            // 1) 전체 쿼드 = 측면/두께 (어둡게) → 2) 수축 쿼드 = 정면 → 3) 윗변 하이라이트 + 아랫변 그림자
+            // 0) 투영 쿼드에 개별 뒤틀림 적용(회전·크기·모서리) → 1) 전체 쿼드 = 측면/두께 → 2) 수축 쿼드 = 정면
             const tops = [], bottoms = [];
             for (const t of tiles) {
                 const midLon = t.lon0 + t.tw / 2 + rotDeg;
                 if (V(t.mid, midLon)[2] <= 0) continue; // 뒷면 컬링 (SVG 생성기와 같은 기준)
                 const lon0 = t.lon0 + rotDeg, lon1 = lon0 + t.tw;
-                const pts = [Pj(t.lat, lon0), Pj(t.lat, lon1), Pj(t.lat2, lon1), Pj(t.lat2, lon0)];
-                const cx = (pts[0][0] + pts[1][0] + pts[2][0] + pts[3][0]) / 4;
-                const cy = (pts[0][1] + pts[1][1] + pts[2][1] + pts[3][1]) / 4;
-                const fx = pts.map(q => [cx + (q[0] - cx) * K, cy + (q[1] - cy) * K]);
+                const qp = [Pj(t.lat, lon0), Pj(t.lat, lon1), Pj(t.lat2, lon1), Pj(t.lat2, lon0)];
+                const cx = (qp[0][0] + qp[1][0] + qp[2][0] + qp[3][0]) / 4;
+                const cy = (qp[0][1] + qp[1][1] + qp[2][1] + qp[3][1]) / 4;
+                const rr = (Math.hypot(qp[0][0] - cx, qp[0][1] - cy) + Math.hypot(qp[1][0] - cx, qp[1][1] - cy)
+                    + Math.hypot(qp[2][0] - cx, qp[2][1] - cy) + Math.hypot(qp[3][0] - cx, qp[3][1] - cy)) / 4 || 1;
+                const pts = qp.map((q, k) => {
+                    const vx = (q[0] - cx) * t.sc, vy = (q[1] - cy) * t.sc;
+                    return [
+                        cx + (vx * t.rc - vy * t.rs) + t.j8[k * 2] * OPT.cdev * rr,
+                        cy + (vx * t.rs + vy * t.rc) + t.j8[k * 2 + 1] * OPT.cdev * rr
+                    ];
+                });
+                const dx = (pts[0][0] + pts[1][0] + pts[2][0] + pts[3][0]) / 4;
+                const dy = (pts[0][1] + pts[1][1] + pts[2][1] + pts[3][1]) / 4;
+                const fx = pts.map(q => [dx + (q[0] - dx) * K, dy + (q[1] - dy) * K]);
                 // 1) 측면 베이스 (두께감: 정면보다 한 겹 크게 어둡게)
                 ctx.beginPath();
                 pts.forEach((q, k) => { k ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
