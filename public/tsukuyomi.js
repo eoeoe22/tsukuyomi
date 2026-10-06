@@ -138,7 +138,7 @@
                 REFL_AMP0: 0.15, REFL_AMP1: 2.4, SEAM_A: 0.22,
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 8,
                 REFL_SCALE: 1, REFL_AUTO: 1, REFL_MAX_STEP: 8,
-                RIP_MAX: 8, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
+                RIP_MAX: 20, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
                 LANTERN_N: 130, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
                 LANTERN_TX: 1, LANTERN_PAD: 2, LANTERN_DEPTH_K: 2,
                 // UI 회피: 1 = 하단 컨트롤 패널 실측 영역을 비움, 0 = 끔(회피 없음)
