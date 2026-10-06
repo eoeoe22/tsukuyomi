@@ -1,4 +1,4 @@
 .wrangler
 dist-we
-mirrorball/media
+*.mp4
 temp
