@@ -134,7 +134,7 @@ def main() -> None:
         "condition": "a00_scene.value == 3",
     })
     add("a02_show_advanced", {
-        "text": "고급 옵션 표시 (디버그 패널 위임)",
+        "text": "고급 옵션 표시",
         "type": "bool",
         "value": False,
     })
