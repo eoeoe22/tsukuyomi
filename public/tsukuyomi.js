@@ -263,7 +263,7 @@
                 [0.42, '#1b2036'], [0.56, '#0b0d1c'], [1.00, '#04060d']
             ];
             let MOUNT_DAY2 = prep(MOUNT_DAY2_RAW);
-            // torii: vermilion / black / gold, sinking into silhouette as night falls
+            // torii: vermilion / black (gold 3번째 값은 torii-legacy.svg 호환용으로만 유지, 렌더 미사용)
             let TORII_RAW = [
                 [0.00, '#D9472B', '#2A2522', '#C9A24A'],
                 [0.30, '#c8452c', '#261f1e', '#c99a4a'],
@@ -286,10 +286,11 @@
                 'M216 110H244L247 410H213Z M436 110H464L467 410H433Z ' +
                 'M331 118h18v76h-18Z M168 192h344v20h-344Z ' +
                 'M146 86Q340 124 534 86L532 108Q340 146 148 108Z');
+            // shapes from reference-images/torii.svg (torii-legacy.svg는 중앙 액자+금테 제거 전 보관본)
             const TORII_BLK = new Path2D(
-                'M210 392h40v28h-40Z M430 392h40v28h-40Z M314 134h52v46h-52Z ' +
+                'M210 392h40v28h-40Z M430 392h40v28h-40Z ' +
                 'M126 64Q340 108 554 64L548 85Q340 126 132 85Z');
-            // SVG-space bounding box (with a little room for the gold stroke)
+            // SVG-space bounding box
             const TB = { x: 124, y: 62, w: 432, h: 360, base: 420 };
             // 낮 구름 틴트 (547f49e 시점 그대로)
             let CLOUD_TINT_RAW = [
@@ -2114,17 +2115,17 @@
             // 페이드 중 반투명 토리이 뒤로 랜턴이 비치는 부자연스러움을 없앤다.
             function drawTorii(r0, r1, a = 1) {
                 if (a <= 0.01) return;
-                let [red, blk, gold] = keyed(TORII, palQ());
+                // torii.svg 기준 2색 (red/blk). TORII 팔레트 3번째 gold 값은 레거시 호환용으로 유지하되 그리지 않는다.
+                let [red, blk] = keyed(TORII, palQ());
                 const w2 = day2W();
                 if (w2 > 0) {
-                    const [r2, b2, g2] = keyed(TORII_DAY2, palQ());
-                    red = mix(red, r2, w2); blk = mix(blk, b2, w2); gold = mix(gold, g2, w2);
+                    const [r2, b2] = keyed(TORII_DAY2, palQ());
+                    red = mix(red, r2, w2); blk = mix(blk, b2, w2);
                 }
                 const k = torS * dpr;
                 const key = torC.width + 'x' + torC.height + '|' + k.toFixed(3) + '|' +
                     (red[0] | 0) + ',' + (red[1] | 0) + ',' + (red[2] | 0) + '|' +
-                    (blk[0] | 0) + ',' + (blk[1] | 0) + ',' + (blk[2] | 0) + '|' +
-                    (gold[0] | 0) + ',' + (gold[1] | 0) + ',' + (gold[2] | 0);
+                    (blk[0] | 0) + ',' + (blk[1] | 0) + ',' + (blk[2] | 0);
                 if (key !== torKey) {
                     torKey = key; torRKey = ''; torBuilds++;
                     TC.setTransform(1, 0, 0, 1, 0, 0);
@@ -2132,9 +2133,6 @@
                     TC.setTransform(k, 0, 0, k, -TB.x * k, -TB.y * k);
                     TC.fillStyle = rgba(red); TC.fill(TORII_RED);
                     TC.fillStyle = rgba(blk); TC.fill(TORII_BLK);
-                    TC.strokeStyle = rgba(gold);
-                    TC.lineWidth = 2; TC.strokeRect(314, 134, 52, 46);
-                    TC.lineWidth = 1; TC.strokeRect(322, 142, 36, 30);
                 }
 
                 // flipped copy, dimmed the same way as the rest of the reflection
