@@ -31,18 +31,32 @@
     <script>
         // mirrorball.svg 기준 (미러볼 SVG 생성기 설정값):
         // tilt -16°, step 6°, gap 0.14, jit 0.06, off 1, seed 11,
-        // tile #dfe4ea, grout #6b7480 — 같은 시드·난수 순서로 타일 배치 재생성 후 회전
+        // tile #dfe4ea, grout #202932(반사 대응으로 어둡게) — 같은 시드·난수 순서로 타일 배치 재생성 후 회전
         const OPT = {
             tilt: -16, step: 6, gap: 0.14, jit: 0.06, off: 1, seed: 11,
-            tile: '#dfe4ea', grout: '#6b7480'
+            tile: '#dfe4ea', grout: '#202932'
         };
+        // 반사 모델(하단 글로우 조명 가정): 법선의 -y 성분으로 밝기 결정
+        // 극점광은 화면 오버레이가 아니라 표면 기준: 남극からの 각거리 35° 이내를 원형으로 밝힘
+        const REF = {
+            amb: 0.30, glow: 1.15, pw: 1.4,
+            dark: '#26313e', light: '#eaf7ff',
+            njit: 1.2, // 법선 요동(도) — 약한 쪽
+            pole: 0.9, poleR: Math.PI / 180 * 35
+        };
+        function hxRGB(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+        const DR = hxRGB(REF.dark), TR = hxRGB(OPT.tile), LR = hxRGB(REF.light);
         const cv = document.getElementById('ball');
-        const ctx = cv.getContext('2d');
+        const mctx = cv.getContext('2d');
         const S = 440, C = 220, R = 200;
         const dpr = window.devicePixelRatio || 1;
         cv.width = S * dpr;
         cv.height = S * dpr;
-        ctx.scale(dpr, dpr);
+        mctx.scale(dpr, dpr);
+        const off = document.createElement('canvas'); off.width = S * dpr; off.height = S * dpr;
+        const og = off.getContext('2d'); og.scale(dpr, dpr);
+        const off2 = document.createElement('canvas'); off2.width = S * dpr; off2.height = S * dpr;
+        const og2 = off2.getContext('2d'); og2.scale(dpr, dpr);
 
         const PERIOD = 40; // 1회전 초
         const rad = d => d * Math.PI / 180;
@@ -65,9 +79,11 @@
         }
 
         // 타일 토폴로지 1회 생성 (난수 호출 순서는 SVG 생성기와 동일: 행마다 폭 n개 → 오프셋 1개)
+        // 반사 요동(jLat/jLon)은 별도 난수열(rndR) → 배치는 SVG 생성기와 동일하게 유지
         const tiles = [];
         {
             const rnd = mulberry32(OPT.seed);
+            const rndR = mulberry32((OPT.seed ^ 0x85ebca6b) >>> 0);
             const rows = Math.ceil(180 / OPT.step);
             for (let i = 0; i < rows; i++) {
                 const lat = -90 + i * OPT.step, lat2 = Math.min(90, lat + OPT.step), mid = (lat + lat2) / 2;
@@ -78,7 +94,10 @@
                 let lon = lonStart;
                 for (let j = 0; j < n; j++) {
                     const tw = ws[j] * 360 / sum;
-                    tiles.push({ lat, lat2, mid, lon0: lon, tw });
+                    tiles.push({
+                        lat, lat2, mid, lon0: lon, tw,
+                        jLat: (rndR() * 2 - 1) * REF.njit, jLon: (rndR() * 2 - 1) * REF.njit
+                    });
                     lon += tw;
                 }
             }
@@ -86,14 +105,8 @@
 
         let rotDeg = 0, last = performance.now();
 
-        function shade(hex, f) {
-            const n = parseInt(hex.slice(1), 16);
-            const r = Math.round(((n >> 16) & 255) * f), g = Math.round(((n >> 8) & 255) * f), b = Math.round((n & 255) * f);
-            return `rgb(${r},${g},${b})`;
-        }
-        const SIDE = shade(OPT.tile, 0.55);
-
         function draw() {
+            const ctx = og; // 장면은 오프스크린에 그린 뒤 블룸 합성
             ctx.clearRect(0, 0, S, S);
             ctx.save();
             ctx.beginPath();
@@ -101,9 +114,8 @@
             ctx.fillStyle = OPT.grout;
             ctx.fill();
             ctx.clip();
-            // 타일 질감(형태만 — 반사/색상은 나중에):
-            // 1) 전체 쿼드 = 측면/두께 (어둡게) → 2) 수축 쿼드 = 정면 → 3) 윗변 하이라이트 + 아랫변 그림자
-            const tops = [], bottoms = [];
+            // 반사: 법선(요동 포함)의 -y 성분 → dark→tile→light (+남극 표면 캡 가산)
+            const tops = [], bottoms = [], capQ = [];
             for (const t of tiles) {
                 const midLon = t.lon0 + t.tw / 2 + rotDeg;
                 if (V(t.mid, midLon)[2] <= 0) continue; // 뒷면 컬링 (SVG 생성기와 같은 기준)
@@ -112,24 +124,40 @@
                 const cx = (pts[0][0] + pts[1][0] + pts[2][0] + pts[3][0]) / 4;
                 const cy = (pts[0][1] + pts[1][1] + pts[2][1] + pts[3][1]) / 4;
                 const fx = pts.map(q => [cx + (q[0] - cx) * K, cy + (q[1] - cy) * K]);
+                const n = V(t.mid + t.jLat, midLon + t.jLon);
+                const nz = Math.max(0, n[2]);
+                const bb = (REF.amb + REF.glow * Math.pow(Math.max(0, -n[1]), REF.pw)) * (0.45 + 0.55 * nz);
+                const pu = Math.max(0, 1 - rad(t.mid + 90) / REF.poleR); // 남극からの 각거리 (0=극점)
+                const pf = pu * pu * (3 - 2 * pu); // 표면 원형 폴오프
+                const b = bb + REF.pole * pf * 1.2;
+                let fr, fg, fb;
+                if (b < 1) {
+                    const u = Math.max(0, b);
+                    fr = DR[0] + (TR[0] - DR[0]) * u; fg = DR[1] + (TR[1] - DR[1]) * u; fb = DR[2] + (TR[2] - DR[2]) * u;
+                } else {
+                    const u = Math.min(1, b - 1);
+                    fr = TR[0] + (LR[0] - TR[0]) * u; fg = TR[1] + (LR[1] - TR[1]) * u; fb = TR[2] + (LR[2] - TR[2]) * u;
+                }
                 // 1) 측면 베이스 (두께감: 정면보다 한 겹 크게 어둡게)
                 ctx.beginPath();
                 pts.forEach((q, k) => { k ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
                 ctx.closePath();
-                ctx.fillStyle = SIDE;
+                ctx.fillStyle = `rgb(${(fr * 0.5) | 0},${(fg * 0.5) | 0},${(fb * 0.5) | 0})`;
                 ctx.fill();
                 // 2) 정면
                 ctx.beginPath();
                 fx.forEach((q, k) => { k ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
                 ctx.closePath();
-                ctx.fillStyle = OPT.tile;
+                const FS = `rgb(${fr | 0},${fg | 0},${fb | 0})`;
+                ctx.fillStyle = FS;
                 ctx.fill();
                 // 3) 베벨용 변 수집 (pts 순서: 0 좌하, 1 우하, 2 우상, 3 좌상)
                 tops.push([fx[3], fx[2]]);
                 bottoms.push([fx[0], fx[1]]);
+                if (pf > 0.15) capQ.push([fx, FS]); // 블룸 소스: 표면 캡 타일만
             }
             // 윗변: 두께가 빛 받는 느낌 (참고영상 첫 프레임의 윗면 밝은 림)
-            ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+            ctx.strokeStyle = 'rgba(215,240,255,0.85)';
             ctx.lineWidth = 1.2;
             ctx.beginPath();
             for (const [a, b] of tops) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
@@ -141,6 +169,24 @@
             for (const [a, b] of bottoms) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
             ctx.stroke();
             ctx.restore();
+            // 블룸 합성: 표면 캡 타일에서 나온 빛만 블러해 볼 경계 안쪽에 가산
+            mctx.clearRect(0, 0, S, S);
+            mctx.drawImage(off, 0, 0, S, S);
+            if (capQ.length > 0) {
+                og2.clearRect(0, 0, S, S);
+                for (const [q, c] of capQ) {
+                    og2.beginPath();
+                    q.forEach((p, k) => { k ? og2.lineTo(p[0], p[1]) : og2.moveTo(p[0], p[1]); });
+                    og2.closePath(); og2.fillStyle = c; og2.fill();
+                }
+                mctx.save();
+                mctx.beginPath(); mctx.arc(C, C, R, 0, Math.PI * 2); mctx.clip();
+                mctx.globalCompositeOperation = 'lighter';
+                mctx.filter = 'blur(9px)';
+                mctx.globalAlpha = 0.35;
+                mctx.drawImage(off2, 0, 0, S, S);
+                mctx.restore();
+            }
         }
 
         function loop(t) {

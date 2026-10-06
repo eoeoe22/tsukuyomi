@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>미러볼 SVG 생성기</title>
+    <title>미러볼 생성기</title>
     <style>
         :root {
             box-sizing: border-box;
@@ -85,10 +85,10 @@
             min-height: 300px
         }
 
-        .stage svg {
+        .stage canvas {
             width: 100%;
             max-width: 520px;
-            height: auto;
+            aspect-ratio: 1 / 1;
             display: block
         }
 
@@ -127,11 +127,12 @@
 
         .colors {
             display: flex;
-            gap: 12px
+            gap: 12px;
+            flex-wrap: wrap
         }
 
         .colors label {
-            flex: 1;
+            flex: 1 1 40%;
             font-size: 13px;
             color: var(--muted);
             display: flex;
@@ -194,6 +195,10 @@
             gap: 8px
         }
 
+        .btns .wide {
+            grid-column: 1 / -1
+        }
+
         .note {
             font-size: 12px;
             color: var(--muted);
@@ -216,11 +221,11 @@
 
 <body>
     <div class="wrap">
-        <div class="stage" id="stage"></div>
+        <div class="stage"><canvas id="stage"></canvas></div>
         <div class="panel">
-            <h1>미러볼 SVG 생성기</h1>
+            <h1>미러볼 생성기</h1>
             <div class="row"><label>시점 기울기 (위↔아래) <b id="v-tilt"></b></label><input type="range" id="tilt" min="-90"
-                    max="90" step="1" value="0"></div>
+                    max="90" step="1" value="-16"></div>
             <div class="row"><label>타일 크기 (위도 간격) <b id="v-step"></b></label><input type="range" id="step" min="3"
                     max="15" step="0.5" value="6"></div>
             <div class="row"><label>줄눈 두께 <b id="v-gap"></b></label><input type="range" id="gap" min="0.02" max="0.4"
@@ -229,14 +234,32 @@
                     step="0.005" value="0.06"></div>
             <div class="row"><label>행 시작 위치 랜덤 범위 <b id="v-off"></b></label><input type="range" id="off" min="0" max="1"
                     step="0.05" value="1"></div>
+            <div class="row"><label>극점광 세기 (표면 원형·남극 중심) <b id="v-pole"></b></label><input type="range" id="pole"
+                    min="0" max="3" step="0.05" value="0.9"></div>
+            <div class="row"><label>극점광 범위 (남극からの 각도) <b id="v-poleR"></b></label><input type="range" id="poleR" min="0"
+                    max="90" step="1" value="35"></div>
+            <div class="row"><label>하부 발광 세기 (줄눈 덮기) <b id="v-veil"></b></label><input type="range" id="veil" min="0"
+                    max="1.5" step="0.05" value="0.55"></div>
+            <div class="row"><label>하부 발광 범위 <b id="v-veilR"></b></label><input type="range" id="veilR" min="0.05"
+                    max="1" step="0.01" value="0.46"></div>
+            <div class="row"><label>전체 발광 안개 <b id="v-haze"></b></label><input type="range" id="haze" min="0" max="0.6"
+                    step="0.01" value="0.18"></div>
+            <div class="row"><label>블룸 (밝은부 번짐) <b id="v-bloom"></b></label><input type="range" id="bloom" min="0"
+                    max="1" step="0.05" value="0.8"></div>
+            <div class="row"><label>회전각 <b id="v-rot"></b></label><input type="range" id="rot" min="0" max="359"
+                    step="1" value="0"></div>
             <div class="colors">
                 <label>타일 색<input type="color" id="tile" value="#dfe4ea"></label>
-                <label>줄눈 색<input type="color" id="grout" value="#6b7480"></label>
+                <label>줄눈 색<input type="color" id="grout" value="#202932"></label>
+                <label>반사 어둠<input type="color" id="dark" value="#26313e"></label>
+                <label>반사 밝음<input type="color" id="light" value="#eaf7ff"></label>
+                <label>발광 색<input type="color" id="glowC" value="#fff3f1"></label>
             </div>
             <div class="seed">시드 <input type="number" id="seed" value="11"></div>
             <div class="btns">
                 <button class="primary" id="reroll">다시 생성</button>
                 <button id="copy">SVG 복사</button>
+                <button id="play" class="wide">회전 정지</button>
             </div>
             <div class="note" id="note"></div>
             <textarea id="code" readonly aria-label="SVG 코드"></textarea>
@@ -246,68 +269,273 @@
         const $ = id => document.getElementById(id);
         function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296 } }
 
-        function build(o) {
-            const R = 200, C = 220, rnd = mulberry32(o.seed);
-            const rad = d => d * Math.PI / 180, T = rad(o.tilt), ct = Math.cos(T), st = Math.sin(T);
-            // 구면 좌표 → 시점 기울기(x축 회전) 적용 → 정사영
-            const v = (lat, lon) => {
-                const la = rad(lat), lo = rad(lon);
-                const x = Math.cos(la) * Math.sin(lo), y = Math.sin(la), z = Math.cos(la) * Math.cos(lo);
-                return [x, y * ct - z * st, y * st + z * ct]
-            };
-            const p = (lat, lon) => { const q = v(lat, lon); return [C + R * q[0], C - R * q[1]] };
-            const out = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 440" width="440" height="440">`,
-                `<defs><clipPath id="ball"><circle cx="${C}" cy="${C}" r="${R}"/></clipPath></defs>`,
-                `<circle cx="${C}" cy="${C}" r="${R}" fill="${o.grout}"/>`, `<g clip-path="url(#ball)">`];
-            const rows = Math.ceil(180 / o.step);
-            for (let i = 0; i < rows; i++) {
-                const lat = -90 + i * o.step, lat2 = Math.min(90, lat + o.step), mid = (lat + lat2) / 2;
-                const n = Math.max(4, Math.round(360 * Math.cos(rad(mid)) / o.step));
-                // 한 바퀴 전체 타일 폭(편차 포함)을 만들고 합이 360°가 되도록 정규화
-                const ws = []; let sum = 0;
-                for (let j = 0; j < n; j++) { const w = 1 + (rnd() * 2 - 1) * o.jit; ws.push(w); sum += w }
-                let lon = (rnd() * o.off) * (360 / n);
-                for (let j = 0; j < n; j++) {
-                    const tw = ws[j] * 360 / sum;
-                    if (v(mid, lon + tw / 2)[2] > 0) {            // 보이는 면(앞쪽)만 그림
-                        const pts = [p(lat, lon), p(lat, lon + tw), p(lat2, lon + tw), p(lat2, lon)];
-                        const cx = pts.reduce((s, q) => s + q[0], 0) / 4, cy = pts.reduce((s, q) => s + q[1], 0) / 4;
-                        const k = 1 - o.gap;
-                        out.push(`<polygon points="${pts.map(([x, y]) => `${(cx + (x - cx) * k).toFixed(2)},${(cy + (y - cy) * k).toFixed(2)}`).join(" ")}" fill="${o.tile}"/>`);
-                    }
-                    lon += tw;
-                }
-            }
-            out.push(`</g>`, `</svg>`);
-            return out.join("\n");
-        }
+        // 균일 회전 초안의 반사 모델 (하단 글로우 조명 가정)
+        // 균일 회전 초안의 반사 모델 (하단 글로우 조명 가정, 극점광은 표면 기준 원형)
+        const REF = { amb: 0.30, glow: 1.15, pw: 1.4, njit: 1.2 };
+        const PERIOD = 40; // 1회전 초
+        const S = 440, C = 220, R = 200;
+        const rad = d => d * Math.PI / 180;
+        const f2 = n => n.toFixed(2);
+        function hxRGB(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
 
         function opts() {
             return {
                 tilt: +$("tilt").value, step: +$("step").value, gap: +$("gap").value, jit: +$("jit").value, off: +$("off").value,
-                tile: $("tile").value, grout: $("grout").value, seed: parseInt($("seed").value) || 0
+                tile: $("tile").value, grout: $("grout").value, dark: $("dark").value, light: $("light").value,
+                pole: +$("pole").value, poleR: +$("poleR").value, bloom: +$("bloom").value,
+                veil: +$("veil").value, veilR: +$("veilR").value, haze: +$("haze").value, glowC: $("glowC").value,
+                seed: parseInt($("seed").value) || 0
             }
         }
 
-        function render() {
-            const o = opts();
+        // 구면 좌표 → 시점 기울기(x축 회전) 적용 → 정사영
+        function sys(tilt) { const T = rad(tilt); return { ct: Math.cos(T), st: Math.sin(T) }; }
+        function V(lat, lon, s) {
+            const la = rad(lat), lo = rad(lon);
+            const x = Math.cos(la) * Math.sin(lo), y = Math.sin(la), z = Math.cos(la) * Math.cos(lo);
+            return [x, y * s.ct - z * s.st, y * s.st + z * s.ct]
+        }
+        function Pj(lat, lon, s) { const q = V(lat, lon, s); return [C + R * q[0], C - R * q[1]] }
+
+        // 타일 토폴로지 + 반사 요동 (난수 호출 순서는 기존과 동일: 행마다 폭 n개 → 오프셋 1개, 요동은 별도 난수열)
+        function buildTiles(o) {
+            const rnd = mulberry32(o.seed), rndR = mulberry32((o.seed ^ 0x85ebca6b) >>> 0);
+            const tiles = [];
+            const rows = Math.ceil(180 / o.step);
+            for (let i = 0; i < rows; i++) {
+                const lat = -90 + i * o.step, lat2 = Math.min(90, lat + o.step), mid = (lat + lat2) / 2;
+                const n = Math.max(4, Math.round(360 * Math.cos(rad(mid)) / o.step));
+                const ws = []; let sum = 0;
+                for (let j = 0; j < n; j++) { const w = 1 + (rnd() * 2 - 1) * o.jit; ws.push(w); sum += w }
+                const lonStart = (rnd() * o.off) * (360 / n);
+                let lon = lonStart;
+                for (let j = 0; j < n; j++) {
+                    const tw = ws[j] * 360 / sum;
+                    tiles.push({
+                        lat, lat2, mid, lon0: lon, tw,
+                        jLat: (rndR() * 2 - 1) * REF.njit, jLon: (rndR() * 2 - 1) * REF.njit
+                    });
+                    lon += tw;
+                }
+            }
+            return tiles;
+        }
+
+        // 반사 밝기 → [정면RGB, 측면RGB] (n: 시점계 법선, mid: 타일 위도)
+        function lit(n, mid, o, DR, TR, LR) {
+            const nz = Math.max(0, n[2]);
+            const bb = (REF.amb + REF.glow * Math.pow(Math.max(0, -n[1]), REF.pw)) * (0.45 + 0.55 * nz);
+            const pr = Math.max(0.001, rad(o.poleR));
+            const pu = Math.max(0, 1 - rad(mid + 90) / pr); // 남극からの 각거리 (0=극점)
+            const f = pu * pu * (3 - 2 * pu); // 원형 폴오프
+            const b = bb + o.pole * f * 1.2;
+            let fr, fg, fb;
+            if (b < 1) {
+                const u = Math.max(0, b);
+                fr = DR[0] + (TR[0] - DR[0]) * u; fg = DR[1] + (TR[1] - DR[1]) * u; fb = DR[2] + (TR[2] - DR[2]) * u;
+            } else {
+                const u = Math.min(1, b - 1);
+                fr = TR[0] + (LR[0] - TR[0]) * u; fg = TR[1] + (LR[1] - TR[1]) * u; fb = TR[2] + (LR[2] - TR[2]) * u;
+            }
+            return { b, f, front: [fr, fg, fb], side: [fr * 0.5, fg * 0.5, fb * 0.5] };
+        }
+        // 하부 발광 베일: 남극(또는 하단 가장자리)에서 퍼지는 방사형 덮개.
+        // 핵심부는 거의 불투명해 줄눈·하이라이트 선까지 덮고, 꼬리는 볼 전체에 옅은 안개로 남는다.
+        function veilSpec(o) {
+            const s = sys(o.tilt);
+            const cy = C + R * (s.st < 0 ? s.ct : 1); // 남극이 보이면 그 투영점, 아니면 하단 가장자리
+            const rg = R * 2.1;
+            const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+            const stops = [];
+            for (let k = 0; k <= 16; k++) {
+                const t = k / 16;
+                const u = t / Math.max(0.02, o.veilR);
+                const core = Math.exp(-2.2 * u * u);                 // 부드러운 가우시안 핵심부 (경계선 없음)
+                const skirt = 0.35 * (1 - sm(0, 1, u * 0.55));       // 핵심부 바깥으로 넓게 이어지는 자락
+                const tail = o.haze * (1 - 0.5 * t);                 // 볼 전체 안개
+                const a = 1 - (1 - o.veil * core) * (1 - o.veil * skirt) * (1 - tail);
+                stops.push([t, Math.min(0.96, Math.max(0, a))]);
+            }
+            const [r, g, b] = hxRGB(o.glowC);
+            return { cx: C, cy, rg, stops, r, g, b, on: o.veil > 0 || o.haze > 0 };
+        }
+        const css = c => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+
+        // ---- 캔버스 미리보기 (균일 회전 초안과 동일 렌더러) ----
+        const cv = $("stage"), mctx = cv.getContext("2d");
+        const dpr = window.devicePixelRatio || 1;
+        cv.width = S * dpr; cv.height = S * dpr; mctx.scale(dpr, dpr);
+        const off = document.createElement("canvas"); off.width = S * dpr; off.height = S * dpr;
+        const og = off.getContext("2d"); og.scale(dpr, dpr);
+        const off2 = document.createElement("canvas"); off2.width = S * dpr; off2.height = S * dpr;
+        const og2 = off2.getContext("2d"); og2.scale(dpr, dpr);
+
+        let tiles = [], rotDeg = 0, playing = true, last = performance.now();
+
+        function drawFrame(o) {
+            const ctx = og; // 장면은 오프스크린에 그린 뒤 블룸 합성
+            const s = sys(o.tilt), K = 1 - o.gap;
+            const DR = hxRGB(o.dark), TR = hxRGB(o.tile), LR = hxRGB(o.light);
+            ctx.clearRect(0, 0, S, S);
+            ctx.save();
+            ctx.beginPath(); ctx.arc(C, C, R, 0, Math.PI * 2);
+            ctx.fillStyle = o.grout; ctx.fill(); ctx.clip();
+            const tops = [], bots = [], capQ = []; // capQ: 블룸 소스(표면 캡 타일만)
+            for (const t of tiles) {
+                const midLon = t.lon0 + t.tw / 2 + rotDeg;
+                if (V(t.mid, midLon, s)[2] <= 0) continue;
+                const lon0 = t.lon0 + rotDeg, lon1 = lon0 + t.tw;
+                const pts = [Pj(t.lat, lon0, s), Pj(t.lat, lon1, s), Pj(t.lat2, lon1, s), Pj(t.lat2, lon0, s)];
+                const cx = (pts[0][0] + pts[1][0] + pts[2][0] + pts[3][0]) / 4;
+                const cy = (pts[0][1] + pts[1][1] + pts[2][1] + pts[3][1]) / 4;
+                const fx = pts.map(q => [cx + (q[0] - cx) * K, cy + (q[1] - cy) * K]);
+                const L = lit(V(t.mid + t.jLat, midLon + t.jLon, s), t.mid, o, DR, TR, LR);
+                ctx.beginPath();
+                pts.forEach((q, k) => { k ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+                ctx.closePath(); ctx.fillStyle = css(L.side); ctx.fill();
+                ctx.beginPath();
+                fx.forEach((q, k) => { k ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+                ctx.closePath();
+                const FS = css(L.front);
+                ctx.fillStyle = FS; ctx.fill();
+                tops.push([fx[3], fx[2]]); bots.push([fx[0], fx[1]]);
+                if (L.f > 0.15) capQ.push([fx, FS]);
+            }
+            ctx.strokeStyle = "rgba(215,240,255,0.85)"; ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            for (const [a, b] of tops) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
+            ctx.stroke();
+            ctx.strokeStyle = "rgba(0,0,0,0.28)"; ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (const [a, b] of bots) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
+            ctx.stroke();
+            const vs = veilSpec(o);
+            if (vs.on) {
+                const gr = ctx.createRadialGradient(vs.cx, vs.cy, 0, vs.cx, vs.cy, vs.rg);
+                for (const [t, a] of vs.stops) gr.addColorStop(t, `rgba(${vs.r},${vs.g},${vs.b},${a.toFixed(3)})`);
+                ctx.fillStyle = gr; ctx.fillRect(0, 0, S, S);
+            }
+            ctx.restore();
+            // 블룸 합성: 표면 캡 타일에서 나온 빛만 블러해 볼 경계 안쪽에 가산
+            mctx.clearRect(0, 0, S, S);
+            mctx.drawImage(off, 0, 0, S, S);
+            if (o.bloom > 0 && capQ.length > 0) {
+                og2.clearRect(0, 0, S, S);
+                for (const [q, c] of capQ) {
+                    og2.beginPath();
+                    q.forEach((p, k) => { k ? og2.lineTo(p[0], p[1]) : og2.moveTo(p[0], p[1]); });
+                    og2.closePath(); og2.fillStyle = c; og2.fill();
+                }
+                mctx.save();
+                mctx.beginPath(); mctx.arc(C, C, R, 0, Math.PI * 2); mctx.clip();
+                mctx.globalCompositeOperation = "lighter";
+                mctx.filter = `blur(${(4 + o.bloom * 10).toFixed(1)}px)`;
+                mctx.globalAlpha = o.bloom * 0.65;
+                mctx.drawImage(off2, 0, 0, S, S);
+                mctx.restore();
+            }
+        }
+
+        // ---- SVG 스냅샷 (현재 회전각 기준, 반사·극점광·색상 포함) ----
+        function buildSVG(o) {
+            const s = sys(o.tilt), K = 1 - o.gap;
+            const DR = hxRGB(o.dark), TR = hxRGB(o.tile), LR = hxRGB(o.light);
+            const tops = [], bots = [], tpolys = [], cpolys = [];
+            for (const t of tiles) {
+                const midLon = t.lon0 + t.tw / 2 + rotDeg;
+                if (V(t.mid, midLon, s)[2] <= 0) continue;
+                const lon0 = t.lon0 + rotDeg, lon1 = lon0 + t.tw;
+                const pts = [Pj(t.lat, lon0, s), Pj(t.lat, lon1, s), Pj(t.lat2, lon1, s), Pj(t.lat2, lon0, s)];
+                const cx = (pts[0][0] + pts[1][0] + pts[2][0] + pts[3][0]) / 4;
+                const cy = (pts[0][1] + pts[1][1] + pts[2][1] + pts[3][1]) / 4;
+                const rr = (Math.hypot(pts[0][0] - cx, pts[0][1] - cy) + Math.hypot(pts[1][0] - cx, pts[1][1] - cy)
+                    + Math.hypot(pts[2][0] - cx, pts[2][1] - cy) + Math.hypot(pts[3][0] - cx, pts[3][1] - cy)) / 4 || 1;
+                const fx = pts.map(q => [cx + (q[0] - cx) * K, cy + (q[1] - cy) * K]);
+                const L = lit(V(t.mid + t.jLat, midLon + t.jLon, s), t.mid, o, DR, TR, LR);
+                const sw = f2(Math.max(0.4, (1 - K) * rr));
+                tpolys.push(`<polygon points="${fx.map(q => `${f2(q[0])},${f2(q[1])}`).join(" ")}" fill="${css(L.front)}" stroke="${css(L.side)}" stroke-width="${sw}"/>`);
+                if (L.f > 0.15) cpolys.push(`<polygon points="${fx.map(q => `${f2(q[0])},${f2(q[1])}`).join(" ")}" fill="${css(L.front)}"/>`);
+                tops.push(`M${f2(fx[3][0])} ${f2(fx[3][1])}L${f2(fx[2][0])} ${f2(fx[2][1])}`);
+                bots.push(`M${f2(fx[0][0])} ${f2(fx[0][1])}L${f2(fx[1][0])} ${f2(fx[1][1])}`);
+            }
+            const glowOn = o.bloom > 0 && cpolys.length > 0;
+            let defs = `<defs><clipPath id="ball"><circle cx="${C}" cy="${C}" r="${R}"/></clipPath>`;
+            if (glowOn) defs += `<filter id="capBlur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="${(3 + o.bloom * 5).toFixed(1)}"/></filter>`;
+            const vs = veilSpec(o);
+            if (vs.on) defs += `<radialGradient id="veil" gradientUnits="userSpaceOnUse" cx="${f2(vs.cx)}" cy="${f2(vs.cy)}" r="${f2(vs.rg)}">`
+                + vs.stops.map(([t, a]) => `<stop offset="${t.toFixed(4)}" stop-color="rgb(${vs.r},${vs.g},${vs.b})" stop-opacity="${a.toFixed(3)}"/>`).join("")
+                + `</radialGradient>`;
+            defs += `</defs>`;
+            const out = [`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 440" width="440" height="440">`,
+                defs,
+                `<circle cx="${C}" cy="${C}" r="${R}" fill="${o.grout}"/>`, `<g clip-path="url(#ball)">`];
+            if (glowOn) out.push(`<g filter="url(#capBlur)" opacity="${(o.bloom * 0.7).toFixed(3)}">${cpolys.join("")}</g>`);
+            for (const p of tpolys) out.push(p);
+            out.push(`<path d="${tops.join("")}" stroke="#d7f0ff" stroke-opacity="0.85" stroke-width="1.2" fill="none"/>`);
+            out.push(`<path d="${bots.join("")}" stroke="#000000" stroke-opacity="0.28" stroke-width="1" fill="none"/>`);
+            if (vs.on) out.push(`<circle cx="${C}" cy="${C}" r="${R}" fill="url(#veil)"/>`);
+            out.push(`</g>`, `</svg>`);
+            return out.join("\n");
+        }
+
+        function labels(o) {
             $("v-tilt").textContent = (o.tilt > 0 ? "위에서 " : o.tilt < 0 ? "아래에서 " : "정면 ") + Math.abs(o.tilt) + "°";
             $("v-step").textContent = o.step + "°";
             $("v-gap").textContent = Math.round(o.gap * 100) + "%";
             $("v-jit").textContent = "±" + (o.jit * 100).toFixed(1) + "%";
             $("v-off").textContent = Math.round(o.off * 100) + "%";
-            const svg = build(o);
-            $("stage").innerHTML = svg;
-            $("code").value = svg;
+            $("v-pole").textContent = o.pole.toFixed(2) + "×";
+            $("v-poleR").textContent = o.poleR + "°";
+            $("v-veil").textContent = o.veil.toFixed(2) + "×";
+            $("v-veilR").textContent = Math.round(o.veilR * 100) + "%";
+            $("v-haze").textContent = Math.round(o.haze * 100) + "%";
+            $("v-bloom").textContent = Math.round(o.bloom * 100) + "%";
+            $("v-rot").textContent = Math.round(rotDeg) + "°";
         }
 
-        ["tilt", "step", "gap", "jit", "off", "tile", "grout", "seed"].forEach(id => $(id).addEventListener("input", render));
-        $("reroll").addEventListener("click", () => { $("seed").value = Math.floor(Math.random() * 100000); render() });
+        function refresh(rebuild) {
+            const o = opts();
+            if (rebuild) tiles = buildTiles(o);
+            labels(o);
+            drawFrame(o);
+            if (!playing) $("code").value = buildSVG(o);
+        }
+
+        function loop(t) {
+            if (playing) {
+                const o = opts();
+                const dt = (t - last) / 1000; last = t;
+                rotDeg = (rotDeg + dt * 360 / PERIOD) % 360;
+                $("rot").value = Math.round(rotDeg);
+                labels(o);
+                drawFrame(o);
+            } else { last = t; }
+            requestAnimationFrame(loop);
+        }
+
+        ["tilt", "step", "gap", "jit", "off", "tile", "grout", "dark", "light", "pole", "poleR", "veil", "veilR", "haze", "glowC", "bloom", "seed"].forEach(id =>
+            $(id).addEventListener("input", () => { $("note").textContent = ""; refresh(true); }));
+        $("rot").addEventListener("input", () => {
+            rotDeg = +$("rot").value;
+            if (playing) togglePlay();
+            refresh(false);
+        });
+        $("reroll").addEventListener("click", () => { $("seed").value = Math.floor(Math.random() * 100000); refresh(true); });
         $("copy").addEventListener("click", async () => {
-            try { await navigator.clipboard.writeText($("code").value); $("note").textContent = "SVG 코드를 복사했습니다." }
+            const svg = buildSVG(opts());
+            $("code").value = svg;
+            try { await navigator.clipboard.writeText(svg); $("note").textContent = `SVG 코드를 복사했습니다. (회전각 ${Math.round(rotDeg)}°)` }
             catch (e) { $("code").select(); $("note").textContent = "자동 복사가 막혀 있어 코드를 선택해 두었습니다. 직접 복사하세요." }
         });
-        render();
+        function togglePlay() {
+            playing = !playing;
+            $("play").textContent = playing ? "회전 정지" : "회전 재생";
+            if (!playing) $("code").value = buildSVG(opts());
+        }
+        $("play").addEventListener("click", togglePlay);
+
+        refresh(true);
+        requestAnimationFrame(loop);
     </script>
 </body>
 
