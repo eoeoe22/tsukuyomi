@@ -105,6 +105,7 @@
             ['LANTERN_SN0', 0.02, 0.5, 0.01, 'lanterns'],
             ['LANTERN_SN1', 0.4, 1, 0.01, 'lanterns'], ['LANTERN_H', 0.15, 1.2, 0.01, 'lanterns'],
             ['LANTERN_PAD', 0, 6, 0.5, 'lanterns'],
+            ['LANTERN_CARD_AVOID', 0, 1, 1, 'lanterns'],
             ['LANTERN_DEPTH_K', 0, 3.5, 0.05, 'lanterns'],
             ['LANTERN_FAR_MUL', 0, 4, 0.05, 'lanterns'], ['LANTERN_FAR_Y0', 0.5, 12, 0.5, 'lanterns'],
             ['LANTERN_FAR_MAX', 0, 8000, 100, 'lanterns'],

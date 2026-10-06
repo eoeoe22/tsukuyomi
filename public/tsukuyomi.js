@@ -141,6 +141,8 @@
                 RIP_MAX: 8, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
                 LANTERN_N: 130, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
                 LANTERN_TX: 1, LANTERN_PAD: 2, LANTERN_DEPTH_K: 2,
+                // UI 회피: 1 = 하단 컨트롤 패널 실측 영역을 비움, 0 = 끔(회피 없음)
+                LANTERN_CARD_AVOID: 1,
                 // 수평선 근접 경량 랜턴: 본 랜턴(3px 이상) 위쪽 띠를 같은 밀도 곡선으로 이어서 채움.
                 // FAR_MUL: 곡선 대비 개수 배율, FAR_Y0: 수평선에서 시작하는 거리(px), FAR_MAX: 개수 상한
                 LANTERN_FAR_MUL: 1, LANTERN_FAR_Y0: 1.5, LANTERN_FAR_MAX: 4000,
@@ -1262,15 +1264,29 @@
                     L.h = Math.max(2, CFG.LANTERN_H * s);
                     L.w = L.h * LAN_WHR;
                 }
-                // keep clear of the bottom control card. 토리이와는 겹침 방지 없이
-                // 앞/뒤 레이어로만 구분한다(drawLanterns의 pass, 기준은 torBase).
-                const narrow = W <= 460;
-                const cardCx = narrow ? 90 : W / 2;
-                const cardHalf = narrow ? 110 : 250;
-                const cardTop = H - (narrow ? 90 : 170);
+                // keep clear of the bottom control UI (live-measured, null = no
+                // avoidance). 토리이와는 겹침 방지 없이 앞/뒤 레이어로만
+                // 구분한다(drawLanterns의 pass, 기준은 torBase).
                 // card uses least-penetration with upward bias inside the resolver.
-                resolveLanternOverlaps(PAD, { cardCx, cardHalf, cardTop });
+                resolveLanternOverlaps(PAD, measureCardZone());
                 buildFarLanterns(reflH, sn0, K, halfW, TX, lh, lanterns.length / densInt(K, sn0, sn1));
+            }
+            // 하단 컨트롤 패널 회피 영역을 실측한다. LANTERN_CARD_AVOID=0이면
+            // null(회피 없음). 구 하드코딩(중앙 500x170)은 UI가 좌하단으로
+            // 옮기면서 중앙 하단에 stale void를 남겼으므로 삭제.
+            const CARD_MARGIN = 14;
+            function measureCardZone() {
+                if (!(CFG.LANTERN_CARD_AVOID >= 0.5)) return null;
+                try {
+                    if (!elPanel || !elPanel.getBoundingClientRect) return null;
+                    const r = elPanel.getBoundingClientRect();
+                    if (!(r.width > 0 && r.height > 0)) return null;
+                    return {
+                        cardCx: r.left + r.width / 2,
+                        cardHalf: r.width / 2 + CARD_MARGIN,
+                        cardTop: r.top - CARD_MARGIN,
+                    };
+                } catch (e) { return null; }
             }
             // ∫ sn^-K dsn over [a, b]
             function densInt(K, a, b) {
@@ -1406,6 +1422,9 @@
             function resolveLanternOverlaps(PAD, obs) {
                 const n = lanterns.length;
                 if (n === 0) return;
+                // obs == null: 카드 회피 끔(또는 측정 실패). 겹침 판정이 항상
+                // 음수가 되도록 화면 밖 센티넬로 대체한다(루프 구조는 그대로).
+                if (!obs) obs = { cardCx: -1e9, cardHalf: 0, cardTop: 1e9 };
                 const hhOf = L => L.h * LAN_FEET;
                 // allow drifting fully off-screen to relieve pressure on narrow
                 // layouts; fully hidden lanterns are skipped below and cost nothing.
@@ -2815,6 +2834,31 @@ void main() {
                 // 초기 위치 (애니메이션 없이)
                 requestAnimationFrame(() => moveThumb(false));
                 setTimeout(() => moveThumb(false), 300);
+            }
+            // 컨트롤 패널 크기 변화(펼침/접힘, 반응형)를 랜턴 회피 영역에 반영.
+            // projectLanterns가 실측하므로 rect가 실제로 바뀔 때만 재투영한다.
+            if (elPanel && window.ResizeObserver) {
+                let cardROTimer = 0;
+                let cardLastRect = '';
+                try {
+                    const r0 = elPanel.getBoundingClientRect();
+                    cardLastRect = [r0.left, r0.top, r0.width, r0.height].join(',');
+                } catch (e) { /* 측정 실패 시 첫 콜백에서 처리 */ }
+                try {
+                    const cardRO = new ResizeObserver(() => {
+                        clearTimeout(cardROTimer);
+                        cardROTimer = setTimeout(() => {
+                            try {
+                                const r = elPanel.getBoundingClientRect();
+                                const key = [r.left, r.top, r.width, r.height].join(',');
+                                if (key === cardLastRect) return;
+                                cardLastRect = key;
+                                projectLanterns();
+                            } catch (e) { /* 측정 실패 시 현상 유지 */ }
+                        }, 200);
+                    });
+                    cardRO.observe(elPanel);
+                } catch (e) { /* observer 미지원 시 resize 때만 반영 */ }
             }
 
             // 모바일(hover 없음): 클릭으로 펼침/접힘. 평소 1칸으로 달 반사를 가리지 않는다.
