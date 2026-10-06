@@ -329,15 +329,12 @@
             let state = 'toNight', p = 0, tState = 0, tNight = 0;
             // 진행 중인 전환의 시작/목표 p (클릭 시 현재 p에서 캡처 → 어디서든 자연스럽게 전환)
             // P_DAY/P_DUSK가 모두 0이어도 낮/황혼을 구분할 수 있게 목표 타입을 별도로 보관한다.
-            // 기본값은 밤: 최초 접속 시 구름 없는 빈 낮(p=0, 낮 타입)에서 밤으로 자동 전환한다.
+            // 기본값은 밤: 최초 접속 시 황혼(p=0, 황혼 타입)에서 밤으로 자동 전환한다.
             let transFrom = 0, transTo = 1, transTarget = 'night';
             // duskW: 0 = 낮 타입(푸른 하늘), 1 = 황혼 타입(주황 하늘). p≈0에서만 색을 가른다.
             // p >= DUSK_Q 구간에서는 duskW와 무관하게 항상 같은 황혼 corridor이므로
             // 낮-밤 전환의 중간부는 타입에 관계없이 항상 황혼을 거친다.
-            let duskW = 0, duskFrom = 0, duskTo = 1;
-            // 인트로 음소거: 최초 자동 toNight 동안만 구름·틈 빛·반짝임을 숨겨 빈 낮에서 밤으로.
-            // 하단 버튼으로 직접 이동하면 해제되어 기존 장면들을 동일하게 열람한다.
-            let introMuted = true;
+            let duskW = 1, duskFrom = 1, duskTo = 1;
             // 유효 팔레트 조회 위치: 낮 분기(p 그대로)와 황혼 분기(max(p, DUSK_Q))를 duskW로 보간.
             // p=0 + 낮 타입 → 0(파랑), p=0 + 황혼 타입 → DUSK_Q(주황), p>=DUSK_Q → 타입 무관 동일값.
             const palQ = () => lerp(p, Math.max(p, DUSK_Q), duskW);
@@ -348,8 +345,8 @@
             let nk = 0, nkFrom = 0, nkTo = 1;
             // 태양 원반 가시도: 낮 = 1, 황혼 = 0(원반 없이 좌상단 광원만). toDay/toDusk에서만 보간하고
             // toNight에서는 출발값을 유지한다 (낮→밤은 해가 지고, 황혼→밤은 원반 없이 진행).
-            // 인트로 출발이 빈 낮이므로 초기값은 낮(1)이다.
-            let sunVis = 1, svFrom = 1, svTo = 1;
+            // 인트로 출발이 황혼이므로 초기값은 황혼(0)이다.
+            let sunVis = 0, svFrom = 0, svTo = 0;
             const sunK = () => clamp(nk, 0, 1);
             // 낮 분기 안에서 새 낮(DAY_SCENE=1) / 기존 낮(0, 더미) 선택. 가중치는 sunVis에 곱해 쓴다.
             const day2On = () => (CFG.DAY_SCENE >= 0.5 ? 1 : 0);
@@ -1655,7 +1652,6 @@
                     if (k >= 1) {
                         state = 'night'; tNight = 0; p = 1; nk = 1;
                         duskW = 1; duskFrom = 1; duskTo = 1;
-                        introMuted = false;
                     }
                 } else if (state === 'night') {
                     tNight += dt;
@@ -1832,10 +1828,8 @@
                 S.fillStyle = g; S.fillRect(0, 0, W, HZ);
 
                 // 새 낮(DAY_SCENE=1) 가중치: 낮 분기(sunVis) 중 새 낮 몫. 나머지(sunVis - w2)가 기존 낮(더미).
-                // 인트로 중에는 0으로 묶어 구름 없는 빈 낮으로 둔다.
                 const w2 = day2W();
-                const cloudGain = introMuted ? 0 : 1;
-                const d2Live = w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, q)) * cloudGain;
+                const d2Live = w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, q));
                 const d2lx = W * CFG.DY_LX, d2ly = HZ * CFG.DY_LY;
                 if (d2Live > 0.005) drawDay2Light(d2lx, d2ly, d2Live);
 
@@ -1883,7 +1877,7 @@
                 // 낮/황혼 구름 세트 가중치: sunVis(낮=1, 황혼=0)로만 갈린다. q와 무관하므로
                 // 낮→밤 전환에는 낮 구름만, 황혼→밤 전환에는 황혼 구름만 나온다.
                 const wD = 1 - sunVis;
-                const dLive = wD * (1 - ss(CFG.DC_F0, CFG.DC_F1, q)) * cloudGain;
+                const dLive = wD * (1 - ss(CFG.DC_F0, CFG.DC_F1, q));
                 // 황혼: 원반 대신 화면 밖 좌상단 광원의 은은한 빛 (구름 상부 반사 방향과 일치)
                 const lx = W * CFG.DC_LX, ly = HZ * CFG.DC_LY;
                 const lA = CFG.DC_LIGHT * dLive;
@@ -2003,7 +1997,7 @@
                     S.globalAlpha = 1;
                     S.setTransform(dpr, 0, 0, dpr, 0, 0);
                 };
-                const ca = (1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q)) * (sunVis - w2) * cloudGain;
+                const ca = (1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q)) * (sunVis - w2);
                 if (ca > 0.01) drawSet(clouds, CLOUD_TINT, ca, 0);
                 if (d2Live > 0.01) drawSet(docOn('day') ? docCloud.day : day2Clouds, DAY2_TINT, d2Live, 0);
                 // 브러시 문서는 에디터에서 본 색 그대로 쓰므로 광원 반사·하부 음영(light)을 더하지 않는다
@@ -2436,9 +2430,9 @@
                     wg.addColorStop(1, `rgba(18,70,134,${wa.toFixed(3)})`);
                     ctx.fillStyle = wg; ctx.fillRect(0, HZ, W, H - HZ);
                 }
-                if (w2 > 0.01 && !introMuted) drawGlints(w2, qR);
+                if (w2 > 0.01) drawGlints(w2, qR);
                 // 새 낮: 틈 빛의 수면 기둥 — 수평선에서 아래로 퍼지는 청백색 반사. 수평선에 밝고 아래로 갈수록 옅어진다
-                const colA = (CFG.DY_COLUMN ?? 0) * w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, qR)) * (introMuted ? 0 : 1);
+                const colA = (CFG.DY_COLUMN ?? 0) * w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, qR));
                 if (colA > 0.01) {
                     const cx = W * CFG.DY_LX, rw = W * 0.055;
                     ctx.save();
@@ -2714,9 +2708,6 @@ void main() {
             function goTo(target) {
                 if (target !== 'day' && target !== 'dusk' && target !== 'night') return;
                 if (targetOf(state) === target) return;
-                // 수동 이동이면 인트로 음소거를 풀어 기존 구름 장면을 그대로 보여준다.
-                // (밤 버튼을 눌러 인트로 toNight를 그대로 두는 경우는 위에서 early return되어 유지된다)
-                introMuted = false;
                 transFrom = p;
                 nkFrom = nk;
                 duskFrom = duskW;
@@ -2879,8 +2870,6 @@ void main() {
                 get state() { return state; },
                 set state(v) {
                     state = v;
-                    // 수동 지정은 인트로가 아닌 것으로 간주해 구름을 정상 표시한다.
-                    introMuted = false;
                     if (v === 'day') { p = CFG.P_DAY; transFrom = p; transTo = p; transTarget = 'day'; duskW = 0; duskFrom = 0; duskTo = 0; nk = 0; nkFrom = 0; nkTo = 0; sunVis = svFrom = svTo = 1; phi = 0; phiTail = null; omega = 0; }
                     else if (v === 'dusk') { p = CFG.P_DUSK; transFrom = p; transTo = p; transTarget = 'dusk'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 0; nkFrom = 0; nkTo = 0; sunVis = svFrom = svTo = 0; phi = 0; phiTail = null; omega = 0; }
                     else if (v === 'night') { p = 1; transFrom = 1; transTo = 1; transTarget = 'night'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 1; nkFrom = 1; nkTo = 1; }
@@ -2924,7 +2913,6 @@ void main() {
                 get tNight() { return tNight; }, set tNight(v) { tNight = Number(v) || 0; },
                 get hold() { return debugHold; }, set hold(v) { debugHold = !!v; },
                 get paused() { return debugPaused; }, set paused(v) { debugPaused = !!v; },
-                get introMuted() { return introMuted; }, set introMuted(v) { introMuted = !!v; },
                 get lanterns() { return lanterns; },
                 get lanReady() { return lanReady; },
                 get lanCached() { return lanCW > 0 && lanCH > 0; },
@@ -2978,13 +2966,12 @@ void main() {
                         reflStep = Math.max(1, Math.round(CFG.ROW_STEP)); reflLastBase = reflStep; reflEMA = 16; reflCool = 0;
                         torKey = ''; torRKey = ''; torBuilds = 0;
                         bandValid = false; bandTick = 0; bandLastP = -1; bandBuilds = 0;
-                        // 기본값(밤)으로: 빈 낮에서 밤으로 가는 인트로 처음부터 다시 재생한다.
+                        // 기본값(밤)으로: 황혼에서 밤으로 가는 인트로 처음부터 다시 재생한다.
                         transFrom = 0; transTo = 1; transTarget = 'night';
-                        duskW = 0; duskFrom = 0; duskTo = 1;
+                        duskW = 1; duskFrom = 1; duskTo = 1;
                         nk = 0; nkFrom = 0; nkTo = 1;
-                        sunVis = 1; svFrom = 1; svTo = 1;
+                        sunVis = 0; svFrom = 0; svTo = 0;
                         state = 'toNight'; p = 0; tState = 0; tNight = 0;
-                        introMuted = true;
                         phi = 0; phiTail = null; omega = 0; debugHold = false; debugPaused = false;
                         buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); resize();
                     },
