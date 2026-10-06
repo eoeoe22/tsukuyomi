@@ -120,8 +120,13 @@
                 // DY_RIMBOT: 뒷층 림라이트가 0이 되는 높이(수평선 비율). 이 아래 하부 구름층·수평선에는 빛이 닿지 않는다.
                 DY_RIMBOT: 0.62,
                 DY_STAR_A: 0.6, DY_GLINT_N: 420, DY_GLINT_A: 1, DY_WATER: 0.34,
-                // DY_DEBRIS_N: 벽 밑동 앞쪽 찢긴 층운 조각 수, DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
-                DY_DEBRIS_N: 3, DY_COLUMN: 0,
+                // DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
+                DY_COLUMN: 0,
+                // 구름 뚫림(ref: 어두운 앞 구름이 불균일하게 찢겨 그 너머 햇빛 받은 흰 구름이 비친다):
+                // DY_HOLE 빛 비침 세기(0 = 없음), DY_HOLE_S 뚫림 크기 배율, DY_HOLE_N 덩어리마다 더하는 무작위 뚫림 수,
+                // DY_HOLE_EDGE 경계 들쭉날쭉함(앞 구름 혹이 빛 속으로 튀어나오는 정도), DY_HOLE_RIM 뚫림 둘레 구름이 빛을 받는 정도,
+                // DY_HOLE_SKY 하늘까지 뚫리는 깊이(0 = 빛 비침만, 하늘은 안 보임)
+                DY_HOLE: 1, DY_HOLE_S: 1, DY_HOLE_N: 1, DY_HOLE_EDGE: 1, DY_HOLE_RIM: 0.35, DY_HOLE_SKY: 0,
                 SUN_PATH: 0.42, SUN_X0: 0.27, SUN_X1: 0.32, SUN_DROP: 2.4,
                 SUN_F0: 0.34, SUN_F1: 0.46,
                 SUN_G0: 0.18, SUN_G1: 0.32, SUN_G2: 0.4, SUN_G3: 0.56,
@@ -555,10 +560,44 @@
                         }
                     }
                 }
+                // 1-b) 뚫림(새 낮): o.holes 타원 묶음 [x, y, rx, ry](스프라이트 px) → HL = 원뿔(1 - 거리)의 최대값 + 저주파 흔들림.
+                // 착색 단계에서 HL에서 빌로우 노이즈를 빼 문턱으로 자르면, 어두운 앞 구름의 혹이 빛 속으로 튀어나오고
+                // 떨어진 혹은 빛 위에 뜬 어두운 조각이 된다. 그 안쪽은 햇빛 받은 흰 구름(다른 위상의 빌로우로 혹 명암)으로 칠한다.
+                let HL = null;
+                if (o.holes && o.holes.length) {
+                    HL = new Float32Array(N).fill(-1);
+                    const HX = 1.5;   // 원뿔을 타원 바깥까지 이어 둬야 아래 저주파 흔들림이 경계를 안팎으로 밀 수 있다
+                    for (const [x, y, hrx, hry] of o.holes) {
+                        const cx = x * RS, cy = y * RS, rx = hrx * RS, ry = hry * RS;
+                        const xa = Math.max(0, (cx - rx * HX) | 0), xb = Math.min(W - 1, Math.ceil(cx + rx * HX));
+                        const ya = Math.max(0, (cy - ry * HX) | 0), yb = Math.min(H - 1, Math.ceil(cy + ry * HX));
+                        for (let py = ya; py <= yb; py++) {
+                            const dy = (py - cy) / ry, dy2 = dy * dy, o_ = py * W;
+                            for (let px = xa; px <= xb; px++) {
+                                const dx = (px - cx) / rx, v = 1 - Math.sqrt(dx * dx + dy2);
+                                if (v > HL[o_ + px]) HL[o_ + px] = v;
+                            }
+                        }
+                    }
+                    // 경계 흔들기: 타원 묶음 윤곽이 그대로 보이지 않게 저주파 fbm으로 구멍 경계를 크게 밀고 당긴다
+                    const HF = 1 / (30 * RS);
+                    for (let y = 0, i = 0; y < H; y++) for (let x = 0; x < W; x++, i++) {
+                        if (HL[i] <= -0.5) continue;
+                        HL[i] += (duskVfbm(x * HF, y * HF, seed + 41) - 0.5) * 1.3;
+                    }
+                    // 하늘까지 뚫기(o.holeSky > 0): 뚫림 가운데만 엔벨로프를 파서 하늘이 비친다. 기본은 빛 비침만(파지 않음)
+                    const HD = o.holeSky ?? 0;
+                    if (HD > 0) for (let i = 0; i < N; i++) {
+                        const h = HL[i] - 0.45;
+                        if (h <= -0.15) continue;
+                        const k = ss(-0.15, 0.85, h) * HD;
+                        if (E[i] > -0.9) E[i] -= (E[i] + 0.9) * k;
+                    }
+                }
                 const Eat = (x, y) => E[clamp(Math.round(y), 0, H - 1) * W + clamp(Math.round(x), 0, W - 1)];
                 // 라이브: 엔벨로프까지만 CPU, 노이즈·음영·착색은 GPU에서 계속 다시 그린다(타임랩스처럼 혹이 끓고 윤곽이 일렁임)
                 if (cloudLive && cloudLive.ok && CFG.CL_LIVE >= 0.5) {
-                    const lc = cloudLive.add({ m, E, W, H, RS, top, hh, COV, SHARP, SOFT, SC, ABS, UV, UX, seed, o, sunDeg: o.sun ?? CFG.DC_SUN });
+                    const lc = cloudLive.add({ m, E, HL, W, H, RS, top, hh, COV, SHARP, SOFT, SC, ABS, UV, UX, seed, o, sunDeg: o.sun ?? CFG.DC_SUN });
                     if (lc) return lc;
                 }
                 // 2) 빌로우 노이즈: 5옥타브(형태) + 앞 3옥타브(광원 쪽 미분용). 약한 도메인 워프로 격자 티를 없앤다
@@ -599,6 +638,8 @@
                 const [GD0, GD1] = o.gd ?? [1.2, 0.62];
                 const RC_ = o.rimC ?? [255, 217, 178], GC_ = o.glowC ?? [255, 250, 236];
                 const img = new ImageData(W, H), D = img.data;
+                const HOLE = HL ? (o.hole ?? 0) : 0, HEDGE = o.holeEdge ?? 1;
+                const HC = o.holeC ?? [246, 250, 255], HC2 = o.holeC2 ?? [150, 170, 210];
                 for (let y = 1; y < H - 1; y++) {
                     const hy = hyOf(y);
                     const L0 = duskRamp(lit, hy), S0 = duskRamp(shade, hy);
@@ -615,7 +656,13 @@
                         const gy = (E[i + W] - E[i - W]) * 0.55 + (N5[i + W] - N5[i - W]) * 1.25;
                         const aa = Math.hypot(gx, gy) * 0.6;
                         const d = ss(COV - aa * 0.5, COV + Math.max(edge, aa), raw);
-                        if (d <= 0.003) continue;
+                        // 뚫림 빛 비침 마스크(GPU와 같은 식): 원뿔 - 빌로우 → 앞 구름 혹이 빛 속으로 튀어나온 경계
+                        let rv = 0, hr = -1;
+                        if (HOLE > 0) {
+                            hr = HL[i] * 1.1 - (N5[i] - 0.5) * 1.5 * HEDGE;
+                            rv = ss(0.06, 0.16, hr) * Math.min(1, HOLE) * ss(-0.6, -0.1, E[i]);
+                        }
+                        if (d <= 0.003 && rv <= 0.003) continue;
                         // ① 혹 단위 음영
                         const n0 = N5[i];
                         let dn = 0;
@@ -647,7 +694,19 @@
                             const w = Math.exp(-(ddx * ddx + ddy * ddy) / (glow[2] * glow[2])) * (0.35 + 0.65 * v);
                             r += (GC_[0] - r) * w * 0.85; g += (GC_[1] - g) * w * 0.8; b += (GC_[2] - b) * w * 0.7;
                         }
-                        let A = d;
+                        if (HOLE > 0) {
+                            // 빛 쪽으로 튀어나온 어두운 혹의 가장자리: 얇게 밝아진다
+                            const fr = ss(-0.1, 0.06, hr) * (1 - rv) * 0.35;
+                            r += (RC_[0] - r) * fr; g += (RC_[1] - g) * fr; b += (RC_[2] - b) * fr;
+                            if (rv > 0.003) {
+                                const N5at = (u, v) => N5[clamp(Math.round(v), 0, H - 1) * W + clamp(Math.round(u), 0, W - 1)];
+                                const qx = x * 0.75 + 41, qy = y * 0.75 + 23;
+                                const n2 = N5at(qx, qy), n2b = N5at(qx + Lx * 5, qy + Ly * 5);
+                                const lb = clamp((0.3 + 0.7 * ss(-0.1, 0.16, n2 - n2b)) * lerp(0.7, 1, ss(0.3, 0.75, n2)) + ss(0.1, 0.9, HL[i]) * 0.3, 0, 1);
+                                r = lerp(r, lerp(HC2[0], HC[0], lb), rv); g = lerp(g, lerp(HC2[1], HC[1], lb), rv); b = lerp(b, lerp(HC2[2], HC[2], lb), rv);
+                            }
+                        }
+                        let A = Math.max(d, rv);
                         if (o.fade < 1) A *= 1 - ss(o.fade, 1, hy);
                         A *= ss(0, 6, Math.min(x, y, W - 1 - x, H - 1 - y));   // 비트맵 가장자리에서 잘린 직선이 보이지 않게
                         const j = i * 4;
@@ -867,9 +926,14 @@
                     const y = Math.max(PAD * 0.45, PAD + h0 * tp - R * (1.0 + lr() * 0.9));
                     duskBillow(P, lr, x, y, R, 1 + lr() * 0.35, 0.75 + lr() * 0.2, 1 + ((lr() * 2) | 0));
                 }
+                const holes = CFG.DY_HOLE > 0 ? day2Holes(lr, spec, PAD, topAt) : null;
                 const gl = spec.glow;
                 const isFront = spec.layer === 'front';
                 return duskRender(m, P, {
+                    holes, hole: CFG.DY_HOLE * (isFront ? 0.75 : 1), holeSky: CFG.DY_HOLE_SKY, holeEdge: CFG.DY_HOLE_EDGE,
+                    holeRim: CFG.DY_HOLE_RIM * (isFront ? 0.7 : 1),
+                    // 비치는 구름 색: 빛 정면(흰빛) ↔ 혹 그늘(옅은 청회색)
+                    holeC: isFront ? [228, 236, 250] : [246, 250, 255], holeC2: isFront ? [128, 146, 186] : [150, 170, 210],
                     lit: spec.lit ?? (isFront ? DY_LIT_FRONT : DY_LIT_BACK),
                     shade: spec.shade ?? (isFront ? DY_SHADE_FRONT : DY_SHADE_BACK),
                     glow: gl ? [PAD + w0 * gl[0], PAD + h0 * gl[1], w0 * gl[2]] : null,
@@ -881,6 +945,38 @@
                     rimC: spec.rimC ?? (isFront ? [222, 232, 248] : [240, 247, 255]),
                     glowC: [250, 252, 255], rimK: spec.rimK ?? (isFront ? 0.5 : 0.85)
                 });
+            }
+            // 구멍 묶음: spec.holes [[u, v, s], ...] (u 가로 비율, v 콘텐츠 상단으로부터의 높이 비율, s 크기 = h0 비율)
+            // + DY_HOLE_N개 무작위 구멍. 구멍 하나는 가로로 긴 주 타원 + 둘레로 삐져나간 작은 타원 3~6개라 윤곽이 들쭉날쭉하고,
+            // 윗둘레 가까운 것은 바깥 하늘과 이어져 깊게 파인 골이 된다. 반환: [x, y, rx, ry] (스프라이트 px)
+            function day2Holes(lr, spec, PAD, topAt) {
+                const { w0, h0 } = spec, out = [];
+                const list = (spec.holes || []).map(h => h.slice());
+                const nr = Math.max(0, Math.round(spec.nHole ?? CFG.DY_HOLE_N));
+                for (let i = 0; i < nr; i++) {
+                    const u = 0.1 + lr() * 0.8;
+                    list.push([u, topAt(u) + 0.05 + lr() * 0.22, 0.035 + lr() * 0.035]);
+                }
+                const SZ = CFG.DY_HOLE_S;
+                for (const [u, v, s0] of list) {
+                    const R = s0 * h0 * SZ;
+                    // 틈은 둥근 구멍이 아니라 비스듬히 갈라진 골: 가운데서 양쪽으로 걸어가며 크기가 들쭉날쭉한 타원을 잇는다
+                    const dir = (lr() - 0.5) * 1.2;
+                    const cx = PAD + w0 * u, cy = PAD + h0 * v;
+                    out.push([cx, cy, R * (1.0 + lr() * 0.4), R * (0.7 + lr() * 0.3)]);
+                    for (const sg of [-1, 1]) {
+                        let x = cx, y = cy, a = dir + (sg < 0 ? Math.PI : 0), r = R;
+                        const steps = 2 + ((lr() * 3) | 0);
+                        for (let k = 0; k < steps; k++) {
+                            a += (lr() - 0.5) * 1.1;
+                            r *= 0.62 + lr() * 0.4;
+                            x += Math.cos(a) * R * (0.55 + lr() * 0.35);
+                            y += Math.sin(a) * R * (0.3 + lr() * 0.25);
+                            out.push([x, y, r * (1.0 + lr() * 0.5), r * (0.6 + lr() * 0.35)]);
+                        }
+                    }
+                }
+                return out;
             }
             // 수평선 낮은 띠: 납작하고 어두운 청회색 덩어리들이 섬처럼 이어진다
             function makeDay2BandSprite(lr) {
@@ -922,13 +1018,15 @@
                     layer: 'back', w0: 860, h0: 700, cols: 13,
                     prof: [[0, 0], [0.18, 0.02], [0.32, 0.12], [0.46, 0.05], [0.6, 0.03], [0.72, 0.18], [0.84, 0.34], [0.94, 0.48], [1, 0.6]],
                     sun: 28, lx: 0.85, ly: 0.15, ax: -0.08, al: 0, ay: 1.0, hh: 1.38, wmax: 0.5, bot: 0.97, fade: 0.95,
-                    gd: [1.5, 0.42], absorb: 1.45, rimK: 0.85, swayK: 0.6
+                    gd: [1.5, 0.42], absorb: 1.45, rimK: 0.85, swayK: 0.6,
+                    holes: [[0.34, 0.15, 0.15], [0.66, 0.3, 0.08], [0.13, 0.38, 0.06]]
                 },
                 {   // 오른쪽 뒷벽(림층): 왼쪽보다 살짝 낮고 좁아 틈이 왼쪽으로 치우쳐 보인다
                     layer: 'back', w0: 860, h0: 700, cols: 13,
                     prof: [[0, 0.58], [0.08, 0.42], [0.18, 0.26], [0.3, 0.32], [0.42, 0.16], [0.58, 0.06], [0.78, 0.01], [1, 0]],
                     sun: 152, lx: 0.15, ly: 0.15, ax: 1.06, al: 1, ay: 1.0, hh: 1.28, wmax: 0.44, bot: 0.97, fade: 0.95,
-                    gd: [1.12, 0.42], absorb: 1.65, rimK: 0.82, swayK: 0.6
+                    gd: [1.12, 0.42], absorb: 1.65, rimK: 0.82, swayK: 0.6,
+                    holes: [[0.64, 0.12, 0.14], [0.3, 0.3, 0.08], [0.88, 0.36, 0.06]]
                 },
                 {   // 가운데 틈 속 먼 덩어리(뒷층): 틈을 막지 않게 낮게 깔린다. 꼭대기만 빛을 받아 희게
                     layer: 'back', w0: 460, h0: 300, cols: 7,
@@ -940,13 +1038,15 @@
                     layer: 'front', w0: 760, h0: 460, cols: 14,
                     prof: [[0, 0.42], [0.35, 0.4], [0.55, 0.38], [0.68, 0.36], [0.76, 0.08], [0.86, 0.06], [0.92, 0.42], [1, 0.62]],
                     sun: 35, lx: 0.8, ly: 0.3, ax: -0.04, al: 0, ay: 1.0, hh: 1.02, wmax: 0.48, bot: 0.98, fade: 0.94,
-                    gd: [1.05, 0.5], rimK: 0.5, swayK: 1.4
+                    gd: [1.05, 0.5], rimK: 0.5, swayK: 1.4,
+                    holes: [[0.8, 0.2, 0.07]], nHole: 0
                 },
                 {   // 오른쪽 앞턱(음영층): 빨간 윤곽 기준 — 바깥 돔은 높게, 중간에 안장 딥, 틈 쪽으로 경사지게 내려온다
                     layer: 'front', w0: 760, h0: 460, cols: 14,
                     prof: [[0, 0.58], [0.18, 0.45], [0.35, 0.38], [0.52, 0.34], [0.65, 0.42], [0.78, 0.18], [0.9, 0.05], [1, 0.02]],
                     sun: 145, lx: 0.2, ly: 0.3, ax: 1.04, al: 1, ay: 1.0, hh: 0.9, wmax: 0.46, bot: 0.98, fade: 0.94,
-                    gd: [1.02, 0.5], rimK: 0.48, swayK: 1.4
+                    gd: [1.02, 0.5], rimK: 0.48, swayK: 1.4,
+                    holes: [[0.84, 0.24, 0.07]], nHole: 0
                 },
             ];
             function buildDay2Clouds() {
@@ -963,18 +1063,6 @@
                         yn: 0.985 + rng() * 0.025,
                         sp: (CFG.DY_SP ?? 0.0035) * (0.6 + rng() * 0.8),
                         s: 0.85 + rng() * 0.45, sw: 1.4 + rng() * 0.6, sh: 0.45 + rng() * 0.25
-                    });
-                }
-                // 찢긴 하부 층운 조각: 틈 양옆 벽 밑동 앞쪽에 납작한 어두운 띠가 떠 있다 (ref의 torn stratus)
-                const nd = Math.max(0, Math.round(CFG.DY_DEBRIS_N ?? 3));
-                for (let i = 0; i < nd; i++) {
-                    const side = i % 2 === 0;
-                    day2Clouds.push({
-                        kind: 'band', front: true, spr: null, seed: (rng() * 4294967296) >>> 0,
-                        xn: (side ? 0.12 : 0.56) + rng() * 0.16,
-                        yn: 0.84 + rng() * 0.1,
-                        sp: (CFG.DY_SP ?? 0.0035) * (0.4 + rng() * 0.5),
-                        s: 0.7 + rng() * 0.4, sw: 1.5 + rng() * 0.6, sh: 0.5 + rng() * 0.2
                     });
                 }
                 scheduleDay2();
@@ -1831,8 +1919,8 @@
                         }
                     } else if (set === day2Clouds) {
                         ensureDay2();
-                        // 2층 합성: 먼 띠 + 뒷층(림층) 먼저 → 틈 라이트 → 앞턱(음영층)·찢긴 조각 나중에. 앞이 뒤를 가려 깊이가 생긴다
-                        const isFront = c => c.kind === 'mass' ? c.spec.layer === 'front' : !!c.front;
+                        // 2층 합성: 먼 띠 + 뒷층(림층) 먼저 → 틈 라이트 → 앞턱(음영층) 나중에. 앞이 뒤를 가려 깊이가 생긴다
+                        const isFront = c => c.kind === 'mass' && c.spec.layer === 'front';
                         CL.globalCompositeOperation = 'source-over';
                         for (const c of set) {
                             if (isFront(c)) continue;
@@ -1867,7 +1955,7 @@
                         CL.setTransform(1, 0, 0, 1, 0, 0);
                         CL.drawImage(rimL, 0, 0);
                         CL.setTransform(dpr, 0, 0, dpr, 0, 0);
-                        // 앞턱(음영층) + 찢긴 하부 조각: 아래·안쪽에 짙게 깔려 뒷층과 톤이 갈린다
+                        // 앞턱(음영층): 아래·안쪽에 짙게 깔려 뒷층과 톤이 갈린다
                         CL.globalCompositeOperation = 'source-over';
                         for (const c of set) {
                             if (!isFront(c)) continue;

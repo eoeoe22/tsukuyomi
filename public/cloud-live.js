@@ -60,7 +60,7 @@ void main(){
 
     // ---------- 2패스: 실루엣·음영·착색 (tsukuyomi.js duskRender의 CPU 식을 그대로 옮김 + 워프/랜덤화) ----------
     const FS_SHADE = COMMON + `
-uniform sampler2D uE;     // 엔벨로프(RG16F: r = 원본, g = 부드러운 사본, 행 0 = 위)
+uniform sampler2D uE;     // 엔벨로프(RGBA16F: r = 원본, g = 부드러운 사본, b = 뚫림 원뿔(음수 포함), a = 뚫림 부드러운 사본(0 이상), 행 0 = 위)
 uniform sampler2D uN;     // 1패스 결과(포장된 N5/N3)
 uniform sampler2D uRamp;  // 256×2: 행 0 = 빛 램프, 행 1 = 그늘 램프 (콘텐츠 높이 0 위 → 1 아래)
 uniform vec2 uNOrg;       // 1패스 텍스처에서 이 스프라이트 영역 원점(텍셀)
@@ -69,6 +69,7 @@ uniform float uSkyBot,uVLift,uLobeMin,uCrease,uLobeW;
 uniform vec2 uL,uLa,uGD; uniform float uLdiag;
 uniform vec3 uGlow,uRimC,uGlowC;
 uniform float uWarp,uRand,uUp;
+uniform float uHole,uHoleEdge,uHoleRim; uniform vec3 uHoleC,uHoleC2;   // 뚫림 빛 비침 세기·경계 들쭉날쭉함·둘레 빛 / 비치는 구름 빛·그늘 색
 out vec4 o;
 float Eat(vec2 g){return texture(uE,(g+.5)/uSize).r;}
 float Ebat(vec2 g){return texture(uE,(g+.5)/uSize).g;}   // 부드러운 엔벨로프: 음영·면 방향 판정용
@@ -100,7 +101,16 @@ void main(){
   float raw=E*.55+(n5-.5)*1.25+.5+ero;
   float aa=length(vec2(dFdx(raw),dFdy(raw)))*1.2;
   float d=smoothstep(cov-aa*.5,cov+max(edge,aa),raw);
-  if(E<uLive||d<=.003){o=vec4(0.);return;}
+  // 뚫림: b = 원뿔(안쪽 1, 바깥 음수), a = 넓게 번진 사본(뚫림 둘레 구름 속까지 닿는다)
+  // 원뿔에서 빌로우를 빼 문턱으로 자른다 → 어두운 앞 구름 혹이 빛 속으로 튀어나오고, 떨어진 혹은 빛 위에 뜬 조각이 된다
+  vec2 Hh=texture(uE,(wp+.5)/uSize).ba;
+  float hr=-1.,rv=0.;
+  if(uHole>0.){
+    hr=Hh.x*1.1-(n5-.5)*1.5*uHoleEdge;
+    float ah=length(vec2(dFdx(hr),dFdy(hr)));
+    rv=smoothstep(.06-ah*.5,.16+ah*.5,hr)*min(uHole,1.)*smoothstep(-.6,-.1,E);
+  }
+  if(E<uLive||(d<=.003&&rv<=.003)){o=vec4(0.);return;}
   // ① 혹 단위 음영
   float eL=.35/uSC*.5;
   // 혹 단위 빛 방향: 해 방향만 쓰면(황혼은 거의 수평) 혹마다 세로 명암 경계가 서서 붓자국 줄무늬가 된다.
@@ -129,9 +139,27 @@ void main(){
   vec3 col=mix(S0,L0,v);
   float rim=(1.-smoothstep(0.,.55,d))*T*(1.-.6*hy)*uRimK;
   col+=(uRimC-col)*rim;
+  if(uHole>0.){
+    // 뚫림 둘레 구름(특히 뚫림 아래쪽 윗면)이 새어 나온 빛을 받아 밝아진다
+    if(uHoleRim>0.&&Hh.y>.003){
+      float Hup=texture(uE,(wp-vec2(0.,7.)+.5)/uSize).a;
+      float below=.4+.6*smoothstep(0.,.06,Hup-Hh.y);
+      float hl=clamp(smoothstep(0.,.25,Hh.y)*below*uHoleRim*(.45+.55*lobe),0.,1.);
+      col+=(uRimC-col)*hl;
+    }
+    // 빛 쪽으로 튀어나온 어두운 혹의 가장자리: 얇게 밝아진다
+    col+=(uRimC-col)*smoothstep(-.1,.06,hr)*(1.-rv)*.35;
+    if(rv>.003){
+      // 비치는 흰 구름: 다른 위상·크기의 빌로우로 혹 명암, 뚫림 가운데일수록 빛 정면
+      vec2 q2=p*.75+vec2(41.,23.);
+      float n2=Nf(ivec2(q2)).x,n2b=Nf(ivec2(q2+Ll*5.)).x;
+      float lb=clamp((.3+.7*smoothstep(-.1,.16,n2-n2b))*mix(.7,1.,smoothstep(.3,.75,n2))+smoothstep(.1,.9,Hh.x)*.3,0.,1.);
+      col=mix(col,mix(uHoleC2,uHoleC,lb),rv);
+    }
+  }
   if(uGlow.z>0.){vec2 dd=p-uGlow.xy;float w=exp(-dot(dd,dd)/(uGlow.z*uGlow.z))*(.35+.65*v);
     col+=(uGlowC-col)*w*vec3(.85,.8,.7);}
-  float A=d;
+  float A=max(d,rv);
   if(uFade<1.)A*=1.-smoothstep(uFade,1.,hy);
   A*=smoothstep(0.,6.,min(min(p.x,p.y),min(uSize.x-1.-p.x,uSize.y-1.-p.y)));
   o=vec4(clamp(col,0.,1.)*A,A);
@@ -140,7 +168,7 @@ void main(){
     const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
     // 엔벨로프 부드러운 사본: 퍼프 원뿔들을 max로 합친 이음매(주름)가 음영에 세로 줄무늬·붓자국으로 찍히는 걸 막는다.
     // 박스 블러 3회(≈ 가우스), 반경 r 격자 px. 결과는 (E, Eblur) 2채널로 interleave
-    function smoothEnv(E, W, H, r) {
+    function blur3(E, W, H, r) {
         let a = Float32Array.from(E), b = new Float32Array(E.length);
         const pass = (src, dst, horiz) => {
             const n = horiz ? W : H, m = horiz ? H : W, inv = 1 / (2 * r + 1);
@@ -155,8 +183,18 @@ void main(){
             }
         };
         for (let k = 0; k < 3; k++) { pass(a, b, true); pass(b, a, false); }
-        const out = new Float32Array(E.length * 2);
-        for (let i = 0; i < E.length; i++) { out[i * 2] = E[i]; out[i * 2 + 1] = a[i]; }
+        return a;
+    }
+    // (E, Eblur, 구멍, 구멍blur) 4채널 interleave. 구멍 사본은 넓게 번져 구멍 둘레 구름에 빛 비침이 닿게 한다
+    function smoothEnv(E, HL, W, H, r) {
+        const Eb = blur3(E, W, H, r);
+        const Hb = HL ? blur3(HL.map(v => Math.max(0, v)), W, H, Math.max(3, r * 3)) : null;
+        const out = new Float32Array(E.length * 4);
+        for (let i = 0; i < E.length; i++) {
+            out[i * 4] = E[i]; out[i * 4 + 1] = Eb[i];
+            if (HL) { out[i * 4 + 2] = HL[i]; out[i * 4 + 3] = Hb[i]; }
+            else out[i * 4 + 2] = -1;
+        }
         return out;
     }
     // tsukuyomi.js duskRamp와 같은 선형 램프
@@ -229,7 +267,7 @@ void main(){
         function upload(h) {
             gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
             h.eTex = tex(gl.LINEAR);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG16F, h.W, h.H, 0, gl.RG, gl.FLOAT, h.E2);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, h.W, h.H, 0, gl.RGBA, gl.FLOAT, h.E2);
             h.rTex = tex(gl.LINEAR);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, h.rampData);
         }
@@ -280,6 +318,8 @@ void main(){
             gl.uniform2f(U('uGD'), P.GD0, P.GD1);
             gl.uniform3f(U('uGlow'), P.glow[0], P.glow[1], P.glow[2]);
             gl.uniform3fv(U('uRimC'), P.rimC); gl.uniform3fv(U('uGlowC'), P.glowC);
+            gl.uniform1f(U('uHole'), P.hole); gl.uniform1f(U('uHoleEdge'), P.holeEdge); gl.uniform1f(U('uHoleRim'), P.holeRim);
+            gl.uniform3fv(U('uHoleC'), P.holeC); gl.uniform3fv(U('uHoleC2'), P.holeC2);
             gl.uniform1f(U('uWarp'), cfg.CL_WARP); gl.uniform1f(U('uUp'), cfg.CL_UP * P.upK); gl.uniform1f(U('uRand'), cfg.CL_RAND);
             gl.drawArrays(gl.TRIANGLES, 0, 3);
             // 2D 스프라이트로 복사(격자 → 스프라이트 크기로 확대). 뷰포트는 캔버스 아래쪽에 있다
@@ -310,7 +350,7 @@ void main(){
             out.width = m.width; out.height = m.height;
             out.w0 = m.w0; out.h0 = m.h0; out.pad = m.pad;
             const h = {
-                W, H, E2: smoothEnv(E, W, H, 3), rampData, out, ctx: out.getContext('2d'),
+                W, H, E2: smoothEnv(E, a.HL, W, H, 3), rampData, out, ctx: out.getContext('2d'),
                 tOff: (a.seed % 997) * 0.37, dir: (a.seed & 1) ? 1 : -1,
                 last: -1e9, seen: 0, dead: false,
                 par: {
@@ -321,6 +361,8 @@ void main(){
                     glow, GD0, GD1, rimC, glowC, rimK: o.rimK ?? 0.45, fade: o.fade ?? 1,
                     skyBot: o.skyBot ?? 0.55, vLift: o.vLift ?? 0.35, upK: o.upK ?? 1,
                     lobeMin: o.lobeMin ?? 0.18, crease: o.crease ?? 0.72, lobeW: o.lobeW ?? 1,
+                    hole: a.HL ? (o.hole ?? 0) : 0, holeEdge: o.holeEdge ?? 1, holeRim: o.holeRim ?? 0,
+                    holeC: (o.holeC ?? [246, 250, 255]).map(v => v / 255), holeC2: (o.holeC2 ?? [150, 170, 210]).map(v => v / 255),
                 },
             };
             try { upload(h); render(h, 0); }
