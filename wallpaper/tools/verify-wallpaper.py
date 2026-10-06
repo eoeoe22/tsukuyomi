@@ -88,6 +88,12 @@ def main() -> int:
         check("intro 기본값 켜짐", props.get("a01_intro", {}).get("value") is True, "기본값 true 필요")
         check("intro 조건(밤만)", props.get("a01_intro", {}).get("condition") == "a00_scene.value == 3",
               "밤 선택 시에만 표시")
+        # WE Installed 탭 썸네일은 preview.jpg/gif 관례만 인식한다 (thumbnail.png 등 별도명 무시됨).
+        pv = pj.get("preview")
+        check("preview 관례명", isinstance(pv, str) and pv in ("preview.jpg", "preview.gif"),
+              f"preview={pv!r}")
+        check("preview 파일 존재", isinstance(pv, str) and (WP / pv).is_file(),
+              "project.json preview 대상 없음")
         # GROUPS 전수 대조
         dbg = (ROOT / "public" / "tsukuyomi.debug.js").read_text(encoding="utf-8")
         blocks = re.findall(
@@ -115,6 +121,9 @@ def main() -> int:
         # 숫자로 시작하는 키는 조건 평가가 실패해 속성이 영구히 숨겨진다 (회귀 방지).
         bad_keys = [k for k in props if not re.match(r"^[A-Za-z][A-Za-z0-9_]*$", k)]
         check("키 식별자 형태(조건식 해석)", not bad_keys, f"{bad_keys[:5]}")
+        # 에디터 출력에는 "index"가 없다. 비표준 키가 있으면 WE가 파일을 거부할 수 있다 (회귀 방지).
+        no_index = [k for k, p in props.items() if "index" in p]
+        check("비표준 index 없음(에디터 출력과 동일)", not no_index, f"{no_index[:5]}")
         # 그룹 헤더 12종: 키 a04~a15, type=group, 조건은 고급 표시
         headers = [k for k, p in props.items() if p.get("type") == "group"]
         check("그룹 헤더 12종", len(headers) == 12, f"{len(headers)}종")
@@ -263,7 +272,8 @@ def main() -> int:
             # rename "old -> new" 형태 처리
             if " -> " in path:
                 path = path.split(" -> ")[-1].strip().strip('"')
-            if not path.startswith("wallpaper/"):
+            # dist-we/는 배포 산출물(zip) 보관용으로 웹 배포와 무관하므로 제외
+            if not path.startswith("wallpaper/") and not path.startswith("dist-we/"):
                 outside.append(ln)
         check("웹 배포 영향 없음 (wallpaper/ 밖 변경 없음)", not outside,
               f"{len(outside)}건: {outside[:5]}")

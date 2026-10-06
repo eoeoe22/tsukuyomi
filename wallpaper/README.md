@@ -77,23 +77,46 @@ node --check wallpaper/wallpaper.js
 python wallpaper/tools/verify-wallpaper.py
 ```
 
-## Workshop 릴리즈 업로드 (별도 업로드)
+## 배포 패키지 (`dist-we/Tsukuyomi-WE.zip`)
 
-1. Wallpaper Engine을 완전히 종료한다 (실행 중 복사는 project.json이 덮어씌워질 수 있다).
-2. 새 웹 월페이퍼용 폴더를 만들고, 이 `wallpaper/` 안의 파일 전체
-   (`project.json`, `wallpaper.html`, `wallpaper.js`, `wallpaper.css`, `vendor/`)를 복사한다.
-   폴더째(`wallpaper/` 자체)가 아니라 안의 내용이 바로 들어가야 한다.
-   `preview.jpg`는 에디터가 생성하므로 복사 대상이 아니다.
-3. Wallpaper Engine 실행 → Installed 탭에서 월페이퍼 선택 →
+필수 12종만 포함. `tools/`·`README.md`·`CORE_VERSION.txt`는 제외.
+
+- `project.json` (`"preview": "preview.jpg"` 포함), `wallpaper.html`,
+  `wallpaper.js`, `wallpaper.css`, `preview.jpg`
+- `vendor/` 7종: `tsukuyomi.js`·`tsukuyomi.css`·`cloud-doc.js`·`cloud-live.js`·
+  `lantern-front.svg`·`assets/icons/icon.svg`·`clouds/index.json`
+- `preview.jpg`는 `thumbnail.png`(원본, 128px)를 300x300 JPEG으로 변환한
+  WE용 썸네일이다. WE가 인식하는 썸네일명은 `preview.jpg`/`preview.gif`뿐이므로
+  `thumbnail.png`를 직접 지정하면 표시되지 않는다. `thumbnail.png`는 원본 보관용으로
+  소스에만 두고 배포 zip에는 넣지 않는다.
+- 재생성은 이 12개를 `Tsukuyomi/` 폴더에 담아 zip으로 묶으면 된다.
+
+## Workshop 릴리즈 업로드 (폴더째 복사 방식)
+
+> 주의: 메인 화면 하단의 파일 열기(불러오기)로 `wallpaper.html`만 선택하거나
+> 드래그하면 WE가 `project.json`을 새로 생성해 버린다.
+> 이때 목록 이름이 `wallpaper.html`로 뜨고, 썸네일·사용자 속성이 사라진다
+> (월페이퍼 자체는 돌아가므로 "나머지만 정상"처럼 보인다).
+> 배포본 가져오기에는 아래 폴더째 복사 방식을 쓴다.
+
+1. Wallpaper Engine을 완전히 종료한다 (실행 중 복사는 캐시 때문에 반영되지 않는다).
+2. `dist-we/Tsukuyomi-WE.zip`을 아무 폴더에나 압축 해제한다.
+3. 푼 `Tsukuyomi/` 폴더째
+   `wallpaper_engine/projects/myprojects/` 안에 복사한다.
+   같은 이름의 기존 폴더가 있으면 먼저 삭제한다
+   (WE가 예전 `project.json`/썸네일 캐시를 들고 있을 수 있다).
+4. WE 실행 → Installed 탭에서 `Tsukuyomi 月` 선택.
+   목록 썸네일이 `preview.jpg`로 뜨고,
    오른쪽 속성 패널에 `장면 (하단 시간대 UI 대신)`이 보이면 정상이다.
    (에디터의 Edit 메뉴가 아니라 Installed 탭에서 확인한다.)
-4. 미리보기에서 장면 3종 + 연출 켜짐/꺼짐을 확인.
-5. `preview.jpg`를 등록 (에디터에서 자동 생성 또는 밤 장면 스크린샷).
+5. 미리보기에서 장면 3종 + 연출 켜짐/꺼짐을 확인.
 6. Workshop에 별도 릴리즈로 업로드. 웹 배포와 버전이 엮이지 않게 릴리즈 노트에 동결 커밋을 적는다.
+   썸네일은 `preview.jpg`가 이미 지정되어 있어 별도 등록이 불필요하며,
+   퍼블리시 과정에서 WE가 스냅샷을 새로 만들면 그걸로 교체된다.
 
 ## 문제 해결: 속성 패널이 빈칸으로 보일 때
 
-1. WE 프로젝트 폴더의 `project.json`을 텍스트로 열어 `cfg_T_NIGHT`이 있는지 확인한다.
+1. WE 프로젝트 폴더의 `project.json`을 텍스트로 열어 `a04_T_NIGHT`가 있는지 확인한다.
    없으면 우리 `project.json`이 반영되지 않은 것이다. WE 종료 후 파일을 다시 복사한다.
 2. 복사 후에도 비어 있으면 WE 재시작 → Installed 탭에서 월페이퍼를 다시 선택한다.
    (WE는 실행 중에 바꾼 `project.json`을 다시 읽지 않을 수 있다.)

@@ -111,8 +111,8 @@ def main() -> None:
 
     def add(key, prop):
         nonlocal order
+        # WE 에디터 출력과 동일한 키셋만 사용한다. "index"는 비표준이므로 기록하지 않는다.
         prop["order"] = order
-        prop["index"] = order
         order += 1
         props[key] = prop
 
@@ -196,19 +196,21 @@ def main() -> None:
 
     project = {
         "file": "wallpaper.html",
-        "title": "Tsukuyomi — 月",
+        # WE Installed 탭 썸네일은 preview.jpg/gif 관례명만 인식한다.
+        # thumbnail.png 등 별도명은 무시되므로 반드시 preview.jpg를 지정한다.
+        "preview": "preview.jpg",
+        "title": "Tsukuyomi 月",
         "description": "낮·황혼·밤이 이어지는 고요한 수면. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 선택 시 초기 황혼→밤 연출을 켜거나 끌 수 있다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터를 그대로 조절할 수 있다.",
         "type": "web",
         "general": {"properties": props},
     }
-    OUT_JSON.write_text(
-        json.dumps(project, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    # 바이트 쓰기로 LF 고정 (Windows 텍스트 쓰기의 CRLF 변환 방지).
+    OUT_JSON.write_bytes(
+        (json.dumps(project, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
     )
     rebuild = {g["key"]: g["rebuild"] for g in grouped if g["rebuild"]}
-    OUT_MAP.write_text(
-        json.dumps(rebuild, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    OUT_MAP.write_bytes(
+        (json.dumps(rebuild, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),
     )
     print(f"groups={len(grouped)} categories={len(group_codes)} "
           f"props={len(props)} -> {OUT_JSON.name}")
