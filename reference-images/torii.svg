@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="124 62 432 360" width="432" height="360">
+  <title>토리이 - 정면 (public/tsukuyomi.js TORII_RED / TORII_BLK에서 추출)</title>
+  <desc>Source space 680x450, feet y=420. TB x124 y62 w432 h360. Colors TORII_RAW p0: red #D9472B, black #2A2522, gold #C9A24A. Draw order: red fill, black fill, gold stroke.</desc>
+  <!-- 주홍 기둥/틀 (TORII_RED) -->
+  <path d="M216 110H244L247 410H213Z M436 110H464L467 410H433Z M331 118h18v76h-18Z M168 192h344v20h-344Z M146 86Q340 124 534 86L532 108Q340 146 148 108Z" fill="#D9472B"/>
+  <!-- 검은 갓/액자/발 (TORII_BLK) -->
+  <path d="M210 392h40v28h-40Z M430 392h40v28h-40Z M314 134h52v46h-52Z M126 64Q340 108 554 64L548 85Q340 126 132 85Z" fill="#2A2522"/>
+  <!-- 금테 (drawTorii strokeRect) -->
+  <rect x="314" y="134" width="52" height="46" fill="none" stroke="#C9A24A" stroke-width="2"/>
+  <rect x="322" y="142" width="36" height="30" fill="none" stroke="#C9A24A" stroke-width="1"/>
+</svg>
