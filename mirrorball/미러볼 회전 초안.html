@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rotating ball</title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            height: 100%;
+        }
+
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: transparent;
+        }
+
+        canvas {
+            width: min(440px, 100vw);
+            aspect-ratio: 1 / 1;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="ball"></canvas>
+    <script>
+        const cv = document.getElementById('ball');
+        const ctx = cv.getContext('2d');
+        const S = 440, C = 220, R = 200;
+        const dpr = window.devicePixelRatio || 1;
+        cv.width = S * dpr;
+        cv.height = S * dpr;
+        ctx.scale(dpr, dpr);
+
+        const PERIOD = 40;
+        const NL = 32;
+        const dLat = Math.PI / NL;
+        const tilt = -0.18;
+        const ct = Math.cos(tilt), st = Math.sin(tilt);
+
+        const bands = [];
+        for (let i = 0; i < NL; i++) {
+            const a = -Math.PI / 2 + i * dLat, b = a + dLat, m = (a + b) / 2;
+            const n = Math.max(4, Math.round(2 * Math.PI * Math.cos(m) / dLat));
+            bands.push({ a, b, n, off: (i % 2) * 0.5 });
+        }
+
+        function P(lat, lon) {
+            const x = Math.cos(lat) * Math.sin(lon);
+            const y = Math.sin(lat);
+            const z = Math.cos(lat) * Math.cos(lon);
+            return [x, y * ct - z * st, y * st + z * ct];
+        }
+
+        let rot = 0, last = performance.now();
+
+        function draw() {
+            ctx.clearRect(0, 0, S, S);
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(C, C, R, 0, Math.PI * 2);
+            ctx.fillStyle = '#6b7480';
+            ctx.fill();
+            ctx.clip();
+            ctx.fillStyle = '#dfe4ea';
+            for (const bd of bands) {
+                const dl = 2 * Math.PI / bd.n, gl = dl * 0.09, ga = dLat * 0.09;
+                for (let j = 0; j < bd.n; j++) {
+                    const l0 = (j + bd.off) * dl + rot, l1 = l0 + dl;
+                    const c = P((bd.a + bd.b) / 2, (l0 + l1) / 2);
+                    if (c[2] <= 0.02) continue;
+                    const q = [
+                        P(bd.a + ga, l0 + gl), P(bd.a + ga, l1 - gl),
+                        P(bd.b - ga, l1 - gl), P(bd.b - ga, l0 + gl)
+                    ];
+                    ctx.beginPath();
+                    q.forEach((p, k) => {
+                        const sx = C + R * p[0], sy = C - R * p[1];
+                        k ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy);
+                    });
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+            ctx.restore();
+        }
+
+        function loop(t) {
+            const dt = (t - last) / 1000;
+            last = t;
+            rot += dt * 2 * Math.PI / PERIOD;
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        draw();
+        requestAnimationFrame(loop);
+    </script>
+</body>
+
+</html>
