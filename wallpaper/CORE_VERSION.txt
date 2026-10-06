@@ -1,0 +1,6 @@
+54d8bac4a7c60a39d48fc471bdfaaf373895d471
+2026-10-06 (UTC)
+frozen source: public/tsukuyomi.js, public/tsukuyomi.css, public/cloud-doc.js,
+  public/cloud-live.js, public/lantern-front.svg, public/assets/icons/icon.svg,
+  public/clouds/index.json
+verify: powershell -File wallpaper/tools/verify-wallpaper.ps1

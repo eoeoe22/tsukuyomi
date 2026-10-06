@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" xmlns:c2pa="http://c2pa.org/manifest">
+<defs>
+    <!-- 띠: 흰색 → 하늘색으로 페이드 -->
+    <linearGradient id="band" gradientUnits="userSpaceOnUse" x1="381" y1="0" x2="628" y2="0">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#8FDBFC"/>
+    </linearGradient>
+    <!-- 화살표 머리 뒤 그림자 -->
+    <linearGradient id="tail" gradientUnits="userSpaceOnUse" x1="0" y1="687" x2="0" y2="747">
+      <stop offset="0" stop-color="#8FDBFC"/>
+      <stop offset="1" stop-color="#D2F1FE"/>
+    </linearGradient>
+    <linearGradient id="pill" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#A3E6F8"/>
+      <stop offset="1" stop-color="#A6D9F6"/>
+    </linearGradient>
+
+    <!-- 반쪽 조각 (왼쪽 C자 + 위쪽 화살촉) -->
+    <path id="solid" fill="#FFFFFF" d="
+        M329 277
+        L486 422
+        L336 422
+        A90 90 0 0 0 336 602
+        L381 602
+        L381 687
+        L334 687
+        A175 175 0 0 1 334 337
+        L329 337 Z"/>
+    <path id="bandp" fill="url(#band)" d="M361 602 L549 602 L641 687 L361 687 Z"/>
+    <!-- 그림자: 아래쪽 화살촉 수직 변(x=695) 바로 뒤 -->
+    <path id="shadow" fill="url(#tail)" d="M695 681 L725 681 L725 747 L695 747 Z"/>
+  </defs>
+
+  <!-- 배경 -->
+  <rect width="1024" height="1024" fill="#02AEFA"/>
+
+  <!-- 그림자 (아래쪽 화살표만) -->
+  <use href="#shadow"/>
+  <!-- 페이드 띠 -->
+  <use href="#bandp"/>
+  <use href="#bandp" transform="rotate(180 512 512)"/>
+  <!-- 흰 조각 -->
+  <use href="#solid"/>
+  <use href="#solid" transform="rotate(180 512 512)"/>
+
+  <!-- 가운데 막대 -->
+  <rect x="369.5" y="484.5" width="285" height="55" rx="27.5" fill="url(#pill)"/>
+</svg>

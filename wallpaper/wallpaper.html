@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>月 | Tsukuyomi Wallpaper</title>
+    <link rel="icon" href="vendor/assets/icons/icon.svg" type="image/x-icon">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="vendor/tsukuyomi.css">
+    <link rel="stylesheet" href="wallpaper.css">
+</head>
+
+<body>
+    <canvas id="scene" aria-hidden="true"></canvas>
+    <canvas id="ripple" aria-hidden="true"></canvas>
+    <canvas id="fg" aria-hidden="true"></canvas>
+
+    <!-- 하단 시간대 UI: 코어가 참조하므로 DOM은 유지하고, 표시는 wallpaper.css에서 숨긴다.
+         장면 선택은 Wallpaper Engine 옵션(scene)으로 대체한다. -->
+    <div class="dock" aria-hidden="true">
+        <section class="panel intro-hidden" id="panel" aria-label="장면 전환">
+            <div class="icongroup" id="icongroup" role="group" aria-label="낮 / 황혼 / 밤 선택">
+                <span class="thumb" id="thumb" aria-hidden="true"></span>
+                <button type="button" id="btnDay" aria-label="낮" aria-pressed="false" tabindex="-1"><i class="bi bi-sun-fill"
+                        aria-hidden="true"></i></button>
+                <button type="button" id="btnDusk" aria-label="황혼" aria-pressed="false" tabindex="-1"><i
+                        class="bi bi-brightness-alt-high-fill" aria-hidden="true"></i></button>
+                <button type="button" id="btnNight" class="on" aria-label="밤" aria-pressed="true" tabindex="-1"><i class="bi bi-moon-fill"
+                        aria-hidden="true"></i></button>
+            </div>
+            <span class="sr-only" id="status" aria-live="polite"></span>
+        </section>
+    </div>
+
+    <script src="vendor/cloud-doc.js"></script>
+    <script src="vendor/cloud-live.js"></script>
+    <script src="vendor/tsukuyomi.js"></script>
+    <script src="wallpaper.js"></script>
+</body>
+
+</html>

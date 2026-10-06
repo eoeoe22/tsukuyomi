@@ -1,0 +1,324 @@
+        :root {
+            /* VIA tokens (light-only system) */
+            --primary: #4b70e2;
+            --on-primary: #f9f9f9;
+            --background: #ecf0f3;
+            --surface: #ecf0f3;
+            --surface-hover: #e6ebef;
+            --track: #dde3ec;
+            --text-strong: #181818;
+            --text: #444444;
+            --text-muted: #666666;
+            --text-subtle: #a0a5a8;
+            --shadow-dark: #d1d9e6;
+            --shadow-light: #f9f9f9;
+            --raised-md: 8px 8px 16px #d1d9e6, -8px -8px 16px #f9f9f9;
+            --raised-md-pressed: 4px 4px 12px #d1d9e6, -4px -4px 12px #f9f9f9;
+            --inset-sm: inset 2px 2px 4px #d1d9e6, inset -2px -2px 4px #f9f9f9;
+            --font-sans: "Montserrat", -apple-system, BlinkMacSystemFont, "Noto Sans KR", system-ui, sans-serif;
+            --space-1: 4px;
+            --space-2: 8px;
+            --space-3: 10px;
+            --space-4: 15px;
+            --space-5: 20px;
+            --space-6: 25px;
+            --space-7: 50px;
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 20px;
+            --radius-pill: 999px;
+            /* scene backdrop shown before the first frame (empty day blue; night #2b2a4e handled below) */
+            --scene: #1b4688;
+
+            box-sizing: border-box;
+            padding-top: env(safe-area-inset-top, 0px);
+            padding-bottom: env(safe-area-inset-bottom, 0px);
+        }
+
+        /* VIA is light-only: the control card keeps its light surface in every theme. */
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --scene: #2b2a4e;
+            }
+        }
+
+        :root[data-theme="dark"] {
+            --scene: #2b2a4e;
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: inherit;
+        }
+
+        html {
+            scroll-padding-top: env(safe-area-inset-top, 0px);
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        body {
+            background: var(--scene);
+            font-family: var(--font-sans);
+            color: var(--text);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        #scene,
+        #fg {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* WebGL copy of the floor, shown only while a click ripple is alive;
+     top and height are set from the horizon in script */
+        #ripple {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 100%;
+            display: none;
+        }
+
+        .dock {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            justify-content: flex-start;
+            padding: 0 0 calc(var(--space-6) + env(safe-area-inset-bottom, 0px)) var(--space-5);
+            pointer-events: none;
+        }
+
+        .panel {
+            /* night palette: same neumorphic shadow recipe, re-tinted for a dark surface */
+            --night-surface: #20252f;
+            --night-shadow-dark: #161a21;
+            --night-shadow-light: #2b313d;
+            --night-track: #1b1f27;
+            --night-disabled: #4a5160;
+
+            pointer-events: auto;
+            width: auto;
+            display: flex;
+            align-items: center;
+            background: var(--surface);
+            border-radius: var(--radius-pill);
+            box-shadow: 0 10px 10px var(--shadow-dark);
+            padding: 10px;
+            animation: fadeInUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+            transition: background-color 1.25s ease, box-shadow 1.25s ease;
+        }
+
+        .panel.is-night {
+            --surface: var(--night-surface);
+            --track: var(--night-track);
+            --text-subtle: var(--night-disabled);
+            box-shadow: 0 10px 10px var(--night-shadow-dark);
+            --raised-md: 8px 8px 16px var(--night-shadow-dark), -8px -8px 16px var(--night-shadow-light);
+            --raised-md-pressed: 4px 4px 12px var(--night-shadow-dark), -4px -4px 12px var(--night-shadow-light);
+            --inset-sm: inset 2px 2px 4px var(--night-shadow-dark), inset -2px -2px 4px var(--night-shadow-light);
+        }
+
+        /* 초기 1회성 황혼→밤 전환 중에는 시간대 전환 UI를 숨긴다 (JS가 완료 시점에 제거) */
+        .panel.intro-hidden {
+            opacity: 0;
+            transform: translateY(20px);
+            visibility: hidden;
+            pointer-events: none;
+            animation: none;
+        }
+
+        /* 인트로 완료 후 아래에서 올라오기 */
+        .panel.intro-enter {
+            animation: fadeInUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        }
+
+        .icongroup {
+            position: relative;
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            border-radius: var(--radius-pill);
+            background: var(--track);
+            box-shadow: var(--inset-sm);
+            transition: background-color 1.25s ease, box-shadow 1.25s ease, gap 0.35s ease;
+        }
+
+        /* 강조 커서: 현재 시간 아이콘 뒤에서 슬라이드 이동 */
+        .icongroup .thumb {
+            position: absolute;
+            left: 4px;
+            top: 4px;
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            background: var(--primary);
+            box-shadow: var(--raised-md);
+            z-index: 0;
+            pointer-events: none;
+            transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.35s ease, height 0.35s ease, background-color 1.25s ease, box-shadow 1.25s ease;
+        }
+
+        .icongroup button {
+            position: relative;
+            z-index: 1;
+            width: 46px;
+            height: 46px;
+            flex: 0 0 auto;
+            min-width: 46px;
+            border: 0;
+            border-radius: 50%;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 19px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            overflow: hidden;
+            white-space: nowrap;
+            transition: background-color 0.25s, color 0.25s, transform 0.25s, width 0.35s ease, min-width 0.35s ease, opacity 0.3s ease;
+        }
+
+        .icongroup button:hover {
+            transform: translateY(-1px);
+        }
+
+        .icongroup button:active {
+            transform: none;
+        }
+
+        .icongroup button.on {
+            background: transparent;
+            color: var(--on-primary);
+            box-shadow: none;
+        }
+
+        .icongroup button:focus-visible {
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
+        }
+
+        .panel.is-night .icongroup button:not(.on) {
+            color: #9aa0ae;
+        }
+
+        /* 평소엔 1칸 버블: 현재 시간 아이콘만 표시, 나머지는 접기 */
+        @media (hover: hover) {
+            .panel:not(:hover):not(:focus-within):not(.expanded) .icongroup {
+                gap: 0;
+            }
+
+            .panel:not(:hover):not(:focus-within):not(.expanded) .icongroup button:not(.on) {
+                width: 0;
+                min-width: 0;
+                padding-left: 0;
+                padding-right: 0;
+                border-width: 0;
+                opacity: 0;
+                transform: scale(0.5);
+                pointer-events: none;
+            }
+        }
+
+        /* 터치(hover 없음): .expanded가 있을 때만 펼침 */
+        @media (hover: none) {
+            .panel:not(.expanded):not(:focus-within) .icongroup {
+                gap: 0;
+            }
+
+            .panel:not(.expanded):not(:focus-within) .icongroup button:not(.on) {
+                width: 0;
+                min-width: 0;
+                padding-left: 0;
+                padding-right: 0;
+                border-width: 0;
+                opacity: 0;
+                transform: scale(0.5);
+                pointer-events: none;
+            }
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            margin: -1px;
+            padding: 0;
+            overflow: hidden;
+            clip: rect(0 0 0 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: none;
+            }
+        }
+
+        /* mobile: icon card stays at the bottom-left corner */
+        @media (max-width: 460px),
+        (pointer: coarse) and (max-height: 500px) {
+            .dock {
+                justify-content: flex-start;
+                padding: 0 0 calc(var(--space-5) + env(safe-area-inset-bottom, 0px)) var(--space-5);
+            }
+
+            .panel {
+                box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+            }
+
+            .icongroup button {
+                width: 48px;
+                height: 48px;
+                min-width: 48px;
+            }
+
+            .icongroup .thumb {
+                width: 48px;
+                height: 48px;
+            }
+
+            .icongroup button:active {
+                transform: scale(0.94);
+                transition-duration: 0.1s;
+            }
+
+            .panel:not(.expanded) .icongroup button.on:active {
+                transform: scale(0.94);
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .panel,
+            .panel.intro-enter {
+                animation: none;
+            }
+
+            .panel,
+            .icongroup,
+            .icongroup .thumb,
+            .icongroup button {
+                transition: none;
+            }
+        }
+    
