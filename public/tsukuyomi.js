@@ -34,6 +34,22 @@
             const reflC = document.createElement('canvas');
             const RC = reflC.getContext('2d');
             const RM = window.matchMedia('(prefers-reduced-motion: reduce)');
+            // 에셋 기준 URL: 스크립트 위치 기준. public/에서는 문서 기준과 동일하고,
+            // wallpaper/vendor/처럼 스크립트가 하위 폴더에 있으면 vendor/ 기준으로 해석된다.
+            // (Image/fetch의 상대경로는 문서 기준이라 wallpaper.html에서 'lantern-front.svg'가
+            //  404가 되어 본 랜턴이 통째로 사라지고 수평선 경량 띠만 남는다.)
+            const ASSET_BASE = (() => {
+                try {
+                    const cur = (document.currentScript && document.currentScript.src) || '';
+                    const found = cur || [...document.scripts].map(s => s.src).find(s => /tsukuyomi\.js(\?|#|$)/.test(s)) || '';
+                    if (found) return new URL('.', found).href;
+                } catch (e) { /* 폴백: 문서 기준 */ }
+                return '';
+            })();
+            const assetUrl = rel => {
+                try { return new URL(rel, ASSET_BASE || document.baseURI).href; }
+                catch (e) { return rel; }
+            };
             // 절차적 구름 라이브 렌더러(cloud-live.js). 없거나 WebGL2 실패면 null → duskRender가 CPU로 굽는다
             const cloudLive = window.CloudLive ? window.CloudLive.create() : null;
             // real torii and vignette live on their own layer above the ripple copy,
@@ -1166,14 +1182,14 @@
                 if (applied) { setCloudDoc(k, applied, 'editor'); return; }
                 const file = cloudIndex && cloudIndex[k];
                 if (!file) { docCloud[k].doc = null; docCloud[k].spr = null; docCloud[k].src = ''; return; }
-                fetch('clouds/' + file, { cache: 'no-cache' })
+                fetch(assetUrl('clouds/' + file), { cache: 'no-cache' })
                     .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
                     .then(j => setCloudDoc(k, j, 'file:' + file))
                     .catch(e => console.warn('구름 문서 파일을 불러오지 못함: clouds/' + file, e));
             }
             function loadCloudDocs() {
                 if (!window.CloudDoc) return;
-                fetch('clouds/index.json', { cache: 'no-cache' })
+                fetch(assetUrl('clouds/index.json'), { cache: 'no-cache' })
                     .then(r => r.ok ? r.json() : null).catch(() => null)
                     .then(ix => { cloudIndex = ix || {}; for (const k of window.CloudDoc.SCENES) loadCloudDoc(k); });
             }
@@ -1541,7 +1557,7 @@
                         } catch (e) { lanReady = false; }
                     };
                     lanImg.onerror = () => { lanReady = false; };
-                    lanImg.src = 'lantern-front.svg';
+                    lanImg.src = assetUrl('lantern-front.svg');
                 } catch (e) { lanReady = false; }
             }
 
