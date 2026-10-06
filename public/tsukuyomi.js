@@ -2707,6 +2707,7 @@ void main() {
 
             // ---------- UI ----------
             let uiKey = '', lastNight = null, lastActive = '';
+            const elThumb = document.getElementById('thumb');
             // 상태가 향하는 목표: 'day' | 'dusk' | 'night'
             const targetOf = s => (s === 'day' || s === 'toDay' ? 'day' : s === 'dusk' || s === 'toDusk' ? 'dusk' : 'night');
             // 아이콘 클릭 → 현재 p에서 목표까지 자연스럽게 전환 (전환 중 재클릭도 현재 p에서 다시 시작)
@@ -2764,12 +2765,110 @@ void main() {
                         el.classList.toggle('on', on);
                         el.setAttribute('aria-pressed', on ? 'true' : 'false');
                     }
+                    moveThumb();
                 }
             }
 
-            if (elDay) elDay.addEventListener('click', () => goTo('day'));
-            if (elDusk) elDusk.addEventListener('click', () => goTo('dusk'));
-            if (elNight) elNight.addEventListener('click', () => goTo('night'));
+            // 강조 커서(thumb): 현재 시간 아이콘 위로 슬라이드 이동.
+            // 평소 1칸 버블(접힘)에서는 x=0, 펼침에서는 인덱스*칸 이동.
+            const ORDER = () => [elDay, elDusk, elNight];
+            const HOVER_OK = (() => { try { return window.matchMedia('(hover: hover)').matches; } catch (e) { return true; } })();
+            const TOUCH_UI = (() => { try { return window.matchMedia('(hover: none)').matches; } catch (e) { return false; } })();
+            let thumbInit = false;
+            function isExpanded() {
+                if (!elPanel) return false;
+                if (elPanel.classList.contains('expanded')) return true;
+                try {
+                    if (elPanel.matches(':focus-within')) return true;
+                    if (HOVER_OK && elPanel.matches(':hover')) return true;
+                } catch (e) { /* matches 미지원 */ }
+                return false;
+            }
+            function moveThumb(animate = true) {
+                if (!elThumb || !elPanel) return;
+                const btns = ORDER();
+                let idx = Math.max(0, btns.findIndex(b => b && b.classList.contains('on')));
+                const activeBtn = btns[idx] || btns[2];
+                if (!activeBtn) return;
+                const fullW = activeBtn.offsetWidth || 46;
+                const fullH = activeBtn.offsetHeight || 46;
+                // thumb 크기를 버튼에 맞춤 (46px PC / 48px 모바일)
+                if (elThumb.style.width !== fullW + 'px') elThumb.style.width = fullW + 'px';
+                if (elThumb.style.height !== fullH + 'px') elThumb.style.height = fullH + 'px';
+                const gap = 4; // .icongroup gap과 동일
+                const x = isExpanded() ? idx * (fullW + gap) : 0;
+                if (!thumbInit || !animate) {
+                    const prev = elThumb.style.transition;
+                    elThumb.style.transition = 'none';
+                    elThumb.style.transform = 'translateX(' + x + 'px)';
+                    // 강제 리플로우 후 transition 복원
+                    void elThumb.offsetWidth;
+                    elThumb.style.transition = prev;
+                    thumbInit = true;
+                } else {
+                    elThumb.style.transform = 'translateX(' + x + 'px)';
+                }
+            }
+
+            // 펼침/접힘에 맞춰 thumb도 함께 이동 (버튼 width 애니메이션과 같은 타이밍)
+            if (elPanel) {
+                elPanel.addEventListener('mouseenter', () => moveThumb());
+                elPanel.addEventListener('mouseleave', () => moveThumb());
+                elPanel.addEventListener('focusin', () => moveThumb());
+                elPanel.addEventListener('focusout', () => {
+                    // 포커스가 패널 밖으로 나갈 때만 접힘으로 간주
+                    setTimeout(() => moveThumb(), 0);
+                });
+                // 레이아웃 변화(반응형 버튼 크기) 시 thumb 재위치. 캔버스 resize와 별개로 가볍게 처리.
+                window.addEventListener('resize', () => moveThumb(false));
+                // 초기 위치 (애니메이션 없이)
+                requestAnimationFrame(() => moveThumb(false));
+                setTimeout(() => moveThumb(false), 300);
+            }
+
+            // 모바일(hover 없음): 클릭으로 펼침/접힘. 평소 1칸으로 달 반사를 가리지 않는다.
+            let collapseTimer = 0;
+            function onPick(target, btn) {
+                if (TOUCH_UI && elPanel) {
+                    const wasExpanded = elPanel.classList.contains('expanded');
+                    if (!wasExpanded) {
+                        elPanel.classList.add('expanded');
+                        moveThumb();
+                        return;
+                    }
+                    if (btn && btn.classList.contains('on')) {
+                        elPanel.classList.remove('expanded');
+                        clearTimeout(collapseTimer);
+                        moveThumb();
+                        return;
+                    }
+                    goTo(target);
+                    // thumb 슬라이드가 보이도록 잠시 펼침 유지 후 접기
+                    clearTimeout(collapseTimer);
+                    collapseTimer = setTimeout(() => {
+                        elPanel.classList.remove('expanded');
+                        moveThumb();
+                    }, 900);
+                    // 선택 직후 thumb를 새 위치로 (펼침 상태 기준)
+                    setTimeout(() => moveThumb(), 0);
+                    return;
+                }
+                goTo(target);
+            }
+            // 바깥 탭 시 접기 (모바일)
+            if (TOUCH_UI) {
+                document.addEventListener('pointerdown', e => {
+                    if (!elPanel || !elPanel.classList.contains('expanded')) return;
+                    if (e.target instanceof Element && elPanel.contains(e.target)) return;
+                    elPanel.classList.remove('expanded');
+                    clearTimeout(collapseTimer);
+                    moveThumb();
+                });
+            }
+
+            if (elDay) elDay.addEventListener('click', () => onPick('day', elDay));
+            if (elDusk) elDusk.addEventListener('click', () => onPick('dusk', elDusk));
+            if (elNight) elNight.addEventListener('click', () => onPick('night', elNight));
 
             // ---------- debug bridge (F12 패널용) ----------
             // tsukuyomi.debug.js가 이 객체를 통해 모든 파라미터를 수동 조절한다.

@@ -6,16 +6,9 @@
     'use strict';
 
     // ---------- DevTools 감지 + 패널 표시 ----------
-    const QS_DEBUG = (() => {
-        try { return new URLSearchParams(location.search).get('debug') === '1'; } catch (e) { return false; }
-    })();
-    const LS_KEY = 'tsukuyomi.debug';
-    const lsForced = (() => {
-        try { return localStorage.getItem(LS_KEY) === '1' || QS_DEBUG; } catch (e) { return QS_DEBUG; }
-    })();
-
-    let detectSrc = lsForced ? (QS_DEBUG ? 'query ?debug=1' : 'localStorage') : '';
-    let sizeOpen = false;
+    // 항상 숨김 정책: 어떤 자동 표시도 하지 않고 ` 또는 F12로만 호출한다.
+    // (?debug=1 / localStorage / DevTools 도크 감지 / FAB에 의한 자동 표시 없음)
+    let detectSrc = '';
     let panelVisible = false;
 
     // ---------- CFG 슬라이더 스키마 ----------
@@ -168,23 +161,26 @@
     function show(src) {
         if (src) detectSrc = src;
         panel.hidden = false;
+        // 항상 숨김 정책: 닫은 뒤에도 FAB을 띄우지 않는다 (`/F12로만 호출).
         fab.hidden = true;
         panelVisible = true;
         renderSrc();
     }
     function hide() {
         panel.hidden = true;
-        fab.hidden = false;
+        // 항상 숨김 정책: FAB도 함께 숨긴다.
+        fab.hidden = true;
         panelVisible = false;
+        detectSrc = '';
+        renderSrc();
     }
 
     function renderSrc() {
         const el = document.getElementById('tsdSrc');
         const dot = document.getElementById('tsdDot');
         if (!el || !dot) return;
-        el.textContent = detectSrc ? ('감지: ' + detectSrc) : '수동 표시';
-        const on = sizeOpen || !!detectSrc;
-        dot.className = 'tsd-dot ' + (on ? 'on' : 'off');
+        el.textContent = detectSrc ? ('감지: ' + detectSrc) : '숨김 상태 (`/F12)';
+        dot.className = 'tsd-dot off';
     }
 
     // ---------- 장면 상태 섹션 ----------
@@ -522,20 +518,8 @@
                 err.textContent = '';
             } catch (e) { err.textContent = 'JSON 오류: ' + e.message; }
         });
-        const forceRow = document.createElement('div');
-        forceRow.className = 'tsd-check';
-        const forceChk = document.createElement('input');
-        forceChk.type = 'checkbox'; forceChk.checked = lsForced;
-        forceChk.addEventListener('change', () => {
-            try {
-                if (forceChk.checked) localStorage.setItem(LS_KEY, '1');
-                else localStorage.removeItem(LS_KEY);
-            } catch (e) { /* 저장 실패 무시 */ }
-        });
-        forceRow.appendChild(forceChk);
-        forceRow.appendChild(document.createTextNode('이 브라우저에서 항상 패널 표시 (localStorage)'));
         row.appendChild(exp); row.appendChild(imp);
-        host.appendChild(ta); host.appendChild(err); host.appendChild(row); host.appendChild(forceRow);
+        host.appendChild(ta); host.appendChild(err); host.appendChild(row);
     }
 
     // ---------- 상태 읽기 ----------
@@ -558,21 +542,7 @@
     }
 
     // ---------- 감지 ----------
-    function checkSize() {
-        let open = false;
-        try {
-            const dw = window.outerWidth - window.innerWidth;
-            const dh = window.outerHeight - window.innerHeight;
-            open = dw > 160 || dh > 160;
-        } catch (e) { open = false; }
-        if (open && !sizeOpen) {
-            sizeOpen = true;
-            show('devtools(도크 감지)');
-        } else if (!open && sizeOpen) {
-            sizeOpen = false;
-            renderSrc();
-        }
-    }
+    // 항상 숨김 정책: DevTools 도크 감지로 자동 표시하지 않는다.
 
     function isTypingTarget(t) {
         return t instanceof Element && t.closest('input,textarea,select,[contenteditable="true"]') !== null;
@@ -589,19 +559,17 @@
             else hide();
             return;
         }
-        const k = e.key || '';
-        const mod = e.ctrlKey || e.metaKey;
-        const devShortcut =
-            k === 'F12' ||
-            (mod && e.shiftKey && (k === 'I' || k === 'J' || k === 'C' || k === 'i' || k === 'j' || k === 'c')) ||
-            (e.metaKey && e.altKey && (k === 'I' || k === 'i'));
-        if (devShortcut) show('단축키(' + (k === 'F12' ? 'F12' : k) + ')');
+        // F12만 패널을 연다. 다른 DevTools 단축키로는 자동 표시하지 않는다.
+        if ((e.key || '') === 'F12') show('단축키(F12)');
     });
 
     // ---------- 배선 ----------
     document.addEventListener('DOMContentLoaded', () => {
         document.body.appendChild(panel);
         document.body.appendChild(fab);
+        // 항상 숨김: FAB은 어떤 경우에도 표시하지 않는다.
+        fab.hidden = true;
+        fab.style.display = 'none';
         panel.querySelector('[data-act="close"]').addEventListener('click', hide);
         fab.addEventListener('click', () => show('수동(FAB)'));
         panel.querySelector('[data-act="collapse"]').addEventListener('click', ev => {
@@ -610,9 +578,8 @@
             body.style.display = hidden ? '' : 'none';
             ev.target.textContent = hidden ? '접기' : '펼치기';
         });
-        if (lsForced) show(detectSrc);
-        setInterval(checkSize, 800);
-        checkSize();
+        // 항상 숨김 정책: 자동 표시 없음. (`/F12 키로만 show)
+        renderSrc();
         waitBridge(b => {
             if (!b) return;
             buildScene(b);

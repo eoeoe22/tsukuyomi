@@ -131,18 +131,38 @@
         }
 
         .icongroup {
+            position: relative;
             display: flex;
             gap: 4px;
             padding: 4px;
             border-radius: var(--radius-pill);
             background: var(--track);
             box-shadow: var(--inset-sm);
-            transition: background-color 1.25s ease, box-shadow 1.25s ease;
+            transition: background-color 1.25s ease, box-shadow 1.25s ease, gap 0.35s ease;
+        }
+
+        /* 강조 커서: 현재 시간 아이콘 뒤에서 슬라이드 이동 */
+        .icongroup .thumb {
+            position: absolute;
+            left: 4px;
+            top: 4px;
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            background: var(--primary);
+            box-shadow: var(--raised-md);
+            z-index: 0;
+            pointer-events: none;
+            transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.35s ease, height 0.35s ease, background-color 1.25s ease, box-shadow 1.25s ease;
         }
 
         .icongroup button {
+            position: relative;
+            z-index: 1;
             width: 46px;
             height: 46px;
+            flex: 0 0 auto;
+            min-width: 46px;
             border: 0;
             border-radius: 50%;
             background: transparent;
@@ -153,7 +173,9 @@
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            transition: background-color 0.25s, color 0.25s, box-shadow 0.25s, transform 0.25s;
+            overflow: hidden;
+            white-space: nowrap;
+            transition: background-color 0.25s, color 0.25s, transform 0.25s, width 0.35s ease, min-width 0.35s ease, opacity 0.3s ease;
         }
 
         .icongroup button:hover {
@@ -165,9 +187,9 @@
         }
 
         .icongroup button.on {
-            background: var(--primary);
+            background: transparent;
             color: var(--on-primary);
-            box-shadow: var(--raised-md);
+            box-shadow: none;
         }
 
         .icongroup button:focus-visible {
@@ -177,6 +199,42 @@
 
         .panel.is-night .icongroup button:not(.on) {
             color: #9aa0ae;
+        }
+
+        /* 평소엔 1칸 버블: 현재 시간 아이콘만 표시, 나머지는 접기 */
+        @media (hover: hover) {
+            .panel:not(:hover):not(:focus-within):not(.expanded) .icongroup {
+                gap: 0;
+            }
+
+            .panel:not(:hover):not(:focus-within):not(.expanded) .icongroup button:not(.on) {
+                width: 0;
+                min-width: 0;
+                padding-left: 0;
+                padding-right: 0;
+                border-width: 0;
+                opacity: 0;
+                transform: scale(0.5);
+                pointer-events: none;
+            }
+        }
+
+        /* 터치(hover 없음): .expanded가 있을 때만 펼침 */
+        @media (hover: none) {
+            .panel:not(.expanded):not(:focus-within) .icongroup {
+                gap: 0;
+            }
+
+            .panel:not(.expanded):not(:focus-within) .icongroup button:not(.on) {
+                width: 0;
+                min-width: 0;
+                padding-left: 0;
+                padding-right: 0;
+                border-width: 0;
+                opacity: 0;
+                transform: scale(0.5);
+                pointer-events: none;
+            }
         }
 
         .sr-only {
@@ -218,11 +276,21 @@
             .icongroup button {
                 width: 48px;
                 height: 48px;
+                min-width: 48px;
+            }
+
+            .icongroup .thumb {
+                width: 48px;
+                height: 48px;
             }
 
             .icongroup button:active {
                 transform: scale(0.94);
                 transition-duration: 0.1s;
+            }
+
+            .panel:not(.expanded) .icongroup button.on:active {
+                transform: scale(0.94);
             }
         }
 
@@ -233,6 +301,7 @@
 
             .panel,
             .icongroup,
+            .icongroup .thumb,
             .icongroup button {
                 transition: none;
             }
