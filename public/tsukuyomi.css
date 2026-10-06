@@ -130,6 +130,20 @@
             --inset-sm: inset 2px 2px 4px var(--night-shadow-dark), inset -2px -2px 4px var(--night-shadow-light);
         }
 
+        /* 초기 1회성 황혼→밤 전환 중에는 시간대 전환 UI를 숨긴다 (JS가 완료 시점에 제거) */
+        .panel.intro-hidden {
+            opacity: 0;
+            transform: translateY(20px);
+            visibility: hidden;
+            pointer-events: none;
+            animation: none;
+        }
+
+        /* 인트로 완료 후 아래에서 올라오기 */
+        .panel.intro-enter {
+            animation: fadeInUp 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        }
+
         .icongroup {
             position: relative;
             display: flex;
@@ -295,7 +309,8 @@
         }
 
         @media (prefers-reduced-motion: reduce) {
-            .panel {
+            .panel,
+            .panel.intro-enter {
                 animation: none;
             }
 

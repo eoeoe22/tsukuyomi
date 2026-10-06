@@ -2720,6 +2720,19 @@ void main() {
 
             // ---------- UI ----------
             let uiKey = '', lastNight = null, lastActive = '';
+            // 초기 1회성 황혼→밤 전환이 끝나기 전에는 시간대 전환 UI를 숨긴다.
+            // HTML의 .intro-hidden을 첫 안정 상태 진입 시점에 떼고 아래에서 올라오는 애니메이션으로 보여준다.
+            let introDone = false;
+            function revealIntroPanel() {
+                if (introDone || !elPanel) return;
+                introDone = true;
+                elPanel.classList.remove('intro-hidden');
+                // 리플로우 후 애니메이션 클래스를 붙여야 매번 fadeInUp이 재생된다
+                void elPanel.offsetWidth;
+                elPanel.classList.add('intro-enter');
+                elPanel.addEventListener('animationend', () => elPanel.classList.remove('intro-enter'), { once: true });
+                moveThumb(false);
+            }
             const elThumb = document.getElementById('thumb');
             // 상태가 향하는 목표: 'day' | 'dusk' | 'night'
             const targetOf = s => (s === 'day' || s === 'toDay' ? 'day' : s === 'dusk' || s === 'toDusk' ? 'dusk' : 'night');
@@ -2752,6 +2765,9 @@ void main() {
                 }
             }
             function updateUI() {
+                // 초기 toNight가 끝나고 처음 안정 상태(night/day/dusk)에 닿으면 UI를 올린다.
+                // (디버그로 인트로를 중단하고 다른 상태로 점프해도 그 시점에 노출)
+                if (!introDone && state !== 'toNight') revealIntroPanel();
                 let status;
                 const active = targetOf(state);
                 if (state === 'day') status = '낮';
@@ -3017,6 +3033,9 @@ void main() {
                         sunVis = 0; svFrom = 0; svTo = 0;
                         state = 'toNight'; p = 0; tState = 0; tNight = 0;
                         phi = 0; phiTail = null; omega = 0; debugHold = false; debugPaused = false;
+                        // 인트로 리플레이: 전환 UI를 다시 숨겼다가 완료 시점에 올린다
+                        introDone = false;
+                        if (elPanel) { elPanel.classList.remove('intro-enter'); elPanel.classList.add('intro-hidden'); }
                         buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); resize();
                     },
                     ripple(xn = 0.5, sn = 0.5) {
