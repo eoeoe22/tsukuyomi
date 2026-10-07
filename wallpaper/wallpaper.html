@@ -21,16 +21,19 @@
     <canvas id="fg" aria-hidden="true"></canvas>
 
     <!-- 하단 시간대 UI: 코어가 참조하므로 DOM은 유지하고, 표시는 wallpaper.css에서 숨긴다.
-         장면 선택은 Wallpaper Engine 옵션(scene)으로 대체한다. -->
+         장면 선택은 Wallpaper Engine 옵션(scene)으로 대체한다. btnMirror는 미러볼
+         코어(elMirror 참조) 대응용으로 함께 둔다. -->
     <div class="dock" aria-hidden="true">
         <section class="panel intro-hidden" id="panel" aria-label="장면 전환">
-            <div class="icongroup" id="icongroup" role="group" aria-label="낮 / 황혼 / 밤 선택">
+            <div class="icongroup" id="icongroup" role="group" aria-label="낮 / 황혼 / 밤 / 미러볼 선택">
                 <span class="thumb" id="thumb" aria-hidden="true"></span>
                 <button type="button" id="btnDay" aria-label="낮" aria-pressed="false" tabindex="-1"><i class="bi bi-sun-fill"
                         aria-hidden="true"></i></button>
                 <button type="button" id="btnDusk" aria-label="황혼" aria-pressed="false" tabindex="-1"><i
                         class="bi bi-brightness-alt-high-fill" aria-hidden="true"></i></button>
                 <button type="button" id="btnNight" class="on" aria-label="밤" aria-pressed="true" tabindex="-1"><i class="bi bi-moon-fill"
+                        aria-hidden="true"></i></button>
+                <button type="button" id="btnMirror" aria-label="미러볼" aria-pressed="false" tabindex="-1"><i class="bi bi-globe2"
                         aria-hidden="true"></i></button>
             </div>
             <span class="sr-only" id="status" aria-live="polite"></span>

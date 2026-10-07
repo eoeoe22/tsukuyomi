@@ -62,6 +62,7 @@
             const elDay = document.getElementById('btnDay');
             const elDusk = document.getElementById('btnDusk');
             const elNight = document.getElementById('btnNight');
+            const elMirror = document.getElementById('btnMirror');
 
             // ---------- tunable params (F12 debug UI에서 수동 조절) ----------
             // 모든 수치 파라미터는 CFG 하나로 모음. 기본값 = 기존 하드코딩 값과 동일.
@@ -80,6 +81,8 @@
                 POLE_X: 0.25, POLE_Y: 0.27,
                 SUN_F: 0.03, SUN_MIN: 14, SUN_MAX: 34,
                 MOON_F: 0.026, MOON_MIN: 12, MOON_MAX: 28,
+                // MOON_SIZE: 달(미러볼) 크기 배율. moonR 계산 마지막에 곱한다.
+                MOON_SIZE: 2,
                 TORII_SCALE: 0.7, TORII_X: 0.76, TORII_BASE: 0.75,
                 // TORII_X는 토리이 중심과 달 중심이 공유하는 수직선 (항상 같은 x)
                 MOON_Y: 0.34,
@@ -345,11 +348,13 @@
             // ---------- state ----------
             let W = 0, H = 0, HZ = 0, dpr = 1, R = 1;
             let pole = { x: 0, y: 0 }, sunR = 20, moonR = 18;
-            let state = 'toNight', p = 0, tState = 0, tNight = 0;
+            // (임시) 최초 접속 황혼→밤 인트로 비활성: false = 황혼 idle로 시작. true로 되돌리면 기존 인트로 복원.
+            const INTRO_NIGHT = false;
+            let state = INTRO_NIGHT ? 'toNight' : 'dusk', p = 0, tState = 0, tNight = 0;
             // 진행 중인 전환의 시작/목표 p (클릭 시 현재 p에서 캡처 → 어디서든 자연스럽게 전환)
             // P_DAY/P_DUSK가 모두 0이어도 낮/황혼을 구분할 수 있게 목표 타입을 별도로 보관한다.
-            // 기본값은 밤: 최초 접속 시 황혼(p=0, 황혼 타입)에서 밤으로 자동 전환한다.
-            let transFrom = 0, transTo = 1, transTarget = 'night';
+            // INTRO_NIGHT면 최초 접속 시 황혼(p=0, 황혼 타입)에서 밤으로 자동 전환한다.
+            let transFrom = 0, transTo = INTRO_NIGHT ? 1 : 0, transTarget = INTRO_NIGHT ? 'night' : 'dusk';
             // duskW: 0 = 낮 타입(푸른 하늘), 1 = 황혼 타입(주황 하늘). p≈0에서만 색을 가른다.
             // p >= DUSK_Q 구간에서는 duskW와 무관하게 항상 같은 황혼 corridor이므로
             // 낮-밤 전환의 중간부는 타입에 관계없이 항상 황혼을 거친다.
@@ -361,7 +366,7 @@
             // 낮/황혼 idle 모두 nk = 0에서 시작하므로 최대 태양 고도가 동일하고,
             // p와 함께 연속으로만 움직이므로 전환 중 점프가 없다.
             // 태양 위치/소멸/여광이 모두 nk에 묶이며, toNight에서는 T_SUNSET으로 하늘(T_NIGHT)보다 먼저 진다.
-            let nk = 0, nkFrom = 0, nkTo = 1;
+            let nk = 0, nkFrom = 0, nkTo = INTRO_NIGHT ? 1 : 0;
             // 태양 원반 가시도: 낮 = 1, 황혼 = 0(원반 없이 좌상단 광원만). toDay/toDusk에서만 보간하고
             // toNight에서는 출발값을 유지한다 (낮→밤은 해가 지고, 황혼→밤은 원반 없이 진행).
             // 인트로 출발이 황혼이므로 초기값은 황혼(0)이다.
@@ -398,6 +403,664 @@
             let lanCW = 0, lanCH = 0, lanBodyH = 0;
             // reflection adaptive step governor (ROW_STEP=최소, REFL_MAX_STEP=상한)
             let reflStep = 8, reflLastBase = 8, reflEMA = 16, reflCool = 0;
+
+            // ---------- mirrorball moon (미러볼 SVG 생성기 기본값) ----------
+            // 생성기 기본값에서 조정: tilt -32, step 9.5, gap 0.14, jit 0.06, off 1, seed 11,
+            // tile #dfe4ea, grout #d3e3e9(밝은 줄눈), dark #5a8696(은빛 타일 그늘) — 상부는 media/mirrorball-ref.png 기준, light #eaf7ff, glowC #fff3f1,
+            // pole 0.3, poleR 58, veil 0.8, veilR 0.36, haze 0.47, bloom 0.3,
+            // teal 0.6(상부 타일을 어두운 청록 그늘 쪽으로 균일하게), tjit 0(타일별 랜덤 편차, 어두운 쪽 기준으로 밝게만), sheen 0.6(은빛 그라디언트),
+            // glint 0.1, gcount 6, gturn 0.22, ghold 0.14, gacc 0.08, gspd 2.5, gwhite 0.74.
+            // 40초 주기로 균일 자전. 본체는 캐시 캔버스에 굽고(0.6° 이상 돌아야 다시 그림),
+            // 줄눈 빛줄기는 하늘에 라이브로 그린다. 발사 트리거는 미러볼 클릭.
+            const MB = {
+                tilt: -32, step: 9.5, gap: 0.14, jit: 0.06, off: 1, seed: 11,
+                tile: '#dfe4ea', grout: '#d3e3e9', dark: '#5a8696', light: '#eaf7ff', glowC: '#fff3f1',
+                pole: 0.3, poleR: 58, veil: 0.8, veilR: 0.36, haze: 0.47, bloom: 0.3,
+                teal: 0.6, tjit: 0, sheen: 0.6,
+                glint: 0.1, gcount: 6, gturn: 0.22, ghold: 0.14, gacc: 0.08, gspd: 2.5, gwhite: 0.74
+            };
+            const MB_REF = { amb: 0.30, glow: 1.15, pw: 1.4, njit: 1.2, rim: 0.5, side: [0.5, 0.6, 0.64] };
+            const MB_PERIOD = 40;
+            const MB_DEFAULTS = JSON.parse(JSON.stringify(MB));
+            const MB_S = 280, MB_C = 140, MB_R = 124;
+            const MB_POLE_LIMIT = 60, MB_SLOW = 0.1, MB_LN10 = Math.LN10;
+            const MB_LON_SPAN = 300;   // 줄눈 경로의 총 경도 이동 한계(극周回=수바퀴 맴돎 방지)
+            let mbTiles = [], mbRows = [], mbRot = 0, mbT = 0, mbStreaks = [];
+            let mbSpin = true;   // false면 자전 정지 (빛줄기 진행은 계속)
+            let mbMX = 0, mbMY = 0, mbMR = 0, mbMV = 0;   // 클릭 히트 판정용(화면 px)
+            const mbBody = document.createElement('canvas');
+            mbBody.width = MB_S; mbBody.height = MB_S;
+            const MBG = mbBody.getContext('2d');
+            let mbBodyRot = NaN;
+            const mbRad = d => d * Math.PI / 180;
+            const mbSys = tilt => { const T = mbRad(tilt); return { ct: Math.cos(T), st: Math.sin(T) }; };
+            const mbV = (lat, lon, s) => {
+                const la = mbRad(lat), lo = mbRad(lon);
+                const x = Math.cos(la) * Math.sin(lo), y = Math.sin(la), z = Math.cos(la) * Math.cos(lo);
+                return [x, y * s.ct - z * s.st, y * s.st + z * s.ct];
+            };
+            const mbPj = (lat, lon, s) => { const q = mbV(lat, lon, s); return [MB_C + MB_R * q[0], MB_C - MB_R * q[1]]; };
+            function mbBuildAll() {
+                const rnd = mulberry32(MB.seed), rndR = mulberry32((MB.seed ^ 0x85ebca6b) >>> 0), rndB = mulberry32((MB.seed ^ 0x27d4eb2f) >>> 0);
+                mbTiles = [];
+                const rows = Math.ceil(180 / MB.step);
+                for (let i = 0; i < rows; i++) {
+                    const lat = -90 + i * MB.step, lat2 = Math.min(90, lat + MB.step), mid = (lat + lat2) / 2;
+                    const n = Math.max(4, Math.round(360 * Math.cos(mbRad(mid)) / MB.step));
+                    const ws = []; let sum = 0;
+                    for (let j = 0; j < n; j++) { const w = 1 + (rnd() * 2 - 1) * MB.jit; ws.push(w); sum += w; }
+                    const lonStart = (rnd() * MB.off) * (360 / n);
+                    let lon = lonStart;
+                    for (let j = 0; j < n; j++) {
+                        const tw = ws[j] * 360 / sum;
+                        mbTiles.push({
+                            lat, lat2, mid, lon0: lon, tw,
+                            jLat: (rndR() * 2 - 1) * MB_REF.njit, jLon: (rndR() * 2 - 1) * MB_REF.njit,
+                            jB: rndB() * 2 - 1   // 타일별 반사 밝기 편차(상부 청회색 구간에만 적용)
+                        });
+                        lon += tw;
+                    }
+                }
+                const m = new Map();
+                for (const t of mbTiles) {
+                    let r = m.get(t.lat);
+                    if (!r) { r = { lat: t.lat, lat2: t.lat2, edges: [] }; m.set(t.lat, r); }
+                    r.edges.push(((t.lon0 % 360) + 360) % 360);
+                }
+                mbRows = [...m.values()].sort((a, b) => a.lat - b.lat);
+                mbRows.forEach(r => r.edges.sort((a, b) => a - b));
+                mbStreaks = []; mbBodyRot = NaN;
+            }
+            function mbLit(n, mid, jB = 0) {
+                const nz = Math.max(0, n[2]);
+                const bb = (MB_REF.amb + MB_REF.glow * Math.pow(Math.max(0, -n[1]), MB_REF.pw)) * (0.45 + 0.55 * nz);
+                const pr = Math.max(0.001, mbRad(MB.poleR));
+                const pu = Math.max(0, 1 - mbRad(mid + 90) / pr);
+                const f = pu * pu * (3 - 2 * pu);
+                const b = bb + MB.pole * f * 1.2;
+                // 상부(b<1)는 은빛 타일: 그늘(dark) → tile. 타일별 편차를 크게 줘 금속 반사처럼 들쭉날쭉하게,
+                // 가장자리로 갈수록 프레넬로 밝아진다(레퍼런스 림). 줄눈은 반대로 밝다(레퍼런스의 흰 테두리).
+                const DR = hex(MB.dark), TR = hex(MB.tile), LR = hex(MB.light), GR = hex(MB.grout);
+                let fr, fg, fb;
+                if (b < 1) {
+                    const e = 1 - nz, u = Math.min(1, Math.max(0, (Math.max(0, b) + MB_REF.rim * e * e * e) * (1 - MB.teal) + MB.tjit * (jB + 1) * 0.5));
+                    fr = DR[0] + (TR[0] - DR[0]) * u; fg = DR[1] + (TR[1] - DR[1]) * u; fb = DR[2] + (TR[2] - DR[2]) * u;
+                } else {
+                    const u = Math.min(1, b - 1);
+                    fr = TR[0] + (LR[0] - TR[0]) * u; fg = TR[1] + (LR[1] - TR[1]) * u; fb = TR[2] + (LR[2] - TR[2]) * u;
+                }
+                // 타일 옆면(줄눈 쪽 경사면): 상부는 밝은 줄눈색, 빛 비침(b≥1) 쪽은 기존 그늘로 이어진다.
+                const sd = MB_REF.side, w = clamp((1.2 - b) / 0.4, 0, 1);
+                const side = [0, 1, 2].map(i => { const d = [fr, fg, fb][i] * sd[i]; return d + (GR[i] - d) * w; });
+                return { b, f, w, front: [fr, fg, fb], side };
+            }
+            function mbRenderBody() {
+                const g = MBG, s = mbSys(MB.tilt), K = 1 - MB.gap, fk = MB_R / 200;
+                g.setTransform(1, 0, 0, 1, 0, 0);
+                g.clearRect(0, 0, MB_S, MB_S);
+                g.save();
+                g.beginPath(); g.arc(MB_C, MB_C, MB_R, 0, Math.PI * 2);
+                g.fillStyle = MB.grout; g.fill(); g.clip();
+                const tops = [], bots = [], capQ = [];
+                for (const t of mbTiles) {
+                    const midLon = t.lon0 + t.tw / 2 + mbRot;
+                    if (mbV(t.mid, midLon, s)[2] <= 0) continue;
+                    const lon0 = t.lon0 + mbRot, lon1 = lon0 + t.tw;
+                    const pts = [mbPj(t.lat, lon0, s), mbPj(t.lat, lon1, s), mbPj(t.lat2, lon1, s), mbPj(t.lat2, lon0, s)];
+                    const cx = (pts[0][0] + pts[1][0] + pts[2][0] + pts[3][0]) / 4;
+                    const cy = (pts[0][1] + pts[1][1] + pts[2][1] + pts[3][1]) / 4;
+                    const fx = pts.map(q => [cx + (q[0] - cx) * K, cy + (q[1] - cy) * K]);
+                    const L = mbLit(mbV(t.mid + t.jLat, midLon + t.jLon, s), t.mid, t.jB);
+                    g.beginPath();
+                    pts.forEach((q, k) => { k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); });
+                    g.closePath(); g.fillStyle = rgba(L.side); g.fill();
+                    g.beginPath();
+                    fx.forEach((q, k) => { k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); });
+                    g.closePath();
+                    const FS = rgba(L.front);
+                    if (L.w > 0 && MB.sheen > 0) {
+                        // 은빛 질감(sheen): 타일 대각선으로 그늘 → 본색 → 하이라이트.
+                        // 일부 타일(tjit에 비례, tjit 0.25 이상이면 절반)만 방향을 뒤집어 반짝임을 흩뜨린다. tjit 0이면 전부 같은 방향.
+                        const [p0, p1] = t.jB > 1 - 4 * MB.tjit ? [fx[1], fx[3]] : [fx[0], fx[2]];
+                        const lg = g.createLinearGradient(p0[0], p0[1], p1[0], p1[1]);
+                        const c = L.front, sw = L.w * MB.sheen, hw = 0.5 * sw;
+                        lg.addColorStop(0, rgba(c.map(v => v * (1 - 0.3 * sw))));
+                        lg.addColorStop(0.5, FS);
+                        lg.addColorStop(1, rgba(c.map((v, i) => v + ([244, 251, 255][i] - v) * hw)));
+                        g.fillStyle = lg;
+                    } else g.fillStyle = FS;
+                    g.fill();
+                    tops.push([fx[3], fx[2]]); bots.push([fx[0], fx[1]]);
+                    if (L.f > 0.15) capQ.push([fx, FS]);
+                }
+                g.strokeStyle = 'rgba(222,244,248,0.9)'; g.lineWidth = 1.2 * fk;
+                g.beginPath();
+                for (const [a, b] of tops) { g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
+                g.stroke();
+                g.strokeStyle = 'rgba(0,0,0,0.2)'; g.lineWidth = 1 * fk;
+                g.beginPath();
+                for (const [a, b] of bots) { g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
+                g.stroke();
+                // 실루엣 림: 가장자리 10%가 밝은 청백으로 번진다 (레퍼런스 r0.9~1.0)
+                const rimG = g.createRadialGradient(MB_C, MB_C, MB_R * 0.74, MB_C, MB_C, MB_R);
+                rimG.addColorStop(0, 'rgba(226,240,245,0)');
+                rimG.addColorStop(0.6, 'rgba(226,240,245,0.3)');
+                rimG.addColorStop(0.9, 'rgba(234,246,248,0.8)');
+                rimG.addColorStop(1, 'rgba(238,247,249,0.55)');
+                g.fillStyle = rimG; g.fillRect(0, 0, MB_S, MB_S);
+                if (MB.veil > 0 || MB.haze > 0) {
+                    const cy = MB_C + MB_R * (s.st < 0 ? s.ct : 1), rg = MB_R * 2.1;
+                    const gr = g.createRadialGradient(MB_C, cy, 0, MB_C, cy, rg);
+                    const sm = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+                    const GC = hex(MB.glowC);
+                    for (let k = 0; k <= 16; k++) {
+                        const t = k / 16;
+                        const u = t / Math.max(0.02, MB.veilR);
+                        const core = Math.exp(-2.2 * u * u);
+                        const skirt = 0.35 * (1 - sm(0, 1, u * 0.55));
+                        const tail = MB.haze * (1 - 0.5 * t);
+                        const a = Math.min(0.96, Math.max(0, 1 - (1 - MB.veil * core) * (1 - MB.veil * skirt) * (1 - tail)));
+                        gr.addColorStop(t, `rgba(${GC[0] | 0},${GC[1] | 0},${GC[2] | 0},${a.toFixed(3)})`);
+                    }
+                    g.fillStyle = gr; g.fillRect(0, 0, MB_S, MB_S);
+                }
+                if (MB.bloom > 0 && capQ.length && FILTER_OK) {
+                    g.save();
+                    g.beginPath(); g.arc(MB_C, MB_C, MB_R, 0, Math.PI * 2); g.clip();
+                    g.globalCompositeOperation = 'lighter';
+                    g.globalAlpha = MB.bloom * 0.65;
+                    g.filter = `blur(${((4 + MB.bloom * 10) * fk).toFixed(1)}px)`;
+                    for (const [q, c] of capQ) {
+                        g.beginPath();
+                        q.forEach((p, k) => { k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); });
+                        g.closePath(); g.fillStyle = c; g.fill();
+                    }
+                    g.restore();
+                }
+                g.restore();
+                mbBodyRot = mbRot;
+            }
+            // ---- 줄눈 빛줄기: 타일 사이 줄눈을 따라 흐르는 글린트 (생성기와 동일 경로 규칙) ----
+            const mbRowOK = i => { const r = mbRows[i]; return !!r && Math.abs(r.lat) <= MB_POLE_LIMIT && Math.abs(r.lat2) <= MB_POLE_LIMIT; };
+            function mbTileAt(i, L) {
+                const E = mbRows[i].edges, n = E.length, Ln = ((L % 360) + 360) % 360;
+                let j = n - 1;
+                for (let q = 0; q < n; q++) { if (E[q] <= Ln) j = q; else break; }
+                let ta = E[j], tb = E[(j + 1) % n];
+                if (tb <= ta) tb += 360;
+                if (Ln < ta) { ta -= 360; tb -= 360; }
+                const off = L - Ln;
+                return { i, a: ta + off, b: tb + off };
+            }
+            function mbTileCluster(t) {
+                const out = [t, mbTileAt(t.i, t.a - 0.01), mbTileAt(t.i, t.b + 0.01)];
+                const m = (t.a + t.b) / 2;
+                for (const r of [t.i + 1, t.i - 1]) {
+                    if (!mbRowOK(r)) continue;
+                    const T = mbTileAt(r, m);
+                    out.push(T, m < (T.a + T.b) / 2 ? mbTileAt(r, T.a - 0.01) : mbTileAt(r, T.b + 0.01));
+                }
+                return out;
+            }
+            function mbBuildPath(st0) {
+                const s = mbSys(MB.tilt), nR = mbRows.length, pg = MB.gturn;
+                const zv = (la, lo) => mbV(la, lo + mbRot, s)[2];
+                let la = st0.la, x = st0.x, st = st0, last = 0;
+                const P = [[la, x]];
+                let arc = 0;
+                const x0 = x;
+                if (Math.abs(la) > MB_POLE_LIMIT) return { P, cum: [0], total: 0 };
+                for (let it = 0; it < 800; it++) {
+                    if (st.mode === 'v') {
+                        const row = mbRows[st.i];
+                        const nl = st.dv > 0 ? row.lat2 : row.lat;
+                        if (Math.abs(nl) > MB_POLE_LIMIT) break;   // 극캡 진입 차단: 하부 극점 맴돎 방지
+                        arc += Math.abs(nl - la); la = nl; P.push([la, x]);
+                        if (zv(la, x) < -0.2) break;
+                        const side = last ? -last : (Math.random() < 0.5 ? -1 : 1);
+                        const east = st.dv > 0 ? side === 1 : side === -1;
+                        last = side;
+                        st = { mode: 'h', k: st.dv > 0 ? st.i + 1 : st.i, dh: east ? 1 : -1 };
+                    } else {
+                        if (Math.abs(la) > MB_POLE_LIMIT) break;   // 극 위도선 위 주행 금지
+                        const k = st.k, up = k < nR ? mbRows[k] : null, dn = k >= 1 ? mbRows[k - 1] : null;
+                        let best = 1e9, kind = 0;
+                        const scan = (E, kd) => {
+                            for (const e of E) {
+                                const d = (((e - x) * st.dh) % 360 + 360) % 360;
+                                if (d < 1e-6) continue;
+                                if (d < best - 1e-6) { best = d; kind = kd; } else if (d < best + 1e-6) kind |= kd;
+                            }
+                        };
+                        if (up) scan(up.edges, 1);
+                        if (dn) scan(dn.edges, 2);
+                        if (best > 360) break;
+                        x += st.dh * best; arc += best * Math.cos(mbRad(la)); P.push([la, x]);
+                        if (zv(la, x) < -0.2 || arc > 720 || Math.abs(x - x0) > MB_LON_SPAN) break;   // 극周回 차단
+                        if (Math.random() < pg) {
+                            const c = [];
+                            if ((kind & 1) && mbRowOK(k)) c.push({ side: st.dh > 0 ? -1 : 1, dv: 1, i: k });
+                            if ((kind & 2) && mbRowOK(k - 1)) c.push({ side: st.dh > 0 ? 1 : -1, dv: -1, i: k - 1 });
+                            const ok = c.filter(q => q.side !== last);
+                            if (ok.length) { const q = ok[Math.floor(Math.random() * ok.length)]; last = q.side; st = { mode: 'v', i: q.i, dv: q.dv }; }
+                        }
+                    }
+                }
+                const cum = [0];
+                for (let j = 1; j < P.length; j++) cum.push(cum[j - 1] + Math.abs(P[j][0] - P[j - 1][0]) + Math.abs(P[j][1] - P[j - 1][1]) * Math.cos(mbRad(P[j][0])));
+                return { P, cum, total: cum[cum.length - 1] };
+            }
+            // ---- 위아래행 줄눈 경로: 자오선(세로 줄눈)을 따라 단조롭게 상승/하강 ----
+            // 행 경계마다 다음 행의 가장 가까운 세로 줄눈으로 미세 스냅(수평 조그 최소)하고 계속 직진한다.
+            // 좌우 대각선 경로(계단형)와 1:2 비율로 섞어 쓴다.
+            function mbBuildPathV(st0) {
+                const s = mbSys(MB.tilt);
+                const zv = (la, lo) => mbV(la, lo + mbRot, s)[2];
+                let la = st0.la, x = st0.x, i = st0.j;
+                const dir = st0.dv > 0 ? 1 : -1;
+                const P = [[la, x]];
+                let arc = 0;
+                const x0 = x;
+                if (!mbRows[i] || Math.abs(la) > MB_POLE_LIMIT) return { P, cum: [0], total: 0 };
+                for (let it = 0; it < 40; it++) {
+                    if (!mbRowOK(i)) break;
+                    const row = mbRows[i];
+                    let bj = 0, found = false;
+                    for (const e of row.edges) {
+                        let d = ((e - x) % 360 + 360) % 360;
+                        if (d > 180) d -= 360;
+                        if (!found || Math.abs(d) < Math.abs(bj)) { bj = d; found = true; }
+                    }
+                    if (!found) break;
+                    if (Math.abs(bj) > 1e-6) {
+                        x += bj; arc += Math.abs(bj) * Math.cos(mbRad(la)); P.push([la, x]);
+                    }
+                    const nl = dir > 0 ? row.lat2 : row.lat;
+                    if (Math.abs(nl) > MB_POLE_LIMIT) break;
+                    arc += Math.abs(nl - la); la = nl; P.push([la, x]);
+                    if (zv(la, x) < -0.2 || arc > 720 || Math.abs(x - x0) > MB_LON_SPAN) break;
+                    i += dir;
+                }
+                const cum = [0];
+                for (let j = 1; j < P.length; j++) cum.push(cum[j - 1] + Math.abs(P[j][0] - P[j - 1][0]) + Math.abs(P[j][1] - P[j - 1][1]) * Math.cos(mbRad(P[j][0])));
+                return { P, cum, total: cum[cum.length - 1] };
+            }
+            function mbPathAt(pt, sv) {
+                const { P, cum } = pt;
+                let j = 0;
+                while (j < cum.length - 2 && cum[j + 1] < sv) j++;
+                const d = cum[j + 1] - cum[j], t = d > 0 ? Math.min(1, Math.max(0, (sv - cum[j]) / d)) : 0;
+                return [P[j][0] + (P[j + 1][0] - P[j][0]) * t, P[j][1] + (P[j + 1][1] - P[j][1]) * t];
+            }
+            function mbFire() {
+                if (!mbRows.length || MB.glint <= 0 || RM.matches) return;
+                const s = mbSys(MB.tilt), dg = 180 / Math.PI;
+                let center = null;
+                for (let tries = 0; tries < 30 && !center; tries++) {
+                    const X = Math.random() * 2 - 1, Y = Math.random() * 2 - 1, Z2 = 1 - X * X - Y * Y;
+                    if (Z2 < 0.25) continue;
+                    const Z = Math.sqrt(Z2);
+                    const y = Y * s.ct + Z * s.st, z = -Y * s.st + Z * s.ct;
+                    const lat = Math.asin(Math.max(-1, Math.min(1, y))) * dg;
+                    const i = Math.floor((lat + 90) / MB.step);
+                    if (!mbRowOK(i) || !mbRowOK(i + 1) || !mbRowOK(i - 1)) continue;
+                    center = mbTileAt(i, Math.atan2(X, z) * dg - mbRot);
+                }
+                if (!center) return;
+                const cl = mbTileCluster(center);
+                for (let q = cl.length - 1; q > 0; q--) { const r = Math.floor(Math.random() * (q + 1));[cl[q], cl[r]] = [cl[r], cl[q]]; }
+                for (let n = 0; n < MB.gcount; n++) {
+                    const T = cl[n % cl.length], row = mbRows[T.i];
+                    const top = Math.random() < 0.5, left = Math.random() < 0.5;
+                    const la = top ? row.lat2 : row.lat, x = left ? T.a : T.b;
+                    const vert = Math.random() < 1 / 3;   // 위아래행: 좌우 대각선의 절반 확률
+                    let path;
+                    if (vert) {
+                        const dir = Math.random() < 0.5 ? 1 : -1;
+                        const j = dir > 0 ? (top ? T.i + 1 : T.i) : (top ? T.i : T.i - 1);
+                        if (!mbRowOK(j)) continue;
+                        path = mbBuildPathV({ la, x, j, dv: dir });
+                    } else {
+                        const k = top ? T.i + 1 : T.i;
+                        const r = Math.random();
+                        const st0 = r < 0.34 ? { mode: 'v', i: T.i, dv: top ? -1 : 1, la, x }
+                            : { mode: 'h', k, dh: r < 0.67 ? 1 : -1, la, x };
+                        path = mbBuildPath(st0);
+                    }
+                    if (path.total < 1) continue;
+                    const red0 = Math.random() < 0.5;   // 초기 색상: 50% 빨강, 나머지 초록
+                    mbStreaks.push({
+                        path, spd: (300 + Math.random() * 160) * MB.gspd, len: 32 + Math.random() * 30,
+                        hold: MB.ghold, acc: MB.gacc, t0: mbT + (n === 0 ? 0 : Math.random() * 0.08),
+                        ph: Math.random(), k: 0.85 + Math.random() * 0.25,
+                        red0, backG: red0 && Math.random() < 0.5   // 빨강 중 50%만 가속 중간에 초록으로 복귀
+                    });
+                }
+            }
+            function mbTravel(st, age) {
+                if (age <= 0) return 0;
+                const v = st.spd, h = st.hold, a = st.acc;
+                if (age < h) return v * MB_SLOW * age;
+                let d = v * MB_SLOW * h, t = age - h;
+                if (a > 0) {
+                    if (t < a) return d + v * MB_SLOW * a / MB_LN10 * (Math.pow(10, t / a) - 1);
+                    d += v * (1 - MB_SLOW) * a / MB_LN10; t -= a;
+                }
+                return d + v * t;
+            }
+            function mbUpdateStreaks() {
+                mbStreaks = mbStreaks.filter(st => mbTravel(st, mbT - st.t0) - st.len < st.path.total);
+            }
+            function mbHsl(h, sat, l) {
+                const a = sat * Math.min(l, 1 - l);
+                const f = n => { const kk = (n + h / 30) % 12; return 255 * (l - a * Math.max(-1, Math.min(kk - 3, 9 - kk, 1))); };
+                return [f(0), f(8), f(4)];
+            }
+            function mbGlintRGB(p, w) {
+                const h = 60 * (1 - Math.cos(2 * Math.PI * p));
+                const c = mbHsl(h, 1, 0.55);
+                return [255 * w + c[0] * (1 - w), 255 * w + c[1] * (1 - w), 255 * w + c[2] * (1 - w)];
+            }
+            // ds: 경로 샘플 간격(도). 꺾이는 지점(cum)은 간격과 무관하게 항상 포함된다.
+            function mbStreakGeom(ds = 1) {
+                const s = mbSys(MB.tilt), w = MB.gwhite;
+                const gapPx = Math.max(0.6, MB.gap * MB_R * mbRad(MB.step));
+                const segs = [];
+                const sm = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+                for (const st of mbStreaks) {
+                    if (mbT < st.t0) continue;
+                    const pt = st.path, sHead = mbTravel(st, mbT - st.t0), sTail = sHead - st.len;
+                    const a = Math.max(0, sTail), b = Math.min(pt.total, sHead);
+                    if (b - a < 0.05) continue;
+                    const sv = [a, b];
+                    for (let v = a + ds; v < b; v += ds) sv.push(v);
+                    for (const c of pt.cum) if (c > a && c < b) sv.push(c);
+                    sv.sort((p, q) => p - q);
+                    const env = MB.glint * st.k;
+                    const P = sv.map(v => { const [la, lo] = mbPathAt(pt, v); const q = mbV(la, lo + mbRot, s); return [MB_C + MB_R * q[0], MB_C - MB_R * q[1], q[2], (v - sTail) / st.len]; });
+                    for (let j = 1; j < P.length; j++) {
+                        const u = (P[j][3] + P[j - 1][3]) / 2;
+                        const z = (P[j][2] + P[j - 1][2]) / 2;
+                        const prof = Math.pow(u, 1.2) * Math.min(1, (1 - u) * 14 + 0.15);
+                        const al = env * prof * sm(0.02, 0.3, z);
+                        if (al < 0.01) continue;
+                        let ph;
+                        if (st.red0 !== undefined) {
+                            const ageC = mbT - st.t0, midAcc = st.hold + st.acc * 0.5;
+                            const redNow = st.red0 && !(st.backG && ageC >= midAcc);
+                            ph = (redNow ? 0 : 0.5) + u * 0.08 + Math.max(0, ageC) * 0.03;
+                        } else {
+                            ph = st.ph + u * 0.55 + mbT * 0.22;
+                        }
+                        segs.push({ x0: P[j - 1][0], y0: P[j - 1][1], x1: P[j][0], y1: P[j][1], a: al, halo: mbGlintRGB(ph, w * 0.7), core: mbGlintRGB(ph, 1 - (1 - w) * 0.3) });
+                    }
+                }
+                return { segs, gapPx, hw: gapPx * 2.8 + 3, mw: gapPx * 1.1 + 0.6, cw: Math.max(0.7, gapPx * 0.42) };
+            }
+            const mbPM = (c, a) => { const k = Math.min(1, a); return `rgb(${c[0] * k | 0},${c[1] * k | 0},${c[2] * k | 0})`; };
+            // 빛줄기 성능: 달 위에서 1°가 화면 ~1px이라 1° 샘플은 과샘플 → 화면 MB_SEG_PX 간격으로 샘플.
+            // halo blur는 선분마다 걸면 draw마다 필터 레이어가 생겨 프레임 전체가 끊긴다 →
+            // 오프스크린에 필터 없이 가산으로 모은 뒤 S에 합성할 때 1회만 blur (blur는 선형이라 선분별 blur의 합과 같다).
+            const MB_SEG_PX = 3;
+            const mbHaloC = document.createElement('canvas'), MBH = mbHaloC.getContext('2d');
+            function mbDrawStreaks(mx, my, mr, m) {
+                if (!mbStreaks.length || MB.glint <= 0 || m <= 0.01) return;
+                const pxDeg = mr * Math.PI / 180;   // 구 중심에서 1°의 화면 px
+                const ds = Math.max(1, MB_SEG_PX / pxDeg);
+                const G = mbStreakGeom(ds);
+                if (!G.segs.length) return;
+                const k = mr / MB_R;
+                // 둥근 캡 겹침 보정: 길이 s·굵기 w 선분이 한 점을 덮는 개수 ≈ (w+s)/s. 1° 샘플 때 밝기에 맞춘다.
+                const s0 = pxDeg, s1 = ds * pxDeg;
+                const ovl = lw => ((lw + s0) / s0) / ((lw + s1) / s1);
+                const X = x => mx + (x - MB_C) * k, Y = y => my + (y - MB_C) * k;
+                const strokeSegs = (g, wd, key, kk) => {
+                    const lw = Math.max(0.6, wd * k), f = kk * m * ovl(lw);
+                    g.lineWidth = lw;
+                    for (const sg of G.segs) {
+                        g.strokeStyle = mbPM(sg[key], sg.a * f);
+                        g.beginPath(); g.moveTo(X(sg.x0), Y(sg.y0)); g.lineTo(X(sg.x1), Y(sg.y1)); g.stroke();
+                    }
+                };
+                // halo → 오프스크린(달 영역, 기기 px 정렬)
+                const pad = Math.max(0.6, G.hw * k) / 2 + 2;
+                const ox = Math.floor((mx - mr - pad) * dpr) / dpr, oy = Math.floor((my - mr - pad) * dpr) / dpr;
+                const side = Math.ceil((2 * (mr + pad) + 1) * dpr);
+                if (mbHaloC.width !== side || mbHaloC.height !== side) { mbHaloC.width = side; mbHaloC.height = side; }
+                else { MBH.setTransform(1, 0, 0, 1, 0, 0); MBH.clearRect(0, 0, side, side); }
+                MBH.setTransform(dpr, 0, 0, dpr, -ox * dpr, -oy * dpr);
+                MBH.globalCompositeOperation = 'lighter';
+                MBH.lineCap = 'round';
+                strokeSegs(MBH, G.hw, 'halo', 0.9);
+                S.save();
+                S.beginPath(); S.arc(mx, my, mr, 0, Math.PI * 2); S.clip();
+                S.globalCompositeOperation = 'lighter';
+                S.lineCap = 'round';
+                if (FILTER_OK) S.filter = `blur(${(G.hw * k * 0.45).toFixed(1)}px)`;
+                S.drawImage(mbHaloC, 0, 0, side, side, ox, oy, side / dpr, side / dpr);
+                S.filter = 'none';
+                strokeSegs(S, G.mw, 'halo', 0.85);
+                strokeSegs(S, G.cw, 'core', 1.15);
+                S.restore();
+            }
+            function mbDrawMoon(mx, my, mr, m) {
+                mbMX = mx; mbMY = my; mbMR = mr; mbMV = m;
+                if (m <= 0.001) return;
+                // 기존 외곽 후광은 유지 (밤 하늘·수면 반사에 어우러지도록)
+                const mg = S.createRadialGradient(mx, my, mr * 0.8, mx, my, mr * CFG.MOON_GLOW);
+                mg.addColorStop(0, `rgba(200,215,255,${CFG.MOON_A * m})`);
+                mg.addColorStop(1, 'rgba(200,215,255,0)');
+                S.fillStyle = mg;
+                S.beginPath(); S.arc(mx, my, mr * CFG.MOON_GLOW, 0, Math.PI * 2); S.fill();
+                const d = Math.abs(mbRot - mbBodyRot);
+                if (!(d <= 0.6) && !(d >= 359.4)) mbRenderBody();
+                S.save();
+                S.globalAlpha = m;
+                S.drawImage(mbBody, mx - mr, my - mr, mr * 2, mr * 2);
+                S.restore();
+                mbDrawStreaks(mx, my, mr, m);
+            }
+
+            // ---------- 일반 달 / 미러볼 달 전환 ----------
+            // moonTarget: UI가 고른 달('plain' = 달 아이콘, 'mirror' = bi-globe2 아이콘).
+            // mbMix: 0 = 일반 달, 1 = 미러볼. 미러볼로는 전환 연출(show)로만 넘어가고, 일반 달로는 짧은 크로스페이드로 돌아간다.
+            // mbPending: 밤이 아닐 때 미러볼을 고르면 밤 도착(state === 'night') 시점에 연출을 시작한다.
+            let moonTarget = 'plain', mbMix = 0, mbPending = false;
+            // 일반 달 스프라이트 (mirrorball-change.mp4 앞부분: 크림색 원반 + 옅은 청회색 바다, 청록 후광). 1회 굽기.
+            const PM_S = 256, PM_C = 128, PM_R = 120;
+            const pmBody = document.createElement('canvas');
+            pmBody.width = PM_S; pmBody.height = PM_S;
+            (function pmBake() {
+                const g = pmBody.getContext('2d'), rng = mulberry32(23);
+                const d = g.createRadialGradient(PM_C - PM_R * 0.3, PM_C - PM_R * 0.3, PM_R * 0.1, PM_C, PM_C, PM_R);
+                d.addColorStop(0, '#fcfbf3'); d.addColorStop(0.7, '#f2f1e6'); d.addColorStop(1, '#dfe1d4');
+                g.fillStyle = d;
+                g.beginPath(); g.arc(PM_C, PM_C, PM_R, 0, Math.PI * 2); g.fill();
+                g.save(); g.clip();
+                // 바다(어두운 얼룩): 우측·하단 쪽에 옅게 몰린 청회색 덩어리
+                for (let i = 0; i < 26; i++) {
+                    const an = rng() * Math.PI * 2, rd = Math.sqrt(rng()) * PM_R * 0.85;
+                    const x = PM_C + Math.cos(an) * rd + PM_R * 0.18, y = PM_C + Math.sin(an) * rd * 0.9 + PM_R * 0.05;
+                    const r = PM_R * (0.06 + rng() * 0.2);
+                    const rg = g.createRadialGradient(x, y, 0, x, y, r);
+                    rg.addColorStop(0, `rgba(150,172,176,${(0.12 + rng() * 0.14).toFixed(3)})`);
+                    rg.addColorStop(1, 'rgba(150,172,176,0)');
+                    g.fillStyle = rg; g.fillRect(x - r, y - r, r * 2, r * 2);
+                }
+                // 잔 크레이터
+                for (let i = 0; i < 40; i++) {
+                    const an = rng() * Math.PI * 2, rd = Math.sqrt(rng()) * PM_R * 0.92;
+                    const x = PM_C + Math.cos(an) * rd, y = PM_C + Math.sin(an) * rd, r = PM_R * (0.012 + rng() * 0.035);
+                    g.fillStyle = 'rgba(140,160,162,0.16)';
+                    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+                    g.fillStyle = 'rgba(255,255,250,0.22)';
+                    g.beginPath(); g.arc(x - r * 0.3, y - r * 0.3, r * 0.6, 0, Math.PI * 2); g.fill();
+                }
+                // 가장자리: 살짝 밝은 림
+                const rim = g.createRadialGradient(PM_C, PM_C, PM_R * 0.8, PM_C, PM_C, PM_R);
+                rim.addColorStop(0, 'rgba(250,252,246,0)'); rim.addColorStop(1, 'rgba(250,252,246,0.35)');
+                g.fillStyle = rim; g.fillRect(0, 0, PM_S, PM_S);
+                g.restore();
+            })();
+            function pmDrawMoon(mx, my, mr0, m, glowA) {
+                if (m <= 0.001) return;
+                // 원반 크기는 미러볼 구(mbBody 안의 MB_R/MB_C)에 맞춘다. 외곽 후광은 미러볼과 같은 mr0 기준.
+                const mr = mr0 * MB_R / MB_C;
+                if (glowA > 0.001) {
+                    const mg = S.createRadialGradient(mx, my, mr0 * 0.8, mx, my, mr0 * CFG.MOON_GLOW);
+                    mg.addColorStop(0, `rgba(200,215,255,${CFG.MOON_A * glowA})`);
+                    mg.addColorStop(1, 'rgba(200,215,255,0)');
+                    S.fillStyle = mg;
+                    S.beginPath(); S.arc(mx, my, mr0 * CFG.MOON_GLOW, 0, Math.PI * 2); S.fill();
+                    // 가까운 청록 후광 (영상의 짙은 달무리)
+                    const ng = S.createRadialGradient(mx, my, mr * 0.95, mx, my, mr * 3.2);
+                    ng.addColorStop(0, `rgba(214,244,242,${0.38 * glowA})`);
+                    ng.addColorStop(0.35, `rgba(150,215,220,${0.14 * glowA})`);
+                    ng.addColorStop(1, 'rgba(120,190,205,0)');
+                    S.fillStyle = ng;
+                    S.beginPath(); S.arc(mx, my, mr * 3.2, 0, Math.PI * 2); S.fill();
+                }
+                const k = mr / PM_R;
+                S.save();
+                S.globalAlpha = m;
+                S.drawImage(pmBody, mx - PM_C * k, my - PM_C * k, PM_S * k, PM_S * k);
+                S.restore();
+            }
+            // 달 그리기: 일반 달을 아래에 불투명하게 깔고 미러볼을 mbMix로 덮는다(중간에 하늘이 비치지 않게).
+            function drawMoon(mx, my, mr, m) {
+                const k = clamp(mbMix, 0, 1);
+                if (k < 0.999) pmDrawMoon(mx, my, mr, m, m * (1 - k));
+                if (k > 0.001) mbDrawMoon(mx, my, mr, m * k); else mbMV = 0;
+                // 전환 연출 중 달 섬광: 교체 순간을 하얗게 덮는다
+                if (showT >= 0) {
+                    const fl = Math.exp(-Math.pow((showT - 0.62) / 0.24, 2)) * showOut * m;
+                    if (fl > 0.005) {
+                        S.save();
+                        S.globalCompositeOperation = 'lighter';
+                        const fg2 = S.createRadialGradient(mx, my, mr * 0.5, mx, my, mr * 5);
+                        fg2.addColorStop(0, `rgba(255,252,246,${(0.75 * fl).toFixed(3)})`);
+                        fg2.addColorStop(0.3, `rgba(240,236,255,${(0.28 * fl).toFixed(3)})`);
+                        fg2.addColorStop(1, 'rgba(230,230,255,0)');
+                        S.fillStyle = fg2;
+                        S.beginPath(); S.arc(mx, my, mr * 5, 0, Math.PI * 2); S.fill();
+                        S.restore();
+                    }
+                }
+            }
+
+            // ---- 미러볼 전환 연출 (mirrorball-change.mp4): 1회성 스포트라이트 ----
+            // 수평선에서 하늘로 여러 줄기가 발사되어 회전·교차하며 하늘을 덮고(그 사이 달 → 미러볼 교체),
+            // 이후 하나씩 꺼지며 초록 줄기가 가장 늦게 남는다. 하늘 캔버스에 그려 수면 반사에도 비친다.
+            const SHOW_T = 3.6, SHOW_DS = 3;
+            // 디버그 미세조정: n = 줄기 수, speed = 회전 속도 배율, dur = 지속시간 배율(줄기 타임라인만; 달 교체 시점은 고정),
+            // rot = 회전각 배율(기울기·흔들림·드리프트 전체)
+            const SHOW_DEF = { n: 16, speed: 1.7, dur: 0.5, rot: 1.35 };
+            const SHOW = { ...SHOW_DEF };
+            const SHOW_COLS = ['#ff7cc8', '#b78cff', '#fff1dc', '#8fa2ff', '#ff8f7c', '#7dffb4', '#ffd0ea'];
+            const SHOW_TAIL = ['#7dffb4', '#b4ff86', '#ff8f7c'];
+            let showT = -1, showOut = 1, showKill = false, showBeams = [];
+            const showC = document.createElement('canvas'), SHG = showC.getContext('2d');
+            const showC2 = document.createElement('canvas'), SHG2 = showC2.getContext('2d');
+            const showSpr = {};
+            function showSprite(col) {
+                if (showSpr[col]) return showSpr[col];
+                const c = document.createElement('canvas'), w = 48, h = 256;
+                c.width = w; c.height = h;
+                const g = c.getContext('2d'), C = hex(col);
+                // 가로 단면: 가운데가 하얗게 밝은 부드러운 띠. 아래(광원)는 좁고 위로 갈수록 넓어지는 원뿔
+                const lg = g.createLinearGradient(0, 0, w, 0);
+                lg.addColorStop(0, rgba(C, 0)); lg.addColorStop(0.28, rgba(C, 0.5));
+                lg.addColorStop(0.5, rgba(mix(C, [255, 255, 255], 0.45), 1));
+                lg.addColorStop(0.72, rgba(C, 0.5)); lg.addColorStop(1, rgba(C, 0));
+                g.fillStyle = lg;
+                g.beginPath(); g.moveTo(w / 2 - 3, h); g.lineTo(w / 2 + 3, h); g.lineTo(w, 0); g.lineTo(0, 0); g.closePath(); g.fill();
+                // 길이 방향 감쇠
+                g.globalCompositeOperation = 'destination-in';
+                const vg = g.createLinearGradient(0, h, 0, 0);
+                vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(0.04, 'rgba(0,0,0,0.9)');
+                vg.addColorStop(0.2, 'rgba(0,0,0,1)'); vg.addColorStop(0.65, 'rgba(0,0,0,0.55)');
+                vg.addColorStop(1, 'rgba(0,0,0,0)');
+                g.fillStyle = vg; g.fillRect(0, 0, w, h);
+                return (showSpr[col] = c);
+            }
+            function makeShowBeams() {
+                const out = [], n = clamp(Math.round(SHOW.n) || 0, 1, 64), R = Math.random;
+                for (let i = 0; i < n; i++) {
+                    // 첫 줄기들: 오른쪽에서 먼저 쓸고 들어오는 보라/분홍 (영상 3.8s)
+                    const first = i < 3, tail = !first && i >= n - 3;
+                    const x = first ? 0.78 + R() * 0.3 : -0.1 + R() * 1.2;
+                    const dir = i % 2 ? 1 : -1;
+                    out.push({
+                        x,
+                        t0: first ? i * 0.07 : 0.22 + R() * 0.38,
+                        t1: tail ? 2.2 + R() * 0.4 : 1.25 + R() * 0.8,
+                        // 각도(수직 기준 rad): 대부분 곧추선 채 좌우로 흔들리며 교차한다(눕지 않게 진폭·드리프트 제한)
+                        a0: first ? -0.4 - R() * 0.2 : (R() - 0.5) * 0.9 - (x - 0.5) * 0.35,
+                        w: dir * (0.04 + R() * 0.1),
+                        amp: 0.2 + R() * 0.3, f: 0.9 + R() * 1.1, ph: R() * 6.283,
+                        wf: 0.7 + R() * 0.9, a: 0.4 + R() * 0.35,
+                        col: first ? (i === 1 ? '#ff7cc8' : '#b78cff')
+                            : tail ? SHOW_TAIL[i % SHOW_TAIL.length] : SHOW_COLS[(R() * SHOW_COLS.length) | 0],
+                    });
+                }
+                return out;
+            }
+            function startShow() {
+                mbPending = false;
+                if (RM.matches) return;   // 동작 줄이기: 연출 없이 update의 크로스페이드만
+                showT = 0; showOut = 1; showKill = false; showBeams = makeShowBeams();
+            }
+            function endShow() { if (showT >= 0) showKill = true; }
+            function drawShow() {
+                if (showT < 0 || !showBeams.length) return;
+                const w = Math.max(1, Math.ceil(W / SHOW_DS)), h = Math.max(1, Math.ceil(HZ / SHOW_DS));
+                fitCanvas(showC, w, h); fitCanvas(showC2, w, h);
+                SHG.setTransform(1, 0, 0, 1, 0, 0);
+                SHG.globalCompositeOperation = 'source-over';
+                SHG.clearRect(0, 0, w, h);
+                SHG.globalCompositeOperation = 'lighter';
+                const L = Math.hypot(W, HZ) * 1.05, k = 1 / SHOW_DS;
+                const u = showT / Math.max(0.1, SHOW.dur), ts = showT * SHOW.speed;
+                let any = false;
+                for (const b of showBeams) {
+                    const env = ss(b.t0, b.t0 + 0.28, u) * (1 - ss(b.t1, b.t1 + 0.9, u)) * showOut;
+                    if (env < 0.01) continue;
+                    any = true;
+                    const ang = SHOW.rot * (b.a0 + b.w * ts + b.amp * Math.sin(b.f * ts + b.ph));
+                    const tw = W * 0.13 * b.wf;
+                    SHG.setTransform(k, 0, 0, k, b.x * W * k, HZ * k);
+                    SHG.rotate(ang);
+                    SHG.globalAlpha = env * b.a;
+                    SHG.drawImage(showSprite(b.col), -tw / 2, -L, tw, L);
+                }
+                SHG.globalAlpha = 1;
+                if (!any) return;
+                let src = showC;
+                if (FILTER_OK) {
+                    SHG2.setTransform(1, 0, 0, 1, 0, 0);
+                    SHG2.clearRect(0, 0, w, h);
+                    SHG2.filter = `blur(${Math.max(1, W * 0.007 / SHOW_DS).toFixed(1)}px)`;
+                    SHG2.drawImage(showC, 0, 0);
+                    SHG2.filter = 'none';
+                    src = showC2;
+                }
+                S.save();
+                S.globalCompositeOperation = 'lighter';
+                S.drawImage(src, 0, 0, w, h, 0, 0, w * SHOW_DS, h * SHOW_DS);
+                S.restore();
+            }
+            function updateMoonMode(dt) {
+                if (showT >= 0) {
+                    showT += dt;
+                    if (showKill) showOut *= Math.exp(-dt * 5);
+                    if (showT > Math.max(SHOW_T, SHOW_T * SHOW.dur) || showOut < 0.01) { showT = -1; showBeams = []; showKill = false; }
+                }
+                if (mbPending && state === 'night') startShow();
+                const want = moonTarget === 'mirror' && !mbPending ? 1 : 0;
+                // 연출 중에는 섬광 시점(0.45~1.05s)에 미러볼로 교체, 그 외에는 0.8초 크로스페이드
+                if (want && showT >= 0) mbMix = Math.max(mbMix, ss(0.45, 1.05, showT));
+                else mbMix = want > mbMix ? Math.min(want, mbMix + dt / 0.8) : Math.max(want, mbMix - dt / 0.8);
+            }
 
             const starAlpha = () => ss(CFG.STAR_A0, CFG.STAR_A1, palQ());
 
@@ -1645,7 +2308,7 @@
                 for (const k in docCloud) bakeCloudDoc(k);
                 const m = Math.min(W, H);
                 sunR = clamp(m * CFG.SUN_F, CFG.SUN_MIN, CFG.SUN_MAX);
-                moonR = clamp(m * CFG.MOON_F, CFG.MOON_MIN, CFG.MOON_MAX);
+                moonR = clamp(m * CFG.MOON_F, CFG.MOON_MIN, CFG.MOON_MAX) * (CFG.MOON_SIZE ?? 1);
                 // torii: centred on the shared vertical line (CFG.TORII_X), standing on the flat with
                 // its base three quarters of the way up from the bottom edge to the horizon
                 torS = CFG.TORII_SCALE * Math.min(HZ * 0.30 / 356, W * 0.40 / 428);
@@ -1653,10 +2316,10 @@
                 torBase = H - CFG.TORII_BASE * (H - HZ);
                 torX = W * effToriiX() - (340 - TB.x) * torS;
                 torY = torBase - (TB.base - TB.y) * torS;
-                for (const c of [torC, torR]) {
-                    c.width = Math.max(1, Math.ceil(torW * dpr));
-                    c.height = Math.max(1, Math.ceil(torH * dpr));
-                }
+                for (const c of [torC, torR]) fitCanvas(c, Math.max(1, Math.ceil(torW * dpr)), Math.max(1, Math.ceil(torH * dpr)));
+                // NOTE: 같은 값을 대입해도 비트맵이 지워지므로 fitCanvas 가드가 필수.
+                // 무조건 대입하면 토리이 형상과 무관한 resize(MOON_SIZE 등) 때
+                // 캐시 키가 그대로라 스프라이트가 다시 그려지지 않고 토리이가 사라진다.
                 fg.width = cv.width; fg.height = cv.height;
                 resizeRipple();
                 buildStars();
@@ -1706,6 +2369,8 @@
                         nk = nkTo;
                         sunVis = svTo;
                         phi = 0; phiTail = null; omega = 0;
+                        // 낮/황혼 도착: 달이 졌으므로 다음 밤은 일반 달로 시작
+                        moonTarget = 'plain'; mbMix = 0; mbPending = false;
                     }
                 } else {
                     // 'day'(낮 idle) / 'dusk'(황혼 idle) 모두 정지 상태
@@ -1772,6 +2437,14 @@
                         if (G.dx > W) c.xn = (-G.tw - 8 + G.px) / W;
                     }
                 }
+
+                // 미러볼 자전(40초/회) + 줄눈 빛줄기 진행. 동작 줄이기 설정이면 회전·빛줄기 모두 정지.
+                if (!RM.matches) {
+                    if (mbSpin) mbRot = (mbRot + dt * 360 / MB_PERIOD) % 360;
+                    mbT += dt;
+                    mbUpdateStreaks();
+                }
+                updateMoonMode(dt);
             }
 
             // ---------- render ----------
@@ -2059,33 +2732,24 @@
 
                 drawStars();
 
-                // moon
+                // mirrorball moon (생성기 기본값 볼 + 클릭 발사 줄눈 빛줄기)
                 const m = ss(CFG.MOON_A0, CFG.MOON_A1, q);
                 if (m > 0.001) {
                     const mt = 1 - Math.pow(1 - m, 3);
                     // 달은 토리이와 항상 같은 수직선상: x는 effToriiX() 공유, y만 MOON_Y로 조절
                     const mx = W * effToriiX();
                     const my = lerp(HZ + moonR * 2.2, HZ * CFG.MOON_Y, mt);
-                    const mg = S.createRadialGradient(mx, my, moonR * 0.8, mx, my, moonR * CFG.MOON_GLOW);
-                    mg.addColorStop(0, `rgba(200,215,255,${CFG.MOON_A * m})`);
-                    mg.addColorStop(1, 'rgba(200,215,255,0)');
-                    S.fillStyle = mg;
-                    S.beginPath(); S.arc(mx, my, moonR * CFG.MOON_GLOW, 0, Math.PI * 2); S.fill();
-                    const md = S.createRadialGradient(mx - moonR * 0.35, my - moonR * 0.35, moonR * 0.1, mx, my, moonR);
-                    md.addColorStop(0, '#fbf8ec'); md.addColorStop(1, '#d6d3c6');
-                    S.fillStyle = md;
-                    S.beginPath(); S.arc(mx, my, moonR, 0, Math.PI * 2); S.fill();
-                    S.fillStyle = 'rgba(140,140,128,0.14)';
-                    for (const [cx, cy, cr] of [[-0.3, -0.2, 0.22], [0.25, 0.1, 0.28], [-0.05, 0.42, 0.16], [0.38, -0.38, 0.12]]) {
-                        S.beginPath(); S.arc(mx + cx * moonR, my + cy * moonR, cr * moonR, 0, Math.PI * 2); S.fill();
-                    }
-                }
+                    drawMoon(mx, my, moonR, m);
+                } else { mbMV = 0; }
 
                 // horizon haze
                 const hl = mix(hor, [255, 255, 255], CFG.HAZE_MIX);
                 const hg = S.createLinearGradient(0, HZ * 0.86, 0, HZ);
                 hg.addColorStop(0, rgba(hl, 0)); hg.addColorStop(1, rgba(hl, CFG.HAZE_A));
                 S.fillStyle = hg; S.fillRect(0, HZ * 0.86, W, HZ * 0.14);
+
+                // 미러볼 전환 연출 스포트라이트 (수평선에서 발사)
+                drawShow();
 
                 // distant ranges on the horizon (MTN_SHOW=0이면 숨김, 더미로 보존)
                 if (CFG.MTN_SHOW >= 0.5) {
@@ -2687,6 +3351,15 @@ void main() {
             window.addEventListener('pointercancel', endDrag);
             window.addEventListener('blur', () => dragPts.clear());
 
+            // 미러볼(달) 클릭 → 줄눈 빛줄기 발사. 하늘 클릭이라 수면 ripple과 겹치지 않는다.
+            window.addEventListener('pointerdown', e => {
+                if (e.button > 0 || RM.matches) return;
+                if (overUI(e.target)) return;
+                if (mbMV < 0.05 || mbMR < 2) return;
+                const dx = e.clientX - mbMX, dy = e.clientY - mbMY, rr = mbMR * 1.5;
+                if (dx * dx + dy * dy <= rr * rr) mbFire();
+            });
+
             function stepRipples(dt) {
                 if (debugPaused) return;
                 for (let i = ripples.length - 1; i >= 0; i--) {
@@ -2750,9 +3423,26 @@ void main() {
             const elThumb = document.getElementById('thumb');
             // 상태가 향하는 목표: 'day' | 'dusk' | 'night'
             const targetOf = s => (s === 'day' || s === 'toDay' ? 'day' : s === 'dusk' || s === 'toDusk' ? 'dusk' : 'night');
+            // UI 강조 대상: 밤 + 미러볼이면 'mirror'
+            const activeOf = () => { const t = targetOf(state); return t === 'night' && moonTarget === 'mirror' ? 'mirror' : t; };
             // 아이콘 클릭 → 현재 p에서 목표까지 자연스럽게 전환 (전환 중 재클릭도 현재 p에서 다시 시작)
+            // 'night' = 밤 + 일반 달, 'mirror' = 밤 + 미러볼 달(일반 달 → 미러볼 전환 연출, 밤이 아니면 밤 도착 후 실행)
             function goTo(target) {
-                if (target !== 'day' && target !== 'dusk' && target !== 'night') return;
+                if (target !== 'day' && target !== 'dusk' && target !== 'night' && target !== 'mirror') return;
+                if (target === 'night' || target === 'mirror') {
+                    const wantMirror = target === 'mirror';
+                    if (wantMirror !== (moonTarget === 'mirror')) {
+                        moonTarget = wantMirror ? 'mirror' : 'plain';
+                        if (!wantMirror) { mbPending = false; endShow(); }
+                        else if (state === 'night' && mbMix < 1) startShow();
+                        else if (mbMix < 1) mbPending = true;
+                    }
+                    target = 'night';
+                } else {
+                    endShow();
+                    // 밤 도착 전에 낮/황혼으로 돌아가면 예약된 연출 취소
+                    if (mbPending) { mbPending = false; moonTarget = 'plain'; }
+                }
                 if (targetOf(state) === target) return;
                 transFrom = p;
                 nkFrom = nk;
@@ -2783,11 +3473,11 @@ void main() {
                 // (디버그로 인트로를 중단하고 다른 상태로 점프해도 그 시점에 노출)
                 if (!introDone && state !== 'toNight') revealIntroPanel();
                 let status;
-                const active = targetOf(state);
+                const active = activeOf();
                 if (state === 'day') status = '낮';
                 else if (state === 'dusk') status = '황혼';
                 else if (state === 'toNight') status = '밤으로 전환 중';
-                else if (state === 'night') status = '밤';
+                else if (state === 'night') status = moonTarget === 'mirror' ? '밤 (미러볼)' : '밤';
                 else status = state === 'toDay' ? '낮으로 전환 중' : '황혼으로 전환 중';
                 const key = status;
                 if (key !== uiKey) {
@@ -2799,7 +3489,7 @@ void main() {
                 if (night !== lastNight) { lastNight = night; elPanel.classList.toggle('is-night', night); }
                 if (active !== lastActive) {
                     lastActive = active;
-                    for (const [el, m] of [[elDay, 'day'], [elDusk, 'dusk'], [elNight, 'night']]) {
+                    for (const [el, m] of [[elDay, 'day'], [elDusk, 'dusk'], [elNight, 'night'], [elMirror, 'mirror']]) {
                         if (!el) continue;
                         const on = active === m;
                         el.classList.toggle('on', on);
@@ -2811,7 +3501,7 @@ void main() {
 
             // 강조 커서(thumb): 현재 시간 아이콘 위로 슬라이드 이동.
             // 평소 1칸 버블(접힘)에서는 x=0, 펼침에서는 인덱스*칸 이동.
-            const ORDER = () => [elDay, elDusk, elNight];
+            const ORDER = () => [elDay, elDusk, elNight, elMirror];
             const HOVER_OK = (() => { try { return window.matchMedia('(hover: hover)').matches; } catch (e) { return true; } })();
             const TOUCH_UI = (() => { try { return window.matchMedia('(hover: none)').matches; } catch (e) { return false; } })();
             let thumbInit = false;
@@ -2934,6 +3624,7 @@ void main() {
             if (elDay) elDay.addEventListener('click', () => onPick('day', elDay));
             if (elDusk) elDusk.addEventListener('click', () => onPick('dusk', elDusk));
             if (elNight) elNight.addEventListener('click', () => onPick('night', elNight));
+            if (elMirror) elMirror.addEventListener('click', () => onPick('mirror', elMirror));
 
             // ---------- debug bridge (F12 패널용) ----------
             // tsukuyomi.debug.js가 이 객체를 통해 모든 파라미터를 수동 조절한다.
@@ -2962,7 +3653,9 @@ void main() {
                         svFrom = sunVis; svTo = v === 'toDay' ? 1 : 0;
                     }
                 },
-                get mode() { return targetOf(state); }, set mode(v) { goTo(v); },
+                get mode() { return activeOf(); }, set mode(v) { goTo(v); },
+                get moonTarget() { return moonTarget; }, get mbMix() { return mbMix; }, get showT() { return showT; },
+                show: SHOW, showDefaults: SHOW_DEF,
                 get sunK() { return sunK(); },
                 get W() { return W; }, get HZ() { return HZ; }, get dpr() { return dpr; },
                 // 브러시 구름 편집기(tsukuyomi.cloudedit.js)용: 라이브 캔버스 연결, 적용본 다시 읽기
@@ -2981,6 +3674,13 @@ void main() {
                 get phi() { return phi; }, set phi(v) { phi = Number(v) || 0; },
                 get phiTail() { return phiTail; }, set phiTail(v) { phiTail = v; },
                 get moonMT() { return moonMT(palQ()); },
+                get mbRot() { return mbRot; },
+                set mbRot(v) { mbRot = ((Number(v) || 0) % 360 + 360) % 360; mbBodyRot = NaN; },
+                get mbSpin() { return mbSpin; },
+                set mbSpin(v) { mbSpin = !!v; },
+                get mb() { return MB; },
+                get mbDefaults() { return MB_DEFAULTS; },
+                get mbStreaks() { return mbStreaks.length; },
                 get omega() { return omega; }, set omega(v) { omega = Number(v) || 0; },
                 get clock() { return clock; },
                 get tState() { return tState; }, set tState(v) { tState = Number(v) || 0; },
@@ -3040,18 +3740,27 @@ void main() {
                         reflStep = Math.max(1, Math.round(CFG.ROW_STEP)); reflLastBase = reflStep; reflEMA = 16; reflCool = 0;
                         torKey = ''; torRKey = ''; torBuilds = 0;
                         bandValid = false; bandTick = 0; bandLastP = -1; bandBuilds = 0;
-                        // 기본값(밤)으로: 황혼에서 밤으로 가는 인트로 처음부터 다시 재생한다.
-                        transFrom = 0; transTo = 1; transTarget = 'night';
+                        // 기본값으로: INTRO_NIGHT면 황혼에서 밤으로 가는 인트로를 처음부터 다시 재생, 아니면 황혼 idle.
+                        transFrom = 0; transTo = INTRO_NIGHT ? 1 : 0; transTarget = INTRO_NIGHT ? 'night' : 'dusk';
                         duskW = 1; duskFrom = 1; duskTo = 1;
-                        nk = 0; nkFrom = 0; nkTo = 1;
+                        nk = 0; nkFrom = 0; nkTo = INTRO_NIGHT ? 1 : 0;
                         sunVis = 0; svFrom = 0; svTo = 0;
-                        state = 'toNight'; p = 0; tState = 0; tNight = 0;
+                        state = INTRO_NIGHT ? 'toNight' : 'dusk'; p = 0; tState = 0; tNight = 0;
+                        moonTarget = 'plain'; mbMix = 0; mbPending = false; showT = -1; showBeams = [];
                         phi = 0; phiTail = null; omega = 0; debugHold = false; debugPaused = false;
                         // 인트로 리플레이: 전환 UI를 다시 숨겼다가 완료 시점에 올린다
                         introDone = false;
                         if (elPanel) { elPanel.classList.remove('intro-enter'); elPanel.classList.add('intro-hidden'); }
-                        buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); resize();
+                        buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); Object.assign(MB, JSON.parse(JSON.stringify(MB_DEFAULTS))); mbSpin = true; mbBuildAll(); mbRot = 0; resize();
                     },
+                    mirrorburst() { mbFire(); },
+                    // 미러볼 전환 연출 재생: 밤이면 일반 달에서 즉시 다시 시작, 아니면 밤 도착 후 실행
+                    mirrorShow() {
+                        if (state === 'night') { moonTarget = 'mirror'; mbMix = 0; startShow(); }
+                        else { moonTarget = 'plain'; mbMix = 0; goTo('mirror'); }
+                    },
+                    mbBuild() { mbBuildAll(); },
+                    mbTouch() { mbBodyRot = NaN; },
                     ripple(xn = 0.5, sn = 0.5) {
                         const cap = Math.min(RIP_SLOTS, Math.max(1, Math.round(CFG.RIP_MAX)));
                         if (ripples.length >= cap) ripples.shift();
@@ -3091,6 +3800,7 @@ void main() {
 
             initGL();
             buildMountains();
+            mbBuildAll();
             buildClouds();
             buildDuskClouds();
             buildDay2Clouds();

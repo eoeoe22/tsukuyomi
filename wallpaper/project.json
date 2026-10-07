@@ -2,7 +2,7 @@
   "file": "wallpaper.html",
   "preview": "preview.jpg",
   "title": "Tsukuyomi 月",
-  "description": "낮·황혼·밤이 이어지는 고요한 수면. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 선택 시 초기 황혼→밤 연출을 켜거나 끌 수 있다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터를 그대로 조절할 수 있다.",
+  "description": "낮·황혼·밤·밤(미러볼)이 이어지는 고요한 수면. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출을 켜거나 끌 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 고급 옵션을 켜면 웹 디버그 패널의 파라미터를 그대로 조절할 수 있다.",
   "type": "web",
   "general": {
     "properties": {
@@ -22,15 +22,19 @@
           {
             "label": "밤",
             "value": 3
+          },
+          {
+            "label": "밤 (미러볼)",
+            "value": 4
           }
         ],
         "order": 0
       },
       "a01_intro": {
-        "text": "밤 선택 시 초기 연출(황혼→밤) 재생",
+        "text": "밤 계열 선택 시 초기 연출 재생 (밤: 황혼→밤 / 미러볼: 이후 전환까지)",
         "type": "bool",
         "value": true,
-        "condition": "a00_scene.value == 3",
+        "condition": "a00_scene.value == 3 || a00_scene.value == 4",
         "order": 1
       },
       "a02_show_advanced": {
@@ -1699,6 +1703,18 @@
         "precision": 3,
         "order": 150
       },
+      "a12_MOON_SIZE": {
+        "text": "MOON_SIZE",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 2,
+        "min": 0.2,
+        "max": 3,
+        "step": 0.05,
+        "fraction": true,
+        "precision": 2,
+        "order": 151
+      },
       "a12_HAZE_MIX": {
         "text": "HAZE_MIX",
         "condition": "a02_show_advanced.value == true",
@@ -1709,7 +1725,7 @@
         "step": 0.005,
         "fraction": true,
         "precision": 3,
-        "order": 151
+        "order": 152
       },
       "a12_HAZE_A": {
         "text": "HAZE_A",
@@ -1721,7 +1737,7 @@
         "step": 0.005,
         "fraction": true,
         "precision": 3,
-        "order": 152
+        "order": 153
       },
       "a13_BAND_PAD": {
         "text": "BAND_PAD",
@@ -1732,7 +1748,7 @@
         "max": 40,
         "step": 1,
         "fraction": false,
-        "order": 153
+        "order": 154
       },
       "a13_BLUR_PX": {
         "text": "BLUR_PX",
@@ -1744,7 +1760,7 @@
         "step": 0.1,
         "fraction": true,
         "precision": 1,
-        "order": 154
+        "order": 155
       },
       "a13_BAND_H": {
         "text": "BAND_H",
@@ -1756,7 +1772,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 155
+        "order": 156
       },
       "a13_REFL_AMP0": {
         "text": "REFL_AMP0",
@@ -1768,7 +1784,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 156
+        "order": 157
       },
       "a13_REFL_AMP1": {
         "text": "REFL_AMP1",
@@ -1780,7 +1796,7 @@
         "step": 0.05,
         "fraction": true,
         "precision": 2,
-        "order": 157
+        "order": 158
       },
       "a13_SL_F0": {
         "text": "SL_F0",
@@ -1792,7 +1808,7 @@
         "step": 0.001,
         "fraction": true,
         "precision": 3,
-        "order": 158
+        "order": 159
       },
       "a13_SL_F1": {
         "text": "SL_F1",
@@ -1804,7 +1820,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 159
+        "order": 160
       },
       "a13_SL_F2": {
         "text": "SL_F2",
@@ -1816,7 +1832,7 @@
         "step": 0.001,
         "fraction": true,
         "precision": 3,
-        "order": 160
+        "order": 161
       },
       "a13_SL_F3": {
         "text": "SL_F3",
@@ -1828,7 +1844,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 161
+        "order": 162
       },
       "a13_ROW_STEP": {
         "text": "ROW_STEP",
@@ -1839,7 +1855,7 @@
         "max": 8,
         "step": 1,
         "fraction": false,
-        "order": 162
+        "order": 163
       },
       "a13_SEAM_A": {
         "text": "SEAM_A",
@@ -1851,7 +1867,7 @@
         "step": 0.005,
         "fraction": true,
         "precision": 3,
-        "order": 163
+        "order": 164
       },
       "a13_REFL_SCALE": {
         "text": "REFL_SCALE",
@@ -1863,7 +1879,7 @@
         "step": 0.05,
         "fraction": true,
         "precision": 2,
-        "order": 164
+        "order": 165
       },
       "a13_REFL_MAX_STEP": {
         "text": "REFL_MAX_STEP",
@@ -1874,14 +1890,14 @@
         "max": 8,
         "step": 1,
         "fraction": false,
-        "order": 165
+        "order": 166
       },
       "a13_REFL_AUTO": {
         "text": "REFL_AUTO",
         "condition": "a02_show_advanced.value == true",
         "type": "bool",
         "value": true,
-        "order": 166
+        "order": 167
       },
       "a13_BAND_EVERY": {
         "text": "BAND_EVERY",
@@ -1892,7 +1908,7 @@
         "max": 8,
         "step": 1,
         "fraction": false,
-        "order": 167
+        "order": 168
       },
       "a14_RIP_MAX": {
         "text": "RIP_MAX",
@@ -1903,7 +1919,7 @@
         "max": 8,
         "step": 1,
         "fraction": false,
-        "order": 168
+        "order": 169
       },
       "a14_RIP_V": {
         "text": "RIP_V",
@@ -1915,7 +1931,7 @@
         "step": 0.005,
         "fraction": true,
         "precision": 3,
-        "order": 169
+        "order": 170
       },
       "a14_RIP_MAX_R": {
         "text": "RIP_MAX_R",
@@ -1927,7 +1943,7 @@
         "step": 0.005,
         "fraction": true,
         "precision": 3,
-        "order": 170
+        "order": 171
       },
       "a14_RIP_K": {
         "text": "RIP_K",
@@ -1938,7 +1954,7 @@
         "max": 200,
         "step": 1,
         "fraction": false,
-        "order": 171
+        "order": 172
       },
       "a14_RIP_STR": {
         "text": "RIP_STR",
@@ -1950,7 +1966,7 @@
         "step": 0.001,
         "fraction": true,
         "precision": 3,
-        "order": 172
+        "order": 173
       },
       "a14_FOCAL": {
         "text": "FOCAL",
@@ -1962,7 +1978,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 173
+        "order": 174
       },
       "a15_LANTERN_N": {
         "text": "LANTERN_N",
@@ -1973,7 +1989,7 @@
         "max": 400,
         "step": 1,
         "fraction": false,
-        "order": 174
+        "order": 175
       },
       "a15_LANTERN_SEED": {
         "text": "LANTERN_SEED",
@@ -1984,7 +2000,7 @@
         "max": 99,
         "step": 1,
         "fraction": false,
-        "order": 175
+        "order": 176
       },
       "a15_LANTERN_GX": {
         "text": "LANTERN_GX",
@@ -1996,7 +2012,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 176
+        "order": 177
       },
       "a15_LANTERN_TX": {
         "text": "LANTERN_TX",
@@ -2008,7 +2024,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 177
+        "order": 178
       },
       "a15_LANTERN_SN0": {
         "text": "LANTERN_SN0",
@@ -2020,7 +2036,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 178
+        "order": 179
       },
       "a15_LANTERN_SN1": {
         "text": "LANTERN_SN1",
@@ -2032,7 +2048,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 179
+        "order": 180
       },
       "a15_LANTERN_H": {
         "text": "LANTERN_H",
@@ -2044,7 +2060,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 180
+        "order": 181
       },
       "a15_LANTERN_PAD": {
         "text": "LANTERN_PAD",
@@ -2056,14 +2072,14 @@
         "step": 0.5,
         "fraction": true,
         "precision": 1,
-        "order": 181
+        "order": 182
       },
       "a15_LANTERN_CARD_AVOID": {
         "text": "LANTERN_CARD_AVOID",
         "condition": "a02_show_advanced.value == true",
         "type": "bool",
         "value": true,
-        "order": 182
+        "order": 183
       },
       "a15_LANTERN_DEPTH_K": {
         "text": "LANTERN_DEPTH_K",
@@ -2075,7 +2091,7 @@
         "step": 0.05,
         "fraction": true,
         "precision": 2,
-        "order": 183
+        "order": 184
       },
       "a15_LANTERN_FAR_MUL": {
         "text": "LANTERN_FAR_MUL",
@@ -2087,7 +2103,7 @@
         "step": 0.05,
         "fraction": true,
         "precision": 2,
-        "order": 184
+        "order": 185
       },
       "a15_LANTERN_FAR_Y0": {
         "text": "LANTERN_FAR_Y0",
@@ -2099,7 +2115,7 @@
         "step": 0.5,
         "fraction": true,
         "precision": 1,
-        "order": 185
+        "order": 186
       },
       "a15_LANTERN_FAR_MAX": {
         "text": "LANTERN_FAR_MAX",
@@ -2110,7 +2126,7 @@
         "max": 8000,
         "step": 100,
         "fraction": false,
-        "order": 186
+        "order": 187
       },
       "a15_LANTERN_GLOW": {
         "text": "LANTERN_GLOW",
@@ -2122,7 +2138,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 187
+        "order": 188
       },
       "a15_LANTERN_POOL": {
         "text": "LANTERN_POOL",
@@ -2134,7 +2150,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 188
+        "order": 189
       },
       "a15_LANTERN_DUSK_GLOW": {
         "text": "LANTERN_DUSK_GLOW",
@@ -2146,7 +2162,7 @@
         "step": 0.01,
         "fraction": true,
         "precision": 2,
-        "order": 189
+        "order": 190
       },
       "a15_LANTERN_HALO": {
         "text": "LANTERN_HALO",
@@ -2158,7 +2174,7 @@
         "step": 0.05,
         "fraction": true,
         "precision": 2,
-        "order": 190
+        "order": 191
       },
       "a15_LANTERN_FAR_BLOOM": {
         "text": "LANTERN_FAR_BLOOM",
@@ -2170,7 +2186,7 @@
         "step": 0.05,
         "fraction": true,
         "precision": 2,
-        "order": 191
+        "order": 192
       }
     }
   }

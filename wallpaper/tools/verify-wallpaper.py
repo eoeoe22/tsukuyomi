@@ -82,19 +82,19 @@ def main() -> int:
             check(f"project.json 기본 속성: {k}", k in props, "누락")
         sc = props.get("a00_scene", {})
         check("scene 콤보", sc.get("type") == "combo"
-              and sorted(o.get("value") for o in sc.get("options", [])) == [1, 2, 3],
-              "options 1/2/3 (낮/황혼/밤) 필요")
+              and sorted(o.get("value") for o in sc.get("options", [])) == [1, 2, 3, 4],
+              "options 1/2/3/4 (낮/황혼/밤/밤(미러볼)) 필요")
         check("scene 기본값 밤", sc.get("value") == 3, f"value={sc.get('value')}")
         check("intro 기본값 켜짐", props.get("a01_intro", {}).get("value") is True, "기본값 true 필요")
-        check("intro 조건(밤만)", props.get("a01_intro", {}).get("condition") == "a00_scene.value == 3",
-              "밤 선택 시에만 표시")
+        check("intro 조건(밤 계열만)", props.get("a01_intro", {}).get("condition") == "a00_scene.value == 3 || a00_scene.value == 4",
+              "밤/미러볼 선택 시에만 표시")
         # WE Installed 탭 썸네일은 preview.jpg/gif 관례만 인식한다 (thumbnail.png 등 별도명 무시됨).
         pv = pj.get("preview")
         check("preview 관례명", isinstance(pv, str) and pv in ("preview.jpg", "preview.gif"),
               f"preview={pv!r}")
         check("preview 파일 존재", isinstance(pv, str) and (WP / pv).is_file(),
               "project.json preview 대상 없음")
-        # GROUPS 전수 대조
+        # GROUPS 전수 대조 (CFG용 GROUPS만: 미러볼 MB_GROUPS·SHOW_KEYS는 소문자 키라 제외)
         dbg = (ROOT / "public" / "tsukuyomi.debug.js").read_text(encoding="utf-8")
         blocks = re.findall(
             r"\{\s*title:\s*'([^']+)'\s*,\s*keys:\s*\[(.*?)\]\s*\}",
@@ -102,9 +102,12 @@ def main() -> int:
         )
         cat_order, cat_keys = [], {}
         for title, keys_block in blocks:
+            keys = [m.group(1) for m in
+                    re.finditer(r"\['([A-Z0-9_]+)'", keys_block)]
+            if not keys:
+                continue  # MB_GROUPS 등 CFG가 아닌 블록
             cat_order.append(title)
-            cat_keys[title] = [m.group(1) for m in
-                               re.finditer(r"\['([A-Z0-9_]+)'", keys_block)]
+            cat_keys[title] = keys
         entries = []
         for title, keys_block in blocks:
             for m in re.finditer(

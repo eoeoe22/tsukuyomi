@@ -69,6 +69,7 @@
   "MOON_F": "resize",
   "MOON_MAX": "resize",
   "MOON_MIN": "resize",
+  "MOON_SIZE": "resize",
   "MTN_POW": "mountains",
   "MTN_SHOW": "mountains",
   "MTN_TH": "mountains",

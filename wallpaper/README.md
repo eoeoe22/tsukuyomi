@@ -35,29 +35,33 @@ wallpaper/
 
 ## 동결 버전
 
-- `CORE_VERSION.txt` 참고 (커밋 `54d8bac`, 2026-10-06 UTC 기준).
-- `project.json`의 고급 기본값 176종은 동결 CFG에서 그대로 생성됐다.
+- `CORE_VERSION.txt` 참고 (커밋 `4a6448a`, 2026-10-07 UTC 기준).
+- `project.json`의 고급 기본값 177종은 동결 CFG에서 그대로 생성됐다 (기존 176종 + `MOON_SIZE`).
 - 검증: `python wallpaper/tools/verify-wallpaper.py` (vendor 해시·기본값·참조·git 범위 검사).
 
 ## WE 옵션
 
-기본 4종은 그룹에 속하지 않고 맨 위에 표시된다. 고급 176종은 디버그 패널과 같은
+기본 4종은 그룹에 속하지 않고 맨 위에 표시된다. 고급 177종은 디버그 패널과 같은
 12개 카테고리 그룹(전환 타이밍·레이아웃·토리이/달·별·산·구름·새 낮·태양·달/안개·
 반사·물결·랜턴)으로 접어서 보여준다. 키 앞의 영문+숫자 접두사는 카테고리 순서를 고정하며,
 WE 조건식이 해석할 수 있도록 반드시 문자 시작으로 쓴다 (숫자 시작 키는 조건 평가 실패로 숨겨진다).
+미러볼 본체 파라미터(`tilt`·`step` 등 소문자 MB_*·SHOW_*)는 CFG가 아니라 코어 기본값 그대로 쓴다
+(WE 고급 옵션에 노출하지 않는다).
 
 | 키 | 종류 | 기본값 | 설명 |
 |---|---|---|---|
-| `a00_scene` | 콤보 (낮 1 / 황혼 2 / 밤 3) | 밤(3) | 하단 시간대 UI 대신 장면을 선택한다 |
-| `a01_intro` | 체크 (밤일 때만 표시) | 켜짐 | 밤 선택 시 초기 진입 연출(황혼→밤) 재생. 끄면 즉시 밤 idle |
+| `a00_scene` | 콤보 (낮 1 / 황혼 2 / 밤 3 / 밤(미러볼) 4) | 밤(3) | 하단 시간대 UI 대신 장면을 선택한다 (웹 4버튼과 동일) |
+| `a01_intro` | 체크 (밤 계열일 때만 표시) | 켜짐 | 초기 진입 연출 재생. 밤=황혼→밤, 미러볼=황혼→밤 이후 미러볼 전환까지. 끄면 밤은 즉시 idle, 미러볼은 즉시 밤에서 전환 연출만 재생 |
 | `a02_show_advanced` | 체크 | 꺼짐 | 켜면 아래 12개 고급 그룹이 표시된다 |
 | `a03_snapshot_json` | 텍스트 | 비움 | 웹 디버그 패널 "내보내기" JSON을 붙여넣는 탈출구 (cfg+palettes 반영, 장면은 WE 옵션이 우선) |
-| `a04_~a15_` + CFG키 176종 | 슬라이더/체크 | 동결값 | 웹 디버그 패널 파라미터를 카테고리별로 위임. 0/1 토글(CLOUD_DOC·CL_LIVE·DAY_SCENE·MTN_SHOW·REFL_AUTO·LANTERN_CARD_AVOID)은 체크로 표시 |
+| `a04_~a15_` + CFG키 177종 | 슬라이더/체크 | 동결값 | 웹 디버그 패널 파라미터를 카테고리별로 위임. 0/1 토글(CLOUD_DOC·CL_LIVE·DAY_SCENE·MTN_SHOW·REFL_AUTO·LANTERN_CARD_AVOID)은 체크로 표시 |
 
 낮·황혼 선택 시에는 인트로 없이 해당 idle로 바로 진입한다.
-실행 중 장면을 바꾸면 전환 애니메이션으로 이동한다 (밤+연출 끄기는 즉시 점프).
+실행 중 장면을 바꾸면 전환 애니메이션으로 이동한다 (밤+연출 끄기는 즉시 점프,
+미러볼로 바꾸면 밤 도착 후 스포트라이트 전환 연출이 붙는다).
 
-이번 project.json은 키 규칙이 바뀌었으므로(그룹 도입) WE 폴더에 통째로 다시 복사한다.
+이번 project.json은 장면 4종(밤(미러볼) 추가) + `MOON_SIZE` 추가로 바뀌었으므로
+WE 폴더에 통째로 다시 복사한다.
 `wallpaper.js`는 구 키(`scene`·`cfg_*`·숫자 시작 키)도 계속 받으므로, 순서를 놓쳐도 장면 전환은 동작한다.
 
 ## 고급 스냅샷 사용법
@@ -69,10 +73,10 @@ WE 조건식이 해석할 수 있도록 반드시 문자 시작으로 쓴다 (�
 ## 로컬 미리보기 (WE 없이)
 
 ```sh
-# 정적 서빙 후 브라우저로 열기 (WE 리스너가 없어도 코어 기본값=밤 인트로로 재생)
+# 정적 서빙 후 브라우저로 열기 (WE 리스너가 없어도 코어 기본값=황혼 idle에서 WE 지정 장면으로 진입)
 python -m http.server 8788 --directory wallpaper
 # http://localhost:8788/wallpaper.html
-# 장면 강제: wallpaper.html?scene=day / ?scene=dusk / ?scene=night&intro=0
+# 장면 강제: wallpaper.html?scene=day / ?scene=dusk / ?scene=night&intro=0 / ?scene=mirror
 node --check wallpaper/wallpaper.js
 python wallpaper/tools/verify-wallpaper.py
 ```
@@ -109,7 +113,7 @@ python wallpaper/tools/verify-wallpaper.py
    목록 썸네일이 `preview.jpg`로 뜨고,
    오른쪽 속성 패널에 `장면 (하단 시간대 UI 대신)`이 보이면 정상이다.
    (에디터의 Edit 메뉴가 아니라 Installed 탭에서 확인한다.)
-5. 미리보기에서 장면 3종 + 연출 켜짐/꺼짐을 확인.
+5. 미리보기에서 장면 4종 + 연출 켜짐/꺼짐을 확인.
 6. Workshop에 별도 릴리즈로 업로드. 웹 배포와 버전이 엮이지 않게 릴리즈 노트에 동결 커밋을 적는다.
    썸네일은 `preview.jpg`가 이미 지정되어 있어 별도 등록이 불필요하며,
    퍼블리시 과정에서 WE가 스냅샷을 새로 만들면 그걸로 교체된다.

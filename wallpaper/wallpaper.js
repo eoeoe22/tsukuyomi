@@ -2,9 +2,15 @@
  *
  * 역할:
  *  - 하단 시간대 UI 숨김 -> WE 옵션 `a00_scene` 콤보로 장면 선택 (기본값: 밤)
+ *    (낮 1 / 황혼 2 / 밤 3 / 밤(미러볼) 4 — 웹 하단 UI 4버튼과 동일)
  *  - 디버그 패널 미포함 -> WE 고급 옵션(12개 그룹 + `aNN_*` 슬라이더/체크)이
  *    window.__TSUKUYOMI__ 브릿지로 위임
- *  - 초기 진입 연출(황혼→밤)은 밤 선택 시에만, `a01_intro` 체크로 켜고 끈다 (기본값 켜짐)
+ *  - 초기 진입 연출 2종 (밤 계열 선택 시에만, `a01_intro` 체크로 켜고 끈다, 기본값 켜짐):
+ *    1) 밤: 황혼→밤 전환 (기존 그대로)
+ *    2) 밤(미러볼): 황혼→밤 전환 이후, 미러볼 달 전환 연출(스포트라이트)까지 이어서 재생.
+ *       코어 goTo('mirror')/mirrorShow() 예약 동작을 그대로 쓴다.
+ *       끄면 황혼→밤을 건너뛰고, 즉시 밤에서 미러볼 전환 연출만 재생한다
+ *       (코어에 즉시 미러볼 idle 점프 API가 없어 스포트라이트 생략은 불가).
  *
  * 코어(vendor/tsukuyomi.js)는 수정하지 않고, 이미 노출된 브릿지만 호출한다.
  * 웹 정적 배포(public/)에는 영향을 주지 않는다.
@@ -16,17 +22,19 @@
     // 어떤 이벤트 안에 넣으면 초기값을 놓친다.
     window.wallpaperPropertyListener = { applyUserProperties, applyGeneralProperties };
 
-    // WE 콤보값은 정수(1/2/3)로 정의하지만, 문자열("1"/"day" 등)로 와도 동작한다.
+    // WE 콤보값은 정수(1/2/3/4)로 정의하지만, 문자열("1"/"day" 등)로 와도 동작한다.
     function sceneOf(v) {        if (v === 1 || v === '1' || v === 'day') return 'day';
         if (v === 2 || v === '2' || v === 'dusk') return 'dusk';
         if (v === 3 || v === '3' || v === 'night') return 'night';
+        if (v === 4 || v === '4' || v === 'mirror') return 'mirror';
         if (typeof v === 'string') {
             const s = v.trim().toLowerCase();
-            if (s === 'day' || s === 'dusk' || s === 'night') return s;
+            if (s === 'day' || s === 'dusk' || s === 'night' || s === 'mirror') return s;
             const n = Number(s);
             if (n === 1) return 'day';
             if (n === 2) return 'dusk';
             if (n === 3) return 'night';
+            if (n === 4) return 'mirror';
         }
         return null;
     }
@@ -51,7 +59,7 @@
         HZ_RATIO: 'resize', DPR_MAX: 'resize', PIX_BUDGET: 'resize',
         POLE_X: 'resize', POLE_Y: 'resize',
         SUN_F: 'resize', SUN_MIN: 'resize', SUN_MAX: 'resize',
-        MOON_F: 'resize', MOON_MIN: 'resize', MOON_MAX: 'resize',
+        MOON_F: 'resize', MOON_MIN: 'resize', MOON_MAX: 'resize', MOON_SIZE: 'resize',
         TORII_X: 'resize', TORII_BASE: 'resize', TORII_SCALE: 'resize',
         BAND_PAD: 'resize', BAND_H: 'resize',
         STAR_DENS: 'stars', STAR_MAX: 'stars',
@@ -146,12 +154,49 @@
         } catch (e) { /* 브릿지 경합 시 현상 유지 */ }
     }
 
+    function mirrorIdle(b) {
+        try {
+            return b.state === 'night' && b.moonTarget === 'mirror';
+        } catch (e) { return false; }
+    }
+
+    function startMirrorFull() {
+        // 코어 mirrorShow(): 밤이면 일반 달에서 즉시 연출 시작,
+        // 아니면 밤 도착 후 실행되도록 예약(goTo('mirror')의 mbPending).
+        // 초기 황혼 idle에서 부르면 황혼→밤 전환 뒤 미러볼 전환까지 이어진다.
+        const b = bridge();
+        if (!b) return false;
+        try {
+            if (typeof b.actions.mirrorShow === 'function') b.actions.mirrorShow();
+            else if (typeof b.actions.goTo === 'function') b.actions.goTo('mirror');
+            else b.actions.toNight();
+            return true;
+        } catch (e) { return false; }
+    }
+
     function applyScene(b, first) {
-        if (desired.scene === 'night') {
+        if (desired.scene === 'mirror') {
+            if (desired.intro) {
+                // 진입 연출 2종 중 둘째: 황혼→밤 전환 이후 미러볼 전환까지.
+                // 코어 기본값 자체가 황혼 idle이므로, 이미 미러볼에 안착했다면 그대로 둔다.
+                if (first) {
+                    if (!mirrorIdle(b)) startMirrorFull();
+                } else {
+                    if (!mirrorIdle(b)) startMirrorFull();
+                }
+            } else {
+                // 인트로 스킵: 즉시 밤으로 점프한 뒤 미러볼 전환만 재생.
+                // (코어에 스포트라이트 없는 즉시 미러볼 점프 API가 없다.)
+                if (!mirrorIdle(b)) {
+                    try { b.state = 'night'; } catch (e) { /* 현상 유지 */ }
+                    startMirrorFull();
+                }
+            }
+        } else if (desired.scene === 'night') {
             if (desired.intro) {
                 if (first) {
-                    // 코어 기본값 자체가 황혼→밤 인트로이므로, 이미 인트로 중이거나
-                    // 밤에 안착했다면 그대로 둔다. 다른 장면에 머물 때만 밤으로 전환.
+                    // 코어 기본값은 황혼 idle이므로, 밤 계열이 아니면 toNight로 진입 연출을 시작한다.
+                    // 이미 밤에 안착했다면 그대로 둔다.
                     const st = b.state;
                     if (st === 'day' || st === 'dusk' || st === 'toDay' || st === 'toDusk') {
                         b.actions.toNight();
@@ -160,7 +205,14 @@
                     b.actions.toNight();
                 }
             } else {
-                b.state = 'night'; // 인트로 스킵: 즉시 밤 idle
+                // 인트로 스킵: 즉시 밤 idle. 다만 미러볼에 머물던 중이면
+                // 직접 대입은 moonTarget을 그대로 두므로, goTo 경유로 일반 달에 복귀한다.
+                try {
+                    if (b.moonTarget === 'mirror') b.actions.toNight();
+                    else b.state = 'night';
+                } catch (e) {
+                    try { b.state = 'night'; } catch (e2) { /* 현상 유지 */ }
+                }
             }
         } else if (desired.scene === 'day') {
             if (first) b.state = 'day';
@@ -239,13 +291,13 @@
         }, 50);
     }
 
-    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=day&dusk&night&intro=0
-    // 예: wallpaper.html?scene=day , wallpaper.html?scene=night&intro=0
+    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=day&dusk&night&mirror&intro=0
+    // 예: wallpaper.html?scene=mirror , wallpaper.html?scene=night&intro=0
     function applyQueryOverride() {
         try {
             const q = new URLSearchParams(location.search);
             const s = (q.get('scene') || '').toLowerCase();
-            if (s === 'day' || s === 'dusk' || s === 'night') desired.scene = s;
+            if (s === 'day' || s === 'dusk' || s === 'night' || s === 'mirror') desired.scene = s;
             const intro = q.get('intro');
             if (intro === '0' || intro === 'false' || intro === 'off') desired.intro = false;
             if (intro === '1' || intro === 'true' || intro === 'on') desired.intro = true;

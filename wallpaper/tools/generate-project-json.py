@@ -125,13 +125,14 @@ def main() -> None:
             {"label": "낮", "value": 1},
             {"label": "황혼", "value": 2},
             {"label": "밤", "value": 3},
+            {"label": "밤 (미러볼)", "value": 4},
         ],
     })
     add("a01_intro", {
-        "text": "밤 선택 시 초기 연출(황혼→밤) 재생",
+        "text": "밤 계열 선택 시 초기 연출 재생 (밤: 황혼→밤 / 미러볼: 이후 전환까지)",
         "type": "bool",
         "value": True,
-        "condition": "a00_scene.value == 3",
+        "condition": "a00_scene.value == 3 || a00_scene.value == 4",
     })
     add("a02_show_advanced", {
         "text": "고급 옵션 표시",
@@ -200,7 +201,7 @@ def main() -> None:
         # thumbnail.png 등 별도명은 무시되므로 반드시 preview.jpg를 지정한다.
         "preview": "preview.jpg",
         "title": "Tsukuyomi 月",
-        "description": "낮·황혼·밤이 이어지는 고요한 수면. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 선택 시 초기 황혼→밤 연출을 켜거나 끌 수 있다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터를 그대로 조절할 수 있다.",
+        "description": "낮·황혼·밤·밤(미러볼)이 이어지는 고요한 수면. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출을 켜거나 끌 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 고급 옵션을 켜면 웹 디버그 패널의 파라미터를 그대로 조절할 수 있다.",
         "type": "web",
         "general": {"properties": props},
     }
