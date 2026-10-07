@@ -23,13 +23,15 @@
 
     <div class="dock">
         <section class="panel intro-hidden" id="panel" aria-label="장면 전환">
-            <div class="icongroup" id="icongroup" role="group" aria-label="낮 / 황혼 / 밤 선택">
+            <div class="icongroup" id="icongroup" role="group" aria-label="낮 / 황혼 / 밤 / 미러볼 선택">
                 <span class="thumb" id="thumb" aria-hidden="true"></span>
                 <button type="button" id="btnDay" aria-label="낮" aria-pressed="false"><i class="bi bi-sun-fill"
                         aria-hidden="true"></i></button>
-                <button type="button" id="btnDusk" aria-label="황혼" aria-pressed="false"><i
+                <button type="button" id="btnDusk" class="on" aria-label="황혼" aria-pressed="true"><i
                         class="bi bi-brightness-alt-high-fill" aria-hidden="true"></i></button>
-                <button type="button" id="btnNight" class="on" aria-label="밤" aria-pressed="true"><i class="bi bi-moon-fill"
+                <button type="button" id="btnNight" aria-label="밤" aria-pressed="false"><i class="bi bi-moon-fill"
+                        aria-hidden="true"></i></button>
+                <button type="button" id="btnMirror" aria-label="미러볼" aria-pressed="false"><i class="bi bi-globe2"
                         aria-hidden="true"></i></button>
             </div>
             <span class="sr-only" id="status" aria-live="polite"></span>

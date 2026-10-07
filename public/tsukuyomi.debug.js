@@ -586,12 +586,66 @@
             brow.appendChild(btn);
         };
         mkBtn('빛줄기 발사', () => b.actions.mirrorburst());
+        mkBtn('전환 연출', () => b.actions.mirrorShow());
         mkBtn('미러볼 리셋', () => {
             Object.assign(b.mb, JSON.parse(JSON.stringify(b.mbDefaults)));
             b.mbSpin = true;
             b.actions.mbBuild();
             refreshMirror(b);
         });
+        host.appendChild(brow);
+        if (b.show) buildShow(host, b);
+    }
+    // 전환 연출 스포트라이트 미세조정 (b.show: n·speed·dur·rot). 값은 다음 '전환 연출' 실행부터 반영(speed·dur·rot는 진행 중에도 즉시).
+    const SHOW_KEYS = [
+        ['n', '줄기 수', 1, 48, 1], ['speed', '회전 속도', 0, 4, 0.05],
+        ['dur', '지속시간', 0.3, 3, 0.05], ['rot', '회전각', 0, 3, 0.05],
+    ];
+    function buildShow(host, b) {
+        const sub = document.createElement('div');
+        sub.className = 'tsd-sub';
+        sub.textContent = '전환 연출 스포트라이트';
+        host.appendChild(sub);
+        const refs = [];
+        for (const [key, label, min, max, step] of SHOW_KEYS) {
+            const row = document.createElement('div');
+            row.className = 'tsd-row';
+            const lab = document.createElement('label');
+            lab.textContent = label + ' (' + key + ')';
+            lab.title = '기본값 ' + fmt(b.showDefaults[key]);
+            const range = document.createElement('input');
+            range.type = 'range';
+            range.min = String(min); range.max = String(max); range.step = String(step);
+            range.value = String(b.show[key]);
+            const num = document.createElement('input');
+            num.type = 'number';
+            num.min = String(min); num.max = String(max); num.step = String(step);
+            num.value = String(b.show[key]);
+            const apply = (v, from) => {
+                const n = Number(v);
+                if (!isFinite(n)) return;
+                b.show[key] = n;
+                if (from !== range) range.value = String(Math.min(max, Math.max(min, n)));
+                if (from !== num) num.value = String(n);
+            };
+            range.addEventListener('input', () => apply(range.value, range));
+            num.addEventListener('change', () => apply(num.value, num));
+            row.appendChild(lab); row.appendChild(range); row.appendChild(num);
+            host.appendChild(row);
+            refs.push({ key, range, num });
+        }
+        const brow = document.createElement('div');
+        brow.className = 'tsd-btnrow';
+        const run = document.createElement('button');
+        run.type = 'button'; run.textContent = '전환 연출';
+        run.addEventListener('click', () => b.actions.mirrorShow());
+        const reset = document.createElement('button');
+        reset.type = 'button'; reset.textContent = '연출 기본값';
+        reset.addEventListener('click', () => {
+            Object.assign(b.show, b.showDefaults);
+            for (const r of refs) { r.range.value = String(b.show[r.key]); r.num.value = String(b.show[r.key]); }
+        });
+        brow.appendChild(run); brow.appendChild(reset);
         host.appendChild(brow);
     }
     function refreshMirror(b) {
