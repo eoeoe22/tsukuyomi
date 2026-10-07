@@ -403,18 +403,18 @@
 
             // ---------- mirrorball moon (미러볼 SVG 생성기 기본값) ----------
             // 생성기 기본값에서 step 10으로 조정: tilt -16, step 10, gap 0.14, jit 0.06, off 1, seed 11,
-            // tile #dfe4ea, grout #86a0ab, dark #c2d5d9 (상부 색감은 media/mirrorball-ref.png 분석값), light #eaf7ff, glowC #fff3f1,
+            // tile #dfe4ea, grout #d3e3e9(밝은 줄눈), dark #5a8696(은빛 타일 그늘) — 상부는 media/mirrorball-ref.png 기준, light #eaf7ff, glowC #fff3f1,
             // pole 0.9, poleR 35, veil 0.55, veilR 0.46, haze 0.18, bloom 0.8,
             // glint 0.1, gcount 6, gturn 0.22, ghold 0.14, gacc 0.08, gspd 2.5, gwhite 0.74.
             // 40초 주기로 균일 자전. 본체는 캐시 캔버스에 굽고(0.6° 이상 돌아야 다시 그림),
             // 줄눈 빛줄기는 하늘에 라이브로 그린다. 발사 트리거는 미러볼 클릭.
             const MB = {
                 tilt: -16, step: 10, gap: 0.14, jit: 0.06, off: 1, seed: 11,
-                tile: '#dfe4ea', grout: '#86a0ab', dark: '#c2d5d9', light: '#eaf7ff', glowC: '#fff3f1',
+                tile: '#dfe4ea', grout: '#d3e3e9', dark: '#5a8696', light: '#eaf7ff', glowC: '#fff3f1',
                 pole: 0.9, poleR: 35, veil: 0.55, veilR: 0.46, haze: 0.18, bloom: 0.8,
                 glint: 0.1, gcount: 6, gturn: 0.22, ghold: 0.14, gacc: 0.08, gspd: 2.5, gwhite: 0.74
             };
-            const MB_REF = { amb: 0.30, glow: 1.15, pw: 1.4, njit: 1.2, rim: 0.5, tjit: 0.22, side: [0.5, 0.6, 0.64] };
+            const MB_REF = { amb: 0.30, glow: 1.15, pw: 1.4, njit: 1.2, rim: 0.5, tjit: 0.3, side: [0.5, 0.6, 0.64] };
             const MB_PERIOD = 40;
             const MB_DEFAULTS = JSON.parse(JSON.stringify(MB));
             const MB_S = 280, MB_C = 140, MB_R = 124;
@@ -473,8 +473,9 @@
                 const pu = Math.max(0, 1 - mbRad(mid + 90) / pr);
                 const f = pu * pu * (3 - 2 * pu);
                 const b = bb + MB.pole * f * 1.2;
-                // 상부(b<1)는 하늘빛을 받은 청회색(dark) → tile. 가장자리로 갈수록 프레넬로 밝아진다(레퍼런스 림).
-                const DR = hex(MB.dark), TR = hex(MB.tile), LR = hex(MB.light);
+                // 상부(b<1)는 은빛 타일: 그늘(dark) → tile. 타일별 편차를 크게 줘 금속 반사처럼 들쭉날쭉하게,
+                // 가장자리로 갈수록 프레넬로 밝아진다(레퍼런스 림). 줄눈은 반대로 밝다(레퍼런스의 흰 테두리).
+                const DR = hex(MB.dark), TR = hex(MB.tile), LR = hex(MB.light), GR = hex(MB.grout);
                 let fr, fg, fb;
                 if (b < 1) {
                     const e = 1 - nz, u = Math.min(1, Math.max(0, Math.max(0, b) + MB_REF.rim * e * e * e + MB_REF.tjit * jB));
@@ -483,9 +484,10 @@
                     const u = Math.min(1, b - 1);
                     fr = TR[0] + (LR[0] - TR[0]) * u; fg = TR[1] + (LR[1] - TR[1]) * u; fb = TR[2] + (LR[2] - TR[2]) * u;
                 }
-                // 타일 옆면(줄눈 쪽 경사면): 청록으로 살짝 치우친 그늘
-                const sd = MB_REF.side;
-                return { b, f, front: [fr, fg, fb], side: [fr * sd[0], fg * sd[1], fb * sd[2]] };
+                // 타일 옆면(줄눈 쪽 경사면): 상부는 밝은 줄눈색, 빛 비침(b≥1) 쪽은 기존 그늘로 이어진다.
+                const sd = MB_REF.side, w = clamp((1.2 - b) / 0.4, 0, 1);
+                const side = [0, 1, 2].map(i => { const d = [fr, fg, fb][i] * sd[i]; return d + (GR[i] - d) * w; });
+                return { b, f, w, front: [fr, fg, fb], side };
             }
             function mbRenderBody() {
                 const g = MBG, s = mbSys(MB.tilt), K = 1 - MB.gap, fk = MB_R / 200;
@@ -511,7 +513,17 @@
                     fx.forEach((q, k) => { k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); });
                     g.closePath();
                     const FS = rgba(L.front);
-                    g.fillStyle = FS; g.fill();
+                    if (L.w > 0) {
+                        // 은빛 질감: 타일 대각선으로 그늘 → 본색 → 하이라이트. 방향은 타일마다 뒤집혀 반짝임이 흩어진다.
+                        const [p0, p1] = t.jB > 0 ? [fx[0], fx[2]] : [fx[1], fx[3]];
+                        const lg = g.createLinearGradient(p0[0], p0[1], p1[0], p1[1]);
+                        const c = L.front, hw = 0.5 * L.w;
+                        lg.addColorStop(0, rgba(c.map(v => v * (1 - 0.3 * L.w))));
+                        lg.addColorStop(0.5, FS);
+                        lg.addColorStop(1, rgba(c.map((v, i) => v + ([244, 251, 255][i] - v) * hw)));
+                        g.fillStyle = lg;
+                    } else g.fillStyle = FS;
+                    g.fill();
                     tops.push([fx[3], fx[2]]); bots.push([fx[0], fx[1]]);
                     if (L.f > 0.15) capQ.push([fx, FS]);
                 }
@@ -519,7 +531,7 @@
                 g.beginPath();
                 for (const [a, b] of tops) { g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
                 g.stroke();
-                g.strokeStyle = 'rgba(0,0,0,0.28)'; g.lineWidth = 1 * fk;
+                g.strokeStyle = 'rgba(0,0,0,0.2)'; g.lineWidth = 1 * fk;
                 g.beginPath();
                 for (const [a, b] of bots) { g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
                 g.stroke();
