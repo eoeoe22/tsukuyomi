@@ -402,23 +402,24 @@
             let reflStep = 8, reflLastBase = 8, reflEMA = 16, reflCool = 0;
 
             // ---------- mirrorball moon (미러볼 SVG 생성기 기본값) ----------
-            // 생성기 기본값에서 step 10으로 조정: tilt -16, step 10, gap 0.14, jit 0.06, off 1, seed 11,
-            // tile #dfe4ea, grout #202932, dark #26313e, light #eaf7ff, glowC #fff3f1,
+            // 생성기 기본값에서 조정: tilt -32, step 9.5, gap 0.14, jit 0.06, off 1, seed 11,
+            // tile #dfe4ea, grout #d3e3e9(밝은 줄눈), dark #5a8696(은빛 타일 그늘) — 상부는 media/mirrorball-ref.png 기준, light #eaf7ff, glowC #fff3f1,
             // pole 0.9, poleR 35, veil 0.55, veilR 0.46, haze 0.18, bloom 0.8,
+            // teal 0.6(상부 타일을 어두운 청록 그늘 쪽으로 균일하게), tjit 0(타일별 랜덤 편차, 어두운 쪽 기준으로 밝게만), sheen 0.6(은빛 그라디언트),
             // glint 0.1, gcount 6, gturn 0.22, ghold 0.14, gacc 0.08, gspd 2.5, gwhite 0.74.
             // 40초 주기로 균일 자전. 본체는 캐시 캔버스에 굽고(0.6° 이상 돌아야 다시 그림),
             // 줄눈 빛줄기는 하늘에 라이브로 그린다. 발사 트리거는 미러볼 클릭.
             const MB = {
-                tilt: -16, step: 10, gap: 0.14, jit: 0.06, off: 1, seed: 11,
-                tile: '#dfe4ea', grout: '#202932', dark: '#26313e', light: '#eaf7ff', glowC: '#fff3f1',
+                tilt: -32, step: 9.5, gap: 0.14, jit: 0.06, off: 1, seed: 11,
+                tile: '#dfe4ea', grout: '#d3e3e9', dark: '#5a8696', light: '#eaf7ff', glowC: '#fff3f1',
                 pole: 0.9, poleR: 35, veil: 0.55, veilR: 0.46, haze: 0.18, bloom: 0.8,
+                teal: 0.6, tjit: 0, sheen: 0.6,
                 glint: 0.1, gcount: 6, gturn: 0.22, ghold: 0.14, gacc: 0.08, gspd: 2.5, gwhite: 0.74
             };
-            const MB_REF = { amb: 0.30, glow: 1.15, pw: 1.4, njit: 1.2 };
+            const MB_REF = { amb: 0.30, glow: 1.15, pw: 1.4, njit: 1.2, rim: 0.5, side: [0.5, 0.6, 0.64] };
             const MB_PERIOD = 40;
             const MB_DEFAULTS = JSON.parse(JSON.stringify(MB));
             const MB_S = 280, MB_C = 140, MB_R = 124;
-            const MB_DR = hex(MB.dark), MB_TR = hex(MB.tile), MB_LR = hex(MB.light);
             const MB_POLE_LIMIT = 60, MB_SLOW = 0.1, MB_LN10 = Math.LN10;
             const MB_LON_SPAN = 300;   // 줄눈 경로의 총 경도 이동 한계(극周回=수바퀴 맴돎 방지)
             let mbTiles = [], mbRows = [], mbRot = 0, mbT = 0, mbStreaks = [];
@@ -437,7 +438,7 @@
             };
             const mbPj = (lat, lon, s) => { const q = mbV(lat, lon, s); return [MB_C + MB_R * q[0], MB_C - MB_R * q[1]]; };
             function mbBuildAll() {
-                const rnd = mulberry32(MB.seed), rndR = mulberry32((MB.seed ^ 0x85ebca6b) >>> 0);
+                const rnd = mulberry32(MB.seed), rndR = mulberry32((MB.seed ^ 0x85ebca6b) >>> 0), rndB = mulberry32((MB.seed ^ 0x27d4eb2f) >>> 0);
                 mbTiles = [];
                 const rows = Math.ceil(180 / MB.step);
                 for (let i = 0; i < rows; i++) {
@@ -451,7 +452,8 @@
                         const tw = ws[j] * 360 / sum;
                         mbTiles.push({
                             lat, lat2, mid, lon0: lon, tw,
-                            jLat: (rndR() * 2 - 1) * MB_REF.njit, jLon: (rndR() * 2 - 1) * MB_REF.njit
+                            jLat: (rndR() * 2 - 1) * MB_REF.njit, jLon: (rndR() * 2 - 1) * MB_REF.njit,
+                            jB: rndB() * 2 - 1   // 타일별 반사 밝기 편차(상부 청회색 구간에만 적용)
                         });
                         lon += tw;
                     }
@@ -466,22 +468,28 @@
                 mbRows.forEach(r => r.edges.sort((a, b) => a - b));
                 mbStreaks = []; mbBodyRot = NaN;
             }
-            function mbLit(n, mid) {
+            function mbLit(n, mid, jB = 0) {
                 const nz = Math.max(0, n[2]);
                 const bb = (MB_REF.amb + MB_REF.glow * Math.pow(Math.max(0, -n[1]), MB_REF.pw)) * (0.45 + 0.55 * nz);
                 const pr = Math.max(0.001, mbRad(MB.poleR));
                 const pu = Math.max(0, 1 - mbRad(mid + 90) / pr);
                 const f = pu * pu * (3 - 2 * pu);
                 const b = bb + MB.pole * f * 1.2;
+                // 상부(b<1)는 은빛 타일: 그늘(dark) → tile. 타일별 편차를 크게 줘 금속 반사처럼 들쭉날쭉하게,
+                // 가장자리로 갈수록 프레넬로 밝아진다(레퍼런스 림). 줄눈은 반대로 밝다(레퍼런스의 흰 테두리).
+                const DR = hex(MB.dark), TR = hex(MB.tile), LR = hex(MB.light), GR = hex(MB.grout);
                 let fr, fg, fb;
                 if (b < 1) {
-                    const u = Math.max(0, b);
-                    fr = MB_DR[0] + (MB_TR[0] - MB_DR[0]) * u; fg = MB_DR[1] + (MB_TR[1] - MB_DR[1]) * u; fb = MB_DR[2] + (MB_TR[2] - MB_DR[2]) * u;
+                    const e = 1 - nz, u = Math.min(1, Math.max(0, (Math.max(0, b) + MB_REF.rim * e * e * e) * (1 - MB.teal) + MB.tjit * (jB + 1) * 0.5));
+                    fr = DR[0] + (TR[0] - DR[0]) * u; fg = DR[1] + (TR[1] - DR[1]) * u; fb = DR[2] + (TR[2] - DR[2]) * u;
                 } else {
                     const u = Math.min(1, b - 1);
-                    fr = MB_TR[0] + (MB_LR[0] - MB_TR[0]) * u; fg = MB_TR[1] + (MB_LR[1] - MB_TR[1]) * u; fb = MB_TR[2] + (MB_LR[2] - MB_TR[2]) * u;
+                    fr = TR[0] + (LR[0] - TR[0]) * u; fg = TR[1] + (LR[1] - TR[1]) * u; fb = TR[2] + (LR[2] - TR[2]) * u;
                 }
-                return { b, f, front: [fr, fg, fb], side: [fr * 0.5, fg * 0.5, fb * 0.5] };
+                // 타일 옆면(줄눈 쪽 경사면): 상부는 밝은 줄눈색, 빛 비침(b≥1) 쪽은 기존 그늘로 이어진다.
+                const sd = MB_REF.side, w = clamp((1.2 - b) / 0.4, 0, 1);
+                const side = [0, 1, 2].map(i => { const d = [fr, fg, fb][i] * sd[i]; return d + (GR[i] - d) * w; });
+                return { b, f, w, front: [fr, fg, fb], side };
             }
             function mbRenderBody() {
                 const g = MBG, s = mbSys(MB.tilt), K = 1 - MB.gap, fk = MB_R / 200;
@@ -499,7 +507,7 @@
                     const cx = (pts[0][0] + pts[1][0] + pts[2][0] + pts[3][0]) / 4;
                     const cy = (pts[0][1] + pts[1][1] + pts[2][1] + pts[3][1]) / 4;
                     const fx = pts.map(q => [cx + (q[0] - cx) * K, cy + (q[1] - cy) * K]);
-                    const L = mbLit(mbV(t.mid + t.jLat, midLon + t.jLon, s), t.mid);
+                    const L = mbLit(mbV(t.mid + t.jLat, midLon + t.jLon, s), t.mid, t.jB);
                     g.beginPath();
                     pts.forEach((q, k) => { k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); });
                     g.closePath(); g.fillStyle = rgba(L.side); g.fill();
@@ -507,18 +515,36 @@
                     fx.forEach((q, k) => { k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); });
                     g.closePath();
                     const FS = rgba(L.front);
-                    g.fillStyle = FS; g.fill();
+                    if (L.w > 0 && MB.sheen > 0) {
+                        // 은빛 질감(sheen): 타일 대각선으로 그늘 → 본색 → 하이라이트.
+                        // 일부 타일(tjit에 비례, tjit 0.25 이상이면 절반)만 방향을 뒤집어 반짝임을 흩뜨린다. tjit 0이면 전부 같은 방향.
+                        const [p0, p1] = t.jB > 1 - 4 * MB.tjit ? [fx[1], fx[3]] : [fx[0], fx[2]];
+                        const lg = g.createLinearGradient(p0[0], p0[1], p1[0], p1[1]);
+                        const c = L.front, sw = L.w * MB.sheen, hw = 0.5 * sw;
+                        lg.addColorStop(0, rgba(c.map(v => v * (1 - 0.3 * sw))));
+                        lg.addColorStop(0.5, FS);
+                        lg.addColorStop(1, rgba(c.map((v, i) => v + ([244, 251, 255][i] - v) * hw)));
+                        g.fillStyle = lg;
+                    } else g.fillStyle = FS;
+                    g.fill();
                     tops.push([fx[3], fx[2]]); bots.push([fx[0], fx[1]]);
                     if (L.f > 0.15) capQ.push([fx, FS]);
                 }
-                g.strokeStyle = 'rgba(215,240,255,0.85)'; g.lineWidth = 1.2 * fk;
+                g.strokeStyle = 'rgba(222,244,248,0.9)'; g.lineWidth = 1.2 * fk;
                 g.beginPath();
                 for (const [a, b] of tops) { g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
                 g.stroke();
-                g.strokeStyle = 'rgba(0,0,0,0.28)'; g.lineWidth = 1 * fk;
+                g.strokeStyle = 'rgba(0,0,0,0.2)'; g.lineWidth = 1 * fk;
                 g.beginPath();
                 for (const [a, b] of bots) { g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
                 g.stroke();
+                // 실루엣 림: 가장자리 10%가 밝은 청백으로 번진다 (레퍼런스 r0.9~1.0)
+                const rimG = g.createRadialGradient(MB_C, MB_C, MB_R * 0.74, MB_C, MB_C, MB_R);
+                rimG.addColorStop(0, 'rgba(226,240,245,0)');
+                rimG.addColorStop(0.6, 'rgba(226,240,245,0.3)');
+                rimG.addColorStop(0.9, 'rgba(234,246,248,0.8)');
+                rimG.addColorStop(1, 'rgba(238,247,249,0.55)');
+                g.fillStyle = rimG; g.fillRect(0, 0, MB_S, MB_S);
                 if (MB.veil > 0 || MB.haze > 0) {
                     const cy = MB_C + MB_R * (s.st < 0 ? s.ct : 1), rg = MB_R * 2.1;
                     const gr = g.createRadialGradient(MB_C, cy, 0, MB_C, cy, rg);
