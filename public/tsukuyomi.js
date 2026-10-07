@@ -402,7 +402,7 @@
             let reflStep = 8, reflLastBase = 8, reflEMA = 16, reflCool = 0;
 
             // ---------- mirrorball moon (미러볼 SVG 생성기 기본값) ----------
-            // 생성기 기본값에서 step 10으로 조정: tilt -16, step 10, gap 0.14, jit 0.06, off 1, seed 11,
+            // 생성기 기본값에서 조정: tilt -32, step 9.5, gap 0.14, jit 0.06, off 1, seed 11,
             // tile #dfe4ea, grout #d3e3e9(밝은 줄눈), dark #5a8696(은빛 타일 그늘) — 상부는 media/mirrorball-ref.png 기준, light #eaf7ff, glowC #fff3f1,
             // pole 0.9, poleR 35, veil 0.55, veilR 0.46, haze 0.18, bloom 0.8,
             // teal 0.6(상부 타일을 어두운 청록 그늘 쪽으로 균일하게), tjit 0(타일별 랜덤 편차, 어두운 쪽 기준으로 밝게만), sheen 0.6(은빛 그라디언트),
@@ -410,7 +410,7 @@
             // 40초 주기로 균일 자전. 본체는 캐시 캔버스에 굽고(0.6° 이상 돌아야 다시 그림),
             // 줄눈 빛줄기는 하늘에 라이브로 그린다. 발사 트리거는 미러볼 클릭.
             const MB = {
-                tilt: -16, step: 10, gap: 0.14, jit: 0.06, off: 1, seed: 11,
+                tilt: -32, step: 9.5, gap: 0.14, jit: 0.06, off: 1, seed: 11,
                 tile: '#dfe4ea', grout: '#d3e3e9', dark: '#5a8696', light: '#eaf7ff', glowC: '#fff3f1',
                 pole: 0.9, poleR: 35, veil: 0.55, veilR: 0.46, haze: 0.18, bloom: 0.8,
                 teal: 0.6, tjit: 0, sheen: 0.6,
