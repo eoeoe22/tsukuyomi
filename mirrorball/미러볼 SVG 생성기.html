@@ -236,7 +236,7 @@
                     step="0.05" value="1"></div>
             <div class="row"><label>극점광 세기 (표면 원형·남극 중심) <b id="v-pole"></b></label><input type="range" id="pole"
                     min="0" max="3" step="0.05" value="0.9"></div>
-            <div class="row"><label>극점광 범위 (남극からの 각도) <b id="v-poleR"></b></label><input type="range" id="poleR" min="0"
+            <div class="row"><label>극점광 범위 (남극　각도) <b id="v-poleR"></b></label><input type="range" id="poleR" min="0"
                     max="90" step="1" value="35"></div>
             <div class="row"><label>하부 발광 세기 (줄눈 덮기) <b id="v-veil"></b></label><input type="range" id="veil" min="0"
                     max="1.5" step="0.05" value="0.55"></div>
@@ -341,7 +341,7 @@
             const nz = Math.max(0, n[2]);
             const bb = (REF.amb + REF.glow * Math.pow(Math.max(0, -n[1]), REF.pw)) * (0.45 + 0.55 * nz);
             const pr = Math.max(0.001, rad(o.poleR));
-            const pu = Math.max(0, 1 - rad(mid + 90) / pr); // 남극からの 각거리 (0=극점)
+            const pu = Math.max(0, 1 - rad(mid + 90) / pr); // 남극 각거리 (0=극점)
             const f = pu * pu * (3 - 2 * pu); // 원형 폴오프
             const b = bb + o.pole * f * 1.2;
             let fr, fg, fb;
