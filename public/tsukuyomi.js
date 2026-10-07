@@ -758,7 +758,8 @@
                 const c = mbHsl(h, 1, 0.55);
                 return [255 * w + c[0] * (1 - w), 255 * w + c[1] * (1 - w), 255 * w + c[2] * (1 - w)];
             }
-            function mbStreakGeom() {
+            // ds: 경로 샘플 간격(도). 꺾이는 지점(cum)은 간격과 무관하게 항상 포함된다.
+            function mbStreakGeom(ds = 1) {
                 const s = mbSys(MB.tilt), w = MB.gwhite;
                 const gapPx = Math.max(0.6, MB.gap * MB_R * mbRad(MB.step));
                 const segs = [];
@@ -769,7 +770,7 @@
                     const a = Math.max(0, sTail), b = Math.min(pt.total, sHead);
                     if (b - a < 0.05) continue;
                     const sv = [a, b];
-                    for (let v = a + 1; v < b; v += 1) sv.push(v);
+                    for (let v = a + ds; v < b; v += ds) sv.push(v);
                     for (const c of pt.cum) if (c > a && c < b) sv.push(c);
                     sv.sort((p, q) => p - q);
                     const env = MB.glint * st.k;
@@ -794,26 +795,49 @@
                 return { segs, gapPx, hw: gapPx * 2.8 + 3, mw: gapPx * 1.1 + 0.6, cw: Math.max(0.7, gapPx * 0.42) };
             }
             const mbPM = (c, a) => { const k = Math.min(1, a); return `rgb(${c[0] * k | 0},${c[1] * k | 0},${c[2] * k | 0})`; };
+            // 빛줄기 성능: 달 위에서 1°가 화면 ~1px이라 1° 샘플은 과샘플 → 화면 MB_SEG_PX 간격으로 샘플.
+            // halo blur는 선분마다 걸면 draw마다 필터 레이어가 생겨 프레임 전체가 끊긴다 →
+            // 오프스크린에 필터 없이 가산으로 모은 뒤 S에 합성할 때 1회만 blur (blur는 선형이라 선분별 blur의 합과 같다).
+            const MB_SEG_PX = 3;
+            const mbHaloC = document.createElement('canvas'), MBH = mbHaloC.getContext('2d');
             function mbDrawStreaks(mx, my, mr, m) {
                 if (!mbStreaks.length || MB.glint <= 0 || m <= 0.01) return;
-                const G = mbStreakGeom();
+                const pxDeg = mr * Math.PI / 180;   // 구 중심에서 1°의 화면 px
+                const ds = Math.max(1, MB_SEG_PX / pxDeg);
+                const G = mbStreakGeom(ds);
                 if (!G.segs.length) return;
                 const k = mr / MB_R;
+                // 둥근 캡 겹침 보정: 길이 s·굵기 w 선분이 한 점을 덮는 개수 ≈ (w+s)/s. 1° 샘플 때 밝기에 맞춘다.
+                const s0 = pxDeg, s1 = ds * pxDeg;
+                const ovl = lw => ((lw + s0) / s0) / ((lw + s1) / s1);
+                const X = x => mx + (x - MB_C) * k, Y = y => my + (y - MB_C) * k;
+                const strokeSegs = (g, wd, key, kk) => {
+                    const lw = Math.max(0.6, wd * k), f = kk * m * ovl(lw);
+                    g.lineWidth = lw;
+                    for (const sg of G.segs) {
+                        g.strokeStyle = mbPM(sg[key], sg.a * f);
+                        g.beginPath(); g.moveTo(X(sg.x0), Y(sg.y0)); g.lineTo(X(sg.x1), Y(sg.y1)); g.stroke();
+                    }
+                };
+                // halo → 오프스크린(달 영역, 기기 px 정렬)
+                const pad = Math.max(0.6, G.hw * k) / 2 + 2;
+                const ox = Math.floor((mx - mr - pad) * dpr) / dpr, oy = Math.floor((my - mr - pad) * dpr) / dpr;
+                const side = Math.ceil((2 * (mr + pad) + 1) * dpr);
+                if (mbHaloC.width !== side || mbHaloC.height !== side) { mbHaloC.width = side; mbHaloC.height = side; }
+                else { MBH.setTransform(1, 0, 0, 1, 0, 0); MBH.clearRect(0, 0, side, side); }
+                MBH.setTransform(dpr, 0, 0, dpr, -ox * dpr, -oy * dpr);
+                MBH.globalCompositeOperation = 'lighter';
+                MBH.lineCap = 'round';
+                strokeSegs(MBH, G.hw, 'halo', 0.9);
                 S.save();
                 S.beginPath(); S.arc(mx, my, mr, 0, Math.PI * 2); S.clip();
                 S.globalCompositeOperation = 'lighter';
                 S.lineCap = 'round';
-                const X = x => mx + (x - MB_C) * k, Y = y => my + (y - MB_C) * k;
-                const passes = [[G.hw, 'halo', 0.9, true], [G.mw, 'halo', 0.85, false], [G.cw, 'core', 1.15, false]];
-                for (const [wd, key, kk, blur] of passes) {
-                    S.lineWidth = Math.max(0.6, wd * k);
-                    S.filter = (blur && FILTER_OK) ? `blur(${(wd * k * 0.45).toFixed(1)}px)` : 'none';
-                    for (const sg of G.segs) {
-                        S.strokeStyle = mbPM(sg[key], sg.a * kk * m);
-                        S.beginPath(); S.moveTo(X(sg.x0), Y(sg.y0)); S.lineTo(X(sg.x1), Y(sg.y1)); S.stroke();
-                    }
-                }
+                if (FILTER_OK) S.filter = `blur(${(G.hw * k * 0.45).toFixed(1)}px)`;
+                S.drawImage(mbHaloC, 0, 0, side, side, ox, oy, side / dpr, side / dpr);
                 S.filter = 'none';
+                strokeSegs(S, G.mw, 'halo', 0.85);
+                strokeSegs(S, G.cw, 'core', 1.15);
                 S.restore();
             }
             function mbDrawMoon(mx, my, mr, m) {
