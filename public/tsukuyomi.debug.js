@@ -161,8 +161,17 @@
     fab.title = '디버그 패널 열기 (` 또는 ?debug=1 로 항상 표시 가능)';
     fab.hidden = true;
 
+    function resetPosition() {
+        panel.style.left = '';
+        panel.style.top = '';
+        panel.style.right = '';
+        panel.style.bottom = '';
+    }
+
     function show(src) {
         if (src) detectSrc = src;
+        // 플로팅 패널: 열 때마다 기본 위치(CSS: 우상단)에 생성
+        resetPosition();
         panel.hidden = false;
         // 항상 숨김 정책: 닫은 뒤에도 FAB을 띄우지 않는다 (`/F12로만 호출).
         fab.hidden = true;
@@ -761,9 +770,81 @@
             else hide();
             return;
         }
-        // F12만 패널을 연다. 다른 DevTools 단축키로는 자동 표시하지 않는다.
-        if ((e.key || '') === 'F12') show('단축키(F12)');
+        // F12 토글: 열려 있으면 완전 숨김, 닫혀 있으면 기본 위치에 생성.
+        // 브라우저 DevTools를 열지 않도록 기본 동작 차단 시도.
+        if ((e.key || '') === 'F12' || e.code === 'F12') {
+            if (e.repeat) return;
+            e.preventDefault();
+            if (panel.hidden) show('단축키(F12)');
+            else hide();
+            return;
+        }
     });
+
+    // ---------- 플로팅 드래그 (헤더 드래그 이동, Pointer Events: 마우스/터치/펜 호환) ----------
+    function clampPosition(left, top) {
+        const r = panel.getBoundingClientRect();
+        const w = r.width || 300;
+        // 헤더가 화면 밖에 나가지 않게: 최소 80px은 화면 안에 유지
+        const minL = -w + 80;
+        const maxL = Math.max(minL, window.innerWidth - 80);
+        const maxT = Math.max(0, window.innerHeight - 40);
+        return {
+            left: Math.max(minL, Math.min(maxL, left)),
+            top: Math.max(0, Math.min(maxT, top)),
+        };
+    }
+
+    function enableFloatingDrag() {
+        const head = panel.querySelector('.tsd-head');
+        if (!head || head._dragWired) return;
+        head._dragWired = true;
+        let drag = null; // { id, x, y, left, top }
+
+        head.addEventListener('pointerdown', e => {
+            // 헤더 버튼(접기/닫기)은 드래그가 아니라 클릭
+            if (e.target.closest('button')) return;
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            if (panel.hidden) return;
+            const r = panel.getBoundingClientRect();
+            // 현재 고정 위치를 명시적 left/top으로 고정 (점프 방지)
+            panel.style.left = r.left + 'px';
+            panel.style.top = r.top + 'px';
+            panel.style.right = 'auto';
+            panel.style.bottom = 'auto';
+            drag = { id: e.pointerId, x: e.clientX, y: e.clientY, left: r.left, top: r.top };
+            head.classList.add('dragging');
+            try { head.setPointerCapture(e.pointerId); } catch (err) { /* 구형 브라우저 무시 */ }
+            e.preventDefault();
+        });
+
+        head.addEventListener('pointermove', e => {
+            if (!drag || e.pointerId !== drag.id) return;
+            const p = clampPosition(drag.left + (e.clientX - drag.x), drag.top + (e.clientY - drag.y));
+            panel.style.left = p.left + 'px';
+            panel.style.top = p.top + 'px';
+            e.preventDefault();
+        });
+
+        const endDrag = e => {
+            if (!drag) return;
+            if (e && e.pointerId !== undefined && e.pointerId !== drag.id) return;
+            drag = null;
+            head.classList.remove('dragging');
+        };
+        head.addEventListener('pointerup', endDrag);
+        head.addEventListener('pointercancel', endDrag);
+
+        // 뷰포트 리사이즈 시 패널이 화면 밖으로 나가지 않게 보정
+        window.addEventListener('resize', () => {
+            if (panel.hidden) return;
+            if (!panel.style.left && !panel.style.top) return; // 기본 위치면 CSS에 맡김
+            const r = panel.getBoundingClientRect();
+            const p = clampPosition(r.left, r.top);
+            panel.style.left = p.left + 'px';
+            panel.style.top = p.top + 'px';
+        });
+    }
 
     // ---------- 배선 ----------
     document.addEventListener('DOMContentLoaded', () => {
@@ -772,6 +853,7 @@
         // 항상 숨김: FAB은 어떤 경우에도 표시하지 않는다.
         fab.hidden = true;
         fab.style.display = 'none';
+        enableFloatingDrag();
         panel.querySelector('[data-act="close"]').addEventListener('click', hide);
         fab.addEventListener('click', () => show('수동(FAB)'));
         panel.querySelector('[data-act="collapse"]').addEventListener('click', ev => {

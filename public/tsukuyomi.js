@@ -404,7 +404,7 @@
             // ---------- mirrorball moon (미러볼 SVG 생성기 기본값) ----------
             // 생성기 기본값에서 조정: tilt -32, step 9.5, gap 0.14, jit 0.06, off 1, seed 11,
             // tile #dfe4ea, grout #d3e3e9(밝은 줄눈), dark #5a8696(은빛 타일 그늘) — 상부는 media/mirrorball-ref.png 기준, light #eaf7ff, glowC #fff3f1,
-            // pole 0.9, poleR 35, veil 0.55, veilR 0.46, haze 0.18, bloom 0.8,
+            // pole 0.3, poleR 58, veil 0.8, veilR 0.36, haze 0.47, bloom 0.3,
             // teal 0.6(상부 타일을 어두운 청록 그늘 쪽으로 균일하게), tjit 0(타일별 랜덤 편차, 어두운 쪽 기준으로 밝게만), sheen 0.6(은빛 그라디언트),
             // glint 0.1, gcount 6, gturn 0.22, ghold 0.14, gacc 0.08, gspd 2.5, gwhite 0.74.
             // 40초 주기로 균일 자전. 본체는 캐시 캔버스에 굽고(0.6° 이상 돌아야 다시 그림),
@@ -412,7 +412,7 @@
             const MB = {
                 tilt: -32, step: 9.5, gap: 0.14, jit: 0.06, off: 1, seed: 11,
                 tile: '#dfe4ea', grout: '#d3e3e9', dark: '#5a8696', light: '#eaf7ff', glowC: '#fff3f1',
-                pole: 0.9, poleR: 35, veil: 0.55, veilR: 0.46, haze: 0.18, bloom: 0.8,
+                pole: 0.3, poleR: 58, veil: 0.8, veilR: 0.36, haze: 0.47, bloom: 0.3,
                 teal: 0.6, tjit: 0, sheen: 0.6,
                 glint: 0.1, gcount: 6, gturn: 0.22, ghold: 0.14, gacc: 0.08, gspd: 2.5, gwhite: 0.74
             };

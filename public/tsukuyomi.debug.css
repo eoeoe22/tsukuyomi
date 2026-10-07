@@ -27,7 +27,14 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.10);
     background: rgba(255, 255, 255, 0.03);
     user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+    touch-action: none;
 }
+
+.tsd-head.dragging { cursor: grabbing; }
+
+.tsd-head button { cursor: pointer; touch-action: manipulation; }
 
 .tsd-head strong { font-size: 12px; letter-spacing: 0.06em; }
 
