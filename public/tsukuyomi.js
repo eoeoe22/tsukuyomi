@@ -405,6 +405,7 @@
             // 생성기 기본값에서 step 10으로 조정: tilt -16, step 10, gap 0.14, jit 0.06, off 1, seed 11,
             // tile #dfe4ea, grout #d3e3e9(밝은 줄눈), dark #5a8696(은빛 타일 그늘) — 상부는 media/mirrorball-ref.png 기준, light #eaf7ff, glowC #fff3f1,
             // pole 0.9, poleR 35, veil 0.55, veilR 0.46, haze 0.18, bloom 0.8,
+            // teal 0.6(상부 타일을 어두운 청록 그늘 쪽으로 균일하게), tjit 0(타일별 랜덤 편차, 어두운 쪽 기준으로 밝게만), sheen 0.6(은빛 그라디언트),
             // glint 0.1, gcount 6, gturn 0.22, ghold 0.14, gacc 0.08, gspd 2.5, gwhite 0.74.
             // 40초 주기로 균일 자전. 본체는 캐시 캔버스에 굽고(0.6° 이상 돌아야 다시 그림),
             // 줄눈 빛줄기는 하늘에 라이브로 그린다. 발사 트리거는 미러볼 클릭.
@@ -412,9 +413,10 @@
                 tilt: -16, step: 10, gap: 0.14, jit: 0.06, off: 1, seed: 11,
                 tile: '#dfe4ea', grout: '#d3e3e9', dark: '#5a8696', light: '#eaf7ff', glowC: '#fff3f1',
                 pole: 0.9, poleR: 35, veil: 0.55, veilR: 0.46, haze: 0.18, bloom: 0.8,
+                teal: 0.6, tjit: 0, sheen: 0.6,
                 glint: 0.1, gcount: 6, gturn: 0.22, ghold: 0.14, gacc: 0.08, gspd: 2.5, gwhite: 0.74
             };
-            const MB_REF = { amb: 0.30, glow: 1.15, pw: 1.4, njit: 1.2, rim: 0.5, tjit: 0.3, side: [0.5, 0.6, 0.64] };
+            const MB_REF = { amb: 0.30, glow: 1.15, pw: 1.4, njit: 1.2, rim: 0.5, side: [0.5, 0.6, 0.64] };
             const MB_PERIOD = 40;
             const MB_DEFAULTS = JSON.parse(JSON.stringify(MB));
             const MB_S = 280, MB_C = 140, MB_R = 124;
@@ -478,7 +480,7 @@
                 const DR = hex(MB.dark), TR = hex(MB.tile), LR = hex(MB.light), GR = hex(MB.grout);
                 let fr, fg, fb;
                 if (b < 1) {
-                    const e = 1 - nz, u = Math.min(1, Math.max(0, Math.max(0, b) + MB_REF.rim * e * e * e + MB_REF.tjit * jB));
+                    const e = 1 - nz, u = Math.min(1, Math.max(0, (Math.max(0, b) + MB_REF.rim * e * e * e) * (1 - MB.teal) + MB.tjit * (jB + 1) * 0.5));
                     fr = DR[0] + (TR[0] - DR[0]) * u; fg = DR[1] + (TR[1] - DR[1]) * u; fb = DR[2] + (TR[2] - DR[2]) * u;
                 } else {
                     const u = Math.min(1, b - 1);
@@ -513,12 +515,13 @@
                     fx.forEach((q, k) => { k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); });
                     g.closePath();
                     const FS = rgba(L.front);
-                    if (L.w > 0) {
-                        // 은빛 질감: 타일 대각선으로 그늘 → 본색 → 하이라이트. 방향은 타일마다 뒤집혀 반짝임이 흩어진다.
-                        const [p0, p1] = t.jB > 0 ? [fx[0], fx[2]] : [fx[1], fx[3]];
+                    if (L.w > 0 && MB.sheen > 0) {
+                        // 은빛 질감(sheen): 타일 대각선으로 그늘 → 본색 → 하이라이트.
+                        // 일부 타일(tjit에 비례, tjit 0.25 이상이면 절반)만 방향을 뒤집어 반짝임을 흩뜨린다. tjit 0이면 전부 같은 방향.
+                        const [p0, p1] = t.jB > 1 - 4 * MB.tjit ? [fx[1], fx[3]] : [fx[0], fx[2]];
                         const lg = g.createLinearGradient(p0[0], p0[1], p1[0], p1[1]);
-                        const c = L.front, hw = 0.5 * L.w;
-                        lg.addColorStop(0, rgba(c.map(v => v * (1 - 0.3 * L.w))));
+                        const c = L.front, sw = L.w * MB.sheen, hw = 0.5 * sw;
+                        lg.addColorStop(0, rgba(c.map(v => v * (1 - 0.3 * sw))));
                         lg.addColorStop(0.5, FS);
                         lg.addColorStop(1, rgba(c.map((v, i) => v + ([244, 251, 255][i] - v) * hw)));
                         g.fillStyle = lg;
