@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>회색 클릭 인디케이터</title>
+<style>
+  :root {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    --bg: #eceae6;
+    --stage: #f7f6f3;
+    --ink: #2b2b2b;
+    --muted: #7a7874;
+    --line: #d6d3ce;
+    --dot: #8a8a8a;
+    --code-bg: #e3e0db;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c1c1d; --stage: #262628; --ink: #e8e6e3; --muted: #9a9894;
+      --line: #3a3a3c; --dot: #9c9c9c; --code-bg: #2f2f31;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1c1d; --stage: #262628; --ink: #e8e6e3; --muted: #9a9894;
+    --line: #3a3a3c; --dot: #9c9c9c; --code-bg: #2f2f31;
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 "Pretendard", -apple-system, "Apple SD Gothic Neo", "Segoe UI", "Noto Sans KR", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header { padding: 20px 24px 8px; max-width: 960px; width: 100%; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 2px; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  main { flex: 1; display: flex; flex-direction: column; gap: 16px; padding: 12px 24px 24px; max-width: 960px; width: 100%; margin: 0 auto; }
+
+  .stage {
+    position: relative; flex: 1; min-height: 320px;
+    background: var(--stage);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ── 컴포넌트 ───────────────────────── */
+  .click-indicator {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 0; height: 0;
+    pointer-events: none;
+  }
+  .click-indicator .core,
+  .click-indicator .pulse {
+    position: absolute;
+    left: 0; top: 0;
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    border-radius: 50%;
+    background: var(--dot);
+  }
+  .click-indicator .core {
+    opacity: 1;
+  }
+  .click-indicator .pulse {
+    opacity: 0;
+    animation: ci-pulse 1s cubic-bezier(.2,.6,.3,1) infinite;
+  }
+  @keyframes ci-pulse {
+    from { transform: scale(1); opacity: .45; }
+    to   { transform: scale(3.2); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .click-indicator .pulse { animation: none; opacity: 0; }
+  }
+  /* ───────────────────────────────────── */
+
+  details { font-size: 14px; }
+  summary { cursor: pointer; color: var(--muted); padding: 4px 0; }
+  summary:focus-visible { outline: 2px solid var(--dot); outline-offset: 2px; border-radius: 4px; }
+  pre {
+    background: var(--code-bg); border-radius: 10px; padding: 14px 16px;
+    overflow-x: auto; font-size: 12.5px; line-height: 1.55; margin: 8px 0 0;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>회색 클릭 인디케이터</h1>
+    <p>고정된 회색 점 위로 반투명 점이 퍼지며 사라집니다.</p>
+  </header>
+
+  <main>
+    <div class="stage">
+      <span class="click-indicator" aria-hidden="true">
+        <span class="pulse"></span>
+        <span class="core"></span>
+      </span>
+    </div>
+
+    <details>
+      <summary>코드 보기</summary>
+<pre><code>&lt;!-- 마크업 --&gt;
+&lt;span class="click-indicator"&gt;
+  &lt;span class="pulse"&gt;&lt;/span&gt;
+  &lt;span class="core"&gt;&lt;/span&gt;
+&lt;/span&gt;
+
+/* CSS */
+.click-indicator { position:absolute; left:50%; top:50%; width:0; height:0; pointer-events:none; }
+.click-indicator .core,
+.click-indicator .pulse {
+  position:absolute; left:0; top:0;
+  width:14px; height:14px;
+  margin:-7px 0 0 -7px;
+  border-radius:50%; background:#8a8a8a;
+}
+.click-indicator .core  { opacity:1; }
+.click-indicator .pulse { animation:ci-pulse 1s cubic-bezier(.2,.6,.3,1) infinite; }
+@keyframes ci-pulse { from{transform:scale(1);opacity:.45} to{transform:scale(3.2);opacity:0} }</code></pre>
+    </details>
+  </main>
+
+</body>
+</html>
