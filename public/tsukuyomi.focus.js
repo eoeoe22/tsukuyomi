@@ -63,10 +63,21 @@
   };
   const SCALES = { torii: 1.8, moon: 2.4, mirror: 2.4 };
 
+  // 달 상승(moonMT)이 완료된 뒤에만 인디케이터를 노출한다.
+  // moonMT: 0(수평선 아래)→1(완전히 떠오름). 부상 중에는 핀을 숨긴다.
+  function moonRisen() {
+    const T = ts();
+    if (!T) return false;
+    const mt = T.moonMT;
+    if (typeof mt !== 'number') return true;
+    return mt >= 0.999;
+  }
+
   // 같은 중심을 공유하는 일반 달 / 미러볼 중 우세한 쪽의 좌표
   function moonPos(kind) {
     const T = ts();
     if (!T) return null;
+    if (!moonRisen()) return null;
     if (kind === 'mirror') {
       const m = T.moon;
       if (!m || !m.visible) return null;
@@ -295,10 +306,12 @@
           }
           // 일반 달과 미러볼은 중심을 공유하므로 둘 다 보이면 우세한 쪽 하나만 노출한다.
           // 가중치는 화면 불투명도(v)로 판단하고, 동점이면 일반 달을 우선한다.
+          // 달이 완전히 떠오르기 전(moonMT < 1)에는 둘 다 숨긴다.
           const pm = T.plainMoon || { visible: false, v: 0 };
           const mb = T.moon || { visible: false, v: 0 };
-          const showPm = !!(pm && pm.visible);
-          const showMb = !!(mb && mb.visible);
+          const risen = moonRisen();
+          const showPm = !!(pm && pm.visible) && risen;
+          const showMb = !!(mb && mb.visible) && risen;
           let usePm = showPm, useMb = showMb;
           if (showPm && showMb) {
             if ((mb.v || 0) > (pm.v || 0)) { usePm = false; }
