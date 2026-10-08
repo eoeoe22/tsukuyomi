@@ -321,4 +321,201 @@
                 transition: none;
             }
         }
+
+        /* ── 페이지 엔진 개조 준비: 카메라 줌 + 인디케이터 + 플레이스홀더 카드 ── */
+        #scene,
+        #fg,
+        #ripple {
+            transform-origin: 0 0;
+            transition: transform 1.6s cubic-bezier(0.22, 0.8, 0.24, 1);
+            will-change: transform;
+        }
+
+        .focus-ui {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .focus-pin {
+            position: fixed;
+            width: 44px;
+            height: 44px;
+            margin: -22px 0 0 -22px;
+            padding: 0;
+            border: 0;
+            border-radius: 50%;
+            background: transparent;
+            cursor: pointer;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .focus-pin:focus-visible,
+        #focusBack:focus-visible,
+        #focusCard:focus-visible {
+            outline: 2px solid #8a8a8a;
+            outline-offset: 2px;
+        }
+
+        .focus-pin .click-indicator {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 0;
+            height: 0;
+            pointer-events: none;
+        }
+
+        .focus-pin .click-indicator .core,
+        .focus-pin .click-indicator .pulse {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 14px;
+            height: 14px;
+            margin: -7px 0 0 -7px;
+            border-radius: 50%;
+            background: #8a8a8a;
+        }
+
+        .focus-pin .click-indicator .core {
+            opacity: 1;
+        }
+
+        .focus-pin .click-indicator .pulse {
+            opacity: 0;
+            animation: ci-pulse 1s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+        }
+
+        @keyframes ci-pulse {
+            from {
+                transform: scale(1);
+                opacity: 0.45;
+            }
+
+            to {
+                transform: scale(3.2);
+                opacity: 0;
+            }
+        }
+
+        /* 줌 상태에서는 핀 숨김, 카드·뒤로가기 표시 */
+        body[data-focus] {
+            background: #04060d;
+        }
+
+        body[data-focus] .focus-pin {
+            display: none;
+        }
+
+        body[data-focus] .dock {
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .dock {
+            transition: opacity 0.3s ease;
+        }
+
+        #focusBack {
+            position: fixed;
+            top: calc(16px + env(safe-area-inset-top, 0px));
+            left: 16px;
+            width: 44px;
+            height: 44px;
+            border: 0;
+            border-radius: 50%;
+            background: rgba(20, 22, 28, 0.55);
+            color: #f2f2f2;
+            font-size: 22px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            pointer-events: auto;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+
+        #focusBack[hidden] {
+            display: none;
+        }
+
+        #focusCard {
+            position: fixed;
+            left: 24px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: min(340px, calc(100vw - 32px));
+            min-height: 220px;
+            padding: 20px;
+            border-radius: 16px;
+            background: rgba(18, 20, 26, 0.72);
+            color: #eceae6;
+            pointer-events: auto;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+        }
+
+        #focusCard[hidden] {
+            display: none;
+        }
+
+        #focusCard h2 {
+            margin: 0 0 8px;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+        }
+
+        #focusCard .focus-empty {
+            margin: 0 0 12px;
+            font-size: 14px;
+            color: #b9b7b3;
+        }
+
+        #focusCard .focus-placeholder {
+            min-height: 120px;
+            border: 1px dashed rgba(255, 255, 255, 0.25);
+            border-radius: 10px;
+        }
+
+        /* 좁은 화면: 카드는 하단 시트, 랜드마크는 상단 중앙에 */
+        @media (max-width: 460px),
+        (pointer: coarse) and (max-height: 500px) {
+            #focusCard {
+                left: 16px;
+                right: 16px;
+                top: auto;
+                bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+                transform: none;
+                width: auto;
+                min-height: 160px;
+            }
+
+            #focusCard .focus-placeholder {
+                min-height: 80px;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+
+            #scene,
+            #fg,
+            #ripple {
+                transition: none;
+            }
+
+            .focus-pin .click-indicator .pulse {
+                animation: none;
+                opacity: 0;
+            }
+        }
     
