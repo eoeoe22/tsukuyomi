@@ -432,6 +432,7 @@
             let mbTiles = [], mbRows = [], mbRot = 0, mbT = 0, mbStreaks = [];
             let mbSpin = true;   // false면 자전 정지 (빛줄기 진행은 계속)
             let mbMX = 0, mbMY = 0, mbMR = 0, mbMV = 0;   // 클릭 히트 판정용(화면 px)
+            let pmMX = 0, pmMY = 0, pmMR = 0, pmMV = 0;   // 일반 달 위치(미러볼과 동일 중심, 포커스 핀용)
             const mbBody = document.createElement('canvas');
             mbBody.width = MB_S; mbBody.height = MB_S;
             const MBG = mbBody.getContext('2d');
@@ -933,7 +934,14 @@
             // 달 그리기: 일반 달을 아래에 불투명하게 깔고 미러볼을 mbMix로 덮는다(중간에 하늘이 비치지 않게).
             function drawMoon(mx, my, mr, m) {
                 const k = clamp(mbMix, 0, 1);
-                if (k < 0.999) pmDrawMoon(mx, my, mr, m, m * (1 - k));
+                const pmM = m * (1 - k);
+                if (k < 0.999 && pmM > 0.001) {
+                    pmMX = mx; pmMY = my; pmMR = mr; pmMV = pmM;
+                    pmDrawMoon(mx, my, mr, m, pmM);
+                } else if (k < 0.999) {
+                    pmMX = mx; pmMY = my; pmMR = mr; pmMV = 0;
+                    pmDrawMoon(mx, my, mr, m, pmM);
+                } else pmMV = 0;
                 if (k > 0.001) mbDrawMoon(mx, my, mr, m * k); else mbMV = 0;
                 // 전환 연출 중 달 섬광: 교체 순간을 하얗게 덮는다
                 if (showT >= 0) {
@@ -3503,7 +3511,7 @@ void main() {
             const dragPts = new Map();   // pointerId -> { x, y, t } (anchor of last spawned ripple)
             const DRAG_MIN_DIST = 24;    // css px between spawned ripples
             const DRAG_MIN_DT = 0.06;    // seconds between spawned ripples
-            const overUI = t => (t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad');
+            const overUI = t => (t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad,.focus-ui');
 
             window.addEventListener('pointerdown', e => {
                 if (!gl || RM.matches || e.button > 0) return;
@@ -3837,7 +3845,21 @@ void main() {
                 get moonTarget() { return moonTarget; }, get mbMix() { return mbMix; }, get showT() { return showT; },
                 show: SHOW, showDefaults: SHOW_DEF,
                 get sunK() { return sunK(); },
-                get W() { return W; }, get HZ() { return HZ; }, get dpr() { return dpr; },
+                get W() { return W; }, get H() { return H; }, get HZ() { return HZ; }, get dpr() { return dpr; },
+                // 포커스 오버레이(tsukuyomi.focus.js)용 랜드마크 화면 좌표 (css px)
+                get torii() {
+                    return {
+                        x: torX, y: torY, w: torW, h: torH,
+                        cx: torX + torW / 2, cy: torY + torH / 2, base: torBase,
+                        visible: clamp(duskW, 0, 1) > 0.01
+                    };
+                },
+                get moon() {
+                    return { x: mbMX, y: mbMY, r: mbMR, v: mbMV, visible: mbMV > 0.05 && mbMR >= 2 };
+                },
+                get plainMoon() {
+                    return { x: pmMX, y: pmMY, r: pmMR, v: pmMV, visible: pmMV > 0.05 && pmMR >= 2 };
+                },
                 // 브러시 구름 편집기(tsukuyomi.cloudedit.js)용: 라이브 캔버스 연결, 적용본 다시 읽기
                 cloudEdit: {
                     setLive(k, canvas) { if (docCloud[k]) { docCloud[k].live = canvas || null; bandValid = false; } },

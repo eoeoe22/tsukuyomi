@@ -38,9 +38,30 @@
         </section>
     </div>
 
+    <!-- 페이지 엔진 개조 준비: 랜드마크 인디케이터 + 카메라 줌 + 플레이스홀더 카드 -->
+    <div class="focus-ui" id="focusUi">
+        <button type="button" class="focus-pin" id="pinTorii" style="display:none" aria-label="토리이 확대 보기" aria-expanded="false">
+            <span class="click-indicator" aria-hidden="true"><span class="pulse"></span><span class="core"></span></span>
+        </button>
+        <button type="button" class="focus-pin" id="pinMoon" style="display:none" aria-label="달 확대 보기" aria-expanded="false">
+            <span class="click-indicator" aria-hidden="true"><span class="pulse"></span><span class="core"></span></span>
+        </button>
+        <button type="button" class="focus-pin" id="pinMirror" style="display:none" aria-label="미러볼 확대 보기" aria-expanded="false">
+            <span class="click-indicator" aria-hidden="true"><span class="pulse"></span><span class="core"></span></span>
+        </button>
+        <button type="button" id="focusBack" hidden aria-label="처음 화면으로 돌아가기"><i class="bi bi-chevron-left"
+                aria-hidden="true"></i></button>
+        <aside id="focusCard" hidden aria-live="polite" aria-label="랜드마크 정보">
+            <h2 id="focusTitle">플레이스홀더</h2>
+            <p class="focus-empty" id="focusDesc">내용 준비 중입니다.</p>
+            <div class="focus-placeholder" aria-hidden="true"></div>
+        </aside>
+    </div>
+
     <script src="cloud-doc.js"></script>
     <script src="cloud-live.js"></script>
     <script src="tsukuyomi.js"></script>
+    <script src="tsukuyomi.focus.js" defer></script>
     <script src="tsukuyomi.cloudedit.js" defer></script>
     <script src="tsukuyomi.debug.js" defer></script>
 </body>
