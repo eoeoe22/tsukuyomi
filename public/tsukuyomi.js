@@ -355,6 +355,11 @@
             let CAM = { on: false, fx: 0, fy: 0, mx: 0, my: 0, s: 1 };
             const camOn = () => CAM.on && CAM.s > 1.001 && W > 0 && H > 0;
             const camSS = () => camOn() ? CAM.s : 1;
+            // 캐시(토리이/달 본체/후광) 해상도 배율. 매 프레임 바뀌는 s를 그대로 쓰면 줌 애니메이션 동안
+            // 캐시가 매 프레임 재할당·재굽기되어 끊긴다. 목표 스케일(res 힌트)을 0.5 단위로 올림해
+            // 한 번만 굽고, 카메라가 켜져 있는 동안은 커지기만 한다(복귀 중에는 고해상도 캐시를 축소해 그림).
+            let camResK = 1;
+            const camRK = () => camOn() ? camResK : 1;
             const camW2S = (x, y) => camOn()
                 ? { x: CAM.mx + CAM.s * (x - CAM.fx), y: CAM.my + CAM.s * (y - CAM.fy) }
                 : { x, y };
@@ -391,15 +396,23 @@
                 return clamp(H - hz - Math.max(0, hz), 0, H);
             }
             function camSyncBuffers() {
-                const E = camOn() ? Math.ceil(camNeed() / 32) * 32 : 0;
+                // 카메라가 켜져 있는 동안은 커지기만 하고, H/4 단위로 크게 양자화해 재할당을 몇 번으로 제한한다.
+                // (화면 크기 버퍼 재할당은 비싸서 32px마다 늘리면/줄이면 줌 중 끊김이 생긴다.)
+                let E = 0;
+                if (camOn()) {
+                    const step = Math.max(32, Math.ceil(H / 4 / 32) * 32);
+                    E = Math.max(camExtra, Math.ceil(camNeed() / step) * step);
+                }
                 if (E !== camExtra) camExtra = E;
                 const wantH = Math.round(((camOn() ? H + camExtra : HZ)) * dpr);
                 if (sky.height !== wantH || cloudLayer.height !== wantH) {
                     sky.height = wantH; cloudLayer.height = wantH;
                 }
             }
-            function setCamView(f, m, s) {
+            function setCamView(f, m, s, res) {
                 CAM = { on: true, fx: f.x, fy: f.y, mx: m.x, my: m.y, s: Math.max(1, s) };
+                const rk = Math.min(3, Math.ceil(Math.max(1, Number(res) || 0, CAM.s) * 2) / 2);
+                if (rk > camResK) camResK = rk;
                 // 카메라 모드에서 sky/cloudLayer는 화면 크기 + 윗하늘 원천 여유(월드 하늘 크기가 아님).
                 // 버퍼가 모드에 맞지 않으면 여기서 맞춰 다음 프레임부터 화면 공간 렌더가 깨지지 않게 한다.
                 camSyncBuffers();
@@ -407,6 +420,7 @@
             }
             function clearCam() {
                 CAM.on = false;
+                camResK = 1;
                 camSyncBuffers();
                 bandValid = false;
             }
@@ -422,6 +436,10 @@
             // p >= DUSK_Q 구간에서는 duskW와 무관하게 항상 같은 황혼 corridor이므로
             // 낮-밤 전환의 중간부는 타입에 관계없이 항상 황혼을 거친다.
             let duskW = 1, duskFrom = 1, duskTo = 1;
+            // structW: 토리이/랜턴 표시 가중치(낮=0, 황혼/밤=1). duskW를 따라가지만 별도로 보간한다.
+            // 밤 전환 시작 때 duskW는 팔레트 연속성을 위해 0으로 스냅되므로(palQ 동일 유지),
+            // duskW를 그대로 불투명도로 쓰면 황혼→밤에서 랜턴이 사라졌다 다시 페이드인된다.
+            let structW = 1, structFrom = 1;
             // 유효 팔레트 조회 위치: 낮 분기(p 그대로)와 황혼 분기(max(p, DUSK_Q))를 duskW로 보간.
             // p=0 + 낮 타입 → 0(파랑), p=0 + 황혼 타입 → DUSK_Q(주황), p>=DUSK_Q → 타입 무관 동일값.
             const palQ = () => lerp(p, Math.max(p, DUSK_Q), duskW);
@@ -500,7 +518,7 @@
             // 전체 캔버스가 아니라 작은 본체 캐시만 키우므로 메모리 증가가 미미하다.
             let mbK = 1;
             function mbEnsureRes() {
-                const k = Math.min(3, camSS());
+                const k = camRK();
                 if (k !== mbK) {
                     mbK = k;
                     mbBody.width = Math.max(1, Math.round(MB_S * k));
@@ -901,7 +919,7 @@
                 };
                 // halo → 오프스크린(달 영역, 기기 px 정렬). 카메라 줌에서는 s배 밀도로 구워 화면 확대 후에도 선명하게.
                 const pad = Math.max(0.6, G.hw * k) / 2 + 2;
-                const cs = camSS();
+                const cs = camRK();
                 const ox = Math.floor((mx - mr - pad) * dpr) / dpr, oy = Math.floor((my - mr - pad) * dpr) / dpr;
                 const side = Math.ceil((2 * (mr + pad) + 1) * dpr * cs);
                 if (mbHaloC.width !== side || mbHaloC.height !== side) { mbHaloC.width = side; mbHaloC.height = side; }
@@ -988,7 +1006,7 @@
                 g.setTransform(1, 0, 0, 1, 0, 0);
             }
             function pmEnsureRes() {
-                const k = Math.min(3, camSS());
+                const k = camRK();
                 if (k !== pmK) {
                     pmK = k;
                     pmBody.width = Math.max(1, Math.round(PM_S * k));
@@ -2188,6 +2206,16 @@
                         FG.globalCompositeOperation = 'lighter';
                         FG.globalAlpha = a * 0.45 * night * CFG.LANTERN_GLOW;
                         FG.drawImage(farBodyC, 0, farTop, W, farBodyH);
+                        // 번짐도 idle과 같은 월드 영역에 그려 확대/축소 중에도 끊기지 않게 한다.
+                        const bl = a * night * CFG.LANTERN_GLOW * Math.max(0, CFG.LANTERN_FAR_BLOOM ?? 1);
+                        if (bl > 0.005) {
+                            const by = farTop - FAR_BLOOM_PAD, bh = farBodyH + FAR_BLOOM_PAD * 2;
+                            FG.imageSmoothingEnabled = true;
+                            FG.globalAlpha = Math.min(1, bl * 1.1);
+                            FG.drawImage(farBloomA, 0, by, W, bh);
+                            FG.globalAlpha = Math.min(1, bl * 1.4);
+                            FG.drawImage(farBloomB, 0, by, W, bh);
+                        }
                         FG.globalCompositeOperation = 'source-over';
                     }
                     FG.globalAlpha = 1;
@@ -2444,7 +2472,7 @@
                 torBase = H - CFG.TORII_BASE * (H - HZ);
                 torX = W * effToriiX() - (340 - TB.x) * torS;
                 torY = torBase - (TB.base - TB.y) * torS;
-                for (const c of [torC, torR]) fitCanvas(c, Math.max(1, Math.ceil(torW * dpr * camSS())), Math.max(1, Math.ceil(torH * dpr * camSS())));
+                for (const c of [torC, torR]) fitCanvas(c, Math.max(1, Math.ceil(torW * dpr * camRK())), Math.max(1, Math.ceil(torH * dpr * camRK())));
                 // NOTE: 같은 값을 대입해도 비트맵이 지워지므로 fitCanvas 가드가 필수.
                 // 무조건 대입하면 토리이 형상과 무관한 resize(MOON_SIZE 등) 때
                 // 캐시 키가 그대로라 스프라이트가 다시 그려지지 않고 토리이가 사라진다.
@@ -2473,12 +2501,14 @@
                     const e = 1 - Math.pow(1 - k, gm);
                     p = transFrom + (1 - transFrom) * e;
                     duskW = duskFrom + (1 - duskFrom) * e;
+                    structW = structFrom + (1 - structFrom) * e;
                     // 일몰(nk)만 별도 속도로: 하늘/별궤적은 T_NIGHT 그대로 두고 해 지는 속도만 T_SUNSET으로 조절.
                     const nkK = Math.min(1, tState / Math.max(1e-4, CFG.T_SUNSET));
                     nk = nkFrom + (1 - nkFrom) * nkK;
                     if (k >= 1) {
                         state = 'night'; tNight = 0; p = 1; nk = 1;
                         duskW = 1; duskFrom = 1; duskTo = 1;
+                        structW = 1;
                     }
                 } else if (state === 'night') {
                     tNight += dt;
@@ -2488,12 +2518,13 @@
                     const e = ss(0, 1, k);
                     p = transFrom + (transTo - transFrom) * e;
                     duskW = duskFrom + (duskTo - duskFrom) * e;
+                    structW = structFrom + (duskTo - structFrom) * e;
                     nk = nkFrom + (nkTo - nkFrom) * e;
                     sunVis = svFrom + (svTo - svFrom) * e;
                     omega *= Math.exp(-dt * 3);
                     if (k >= 1) {
                         state = transTarget; p = transTo;
-                        duskW = duskTo;
+                        duskW = duskTo; structW = duskTo;
                         nk = nkTo;
                         sunVis = svTo;
                         phi = 0; phiTail = null; omega = 0;
@@ -2505,6 +2536,8 @@
                     omega = 0;
                 }
                 }
+                // 정지 상태(및 디버그 직접 설정)에서는 duskW를 그대로 따른다
+                if (state !== 'toNight' && state !== 'toDay' && state !== 'toDusk') structW = duskW;
 
                 // 별 회전 / 궤적: 궤적 성장 중에도 기본 회전(W_SLOW)은 항상 진행한다.
                 // phiTail(꼬리)이 W_SLOW로 전진하면서 head = phiTail + TRAIL_LEN*mt로 성장하므로
@@ -2935,7 +2968,7 @@
                     const [r2, b2] = keyed(TORII_DAY2, palQ());
                     red = mix(red, r2, w2); blk = mix(blk, b2, w2);
                 }
-                const cs = camSS();
+                const cs = camRK();
                 for (const c of [torC, torR]) fitCanvas(c, Math.max(1, Math.ceil(torW * dpr * cs)), Math.max(1, Math.ceil(torH * dpr * cs)));
                 const k = torS * dpr * cs;
                 const key = torC.width + 'x' + torC.height + '|' + k.toFixed(3) + '|' +
@@ -2978,7 +3011,7 @@
                     ctx.drawImage(torR, torX, top, torW, torH);
                 } else {
                     const step = effReflStep(H - HZ);
-                    const tcs = camSS();
+                    const tcs = camRK();
                     for (let r = 0; r < torH; r += step) {
                         const sh = Math.min(step, torH - r);
                         const y = top + r;
@@ -2999,7 +3032,7 @@
             // lantern-front.svg sprites scattered on the flat, all facing the viewer.
             // Reflections ride on the scene canvas with the same ripple as the torii;
             // bodies + night glow ride on FG above the ripple copy.
-            // 낮 시간대에는 숨김: duskW(낮=0, 황혼/밤=1)를 불투명도로 써서 toDay에서 페이드아웃, day idle에서 스킵
+            // 낮 시간대에는 숨김: structW(낮=0, 황혼/밤=1)를 불투명도로 써서 toDay에서 페이드아웃, day idle에서 스킵
             // pass: 'back' = 발이 토리이 발(torBase)보다 위(=더 멀리), 'front' = 그 외.
             // 렌더 순서 back → 토리이 → front 로 뒤 랜턴이 토리이 앞에 그려지지 않게 한다.
             function drawLanterns(r0, r1, a = 1, pass = 'all') {
@@ -3357,9 +3390,9 @@
 
                 FG.setTransform(1, 0, 0, 1, 0, 0);
                 FG.clearRect(0, 0, fg.width, fg.height);
-                // 낮에는 토리이/랜턴 숨김: duskW(낮=0, 황혼/밤=1)로 페이드. toDay에서 사라지고 toNight에서 복원된다
+                // 낮에는 토리이/랜턴 숨김: structW(낮=0, 황혼/밤=1)로 페이드. toDay에서 사라지고 toNight에서 복원된다
                 // 단 토리이는 항상 불투명으로: 반투명 상태에서 뒤 랜턴이 비치지 않게 structA 대신 1을 넘긴다.
-                const structA = clamp(duskW, 0, 1);
+                const structA = clamp(structW, 0, 1);
                 if (structA > 0.01) {
                     // 깊이 순서: 수평선 경량 랜턴 → 토리이 뒤 랜턴 → 토리이 → 토리이 앞 랜턴
                     drawFarLanterns(structA, lanGlowW());
@@ -3661,6 +3694,7 @@ void main() {
                 transFrom = p;
                 nkFrom = nk;
                 duskFrom = duskW;
+                structFrom = structW;   // 스냅 전 실제 표시값에서 이어간다
                 svFrom = sunVis;
                 svTo = target === 'day' ? 1 : target === 'dusk' ? 0 : sunVis;
                 transTarget = target;
@@ -3854,7 +3888,7 @@ void main() {
                     else if (v === 'night') { p = 1; transFrom = 1; transTo = 1; transTarget = 'night'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 1; nkFrom = 1; nkTo = 1; }
                     else if (v === 'toNight') {
                         if (!(p < 1)) p = CFG.P_DUSK;
-                        { const qf = palQ(); p = qf; transFrom = qf; duskW = 0; duskFrom = 0; }
+                        { const qf = palQ(); p = qf; transFrom = qf; structFrom = structW; duskW = 0; duskFrom = 0; }
                         transTo = 1; transTarget = 'night'; duskTo = 1; nkFrom = nk; nkTo = 1; tState = 0;
                         phi = 0; phiTail = null; omega = 0;
                     }
@@ -3863,7 +3897,7 @@ void main() {
                         transTarget = v === 'toDay' ? 'day' : 'dusk';
                         duskTo = v === 'toDay' ? 0 : 1;
                         if (!(p >= 0 && p <= 1)) p = 1;
-                        transFrom = p; duskFrom = duskW; nkFrom = nk; nkTo = 0; tState = 0;
+                        transFrom = p; duskFrom = duskW; structFrom = structW; nkFrom = nk; nkTo = 0; tState = 0;
                         svFrom = sunVis; svTo = v === 'toDay' ? 1 : 0;
                     }
                 },
@@ -3873,7 +3907,7 @@ void main() {
                 get sunK() { return sunK(); },
                 get W() { return W; }, get H() { return H; }, get HZ() { return HZ; }, get dpr() { return dpr; },
                 // 인-캔버스 카메라 (tsukuyomi.focus.js가 구동). CSS transform 대신 장면을 직접 다시 그린다.
-                setCamView(f, m, s) { setCamView(f, m, s); },
+                setCamView(f, m, s, res) { setCamView(f, m, s, res); },
                 clearCam() { clearCam(); },
                 getCamView() { return CAM.on ? { f: { x: CAM.fx, y: CAM.fy }, m: { x: CAM.mx, y: CAM.my }, s: CAM.s } : null; },
                 worldToScreen(x, y) { return camW2S(x, y); },
@@ -3884,7 +3918,7 @@ void main() {
                     return {
                         x: torX, y: torY, w: torW, h: torH,
                         cx: torX + torW / 2, cy: torY + torH / 2, base: torBase,
-                        visible: clamp(duskW, 0, 1) > 0.01
+                        visible: clamp(structW, 0, 1) > 0.01
                     };
                 },
                 get moon() {
@@ -3977,7 +4011,7 @@ void main() {
                         bandValid = false; bandTick = 0; bandLastP = -1; bandBuilds = 0;
                         // 기본값으로: INTRO_NIGHT면 황혼에서 밤으로 가는 인트로를 처음부터 다시 재생, 아니면 황혼 idle.
                         transFrom = 0; transTo = INTRO_NIGHT ? 1 : 0; transTarget = INTRO_NIGHT ? 'night' : 'dusk';
-                        duskW = 1; duskFrom = 1; duskTo = 1;
+                        duskW = 1; duskFrom = 1; duskTo = 1; structW = 1; structFrom = 1;
                         nk = 0; nkFrom = 0; nkTo = INTRO_NIGHT ? 1 : 0;
                         sunVis = 0; svFrom = 0; svTo = 0;
                         state = INTRO_NIGHT ? 'toNight' : 'dusk'; p = 0; tState = 0; tNight = 0;

@@ -74,11 +74,13 @@
     if (camAnim) { cancelAnimationFrame(camAnim); camAnim = 0; }
   }
   // f 고정, 화면 매핑 m과 스케일 s를 eased u로 함께 보간한다. 렌더는 코어가 매 프레임 네이티브로 수행.
+  // res: 캐시 해상도 힌트(구간 최대 스케일). 코어가 캐시를 시작 시 한 번만 굽고 매 프레임 재굽지 않게 한다.
   function animCam(f, m0, s0, m1, s1, done) {
     cancelCamAnim();
     const T = ts();
+    const res = Math.max(s0, s1);
     if (REDUCED || !T || !camOK()) {
-      try { T.setCamView(f, m1, s1); } catch (e) { /* 무시 */ }
+      try { T.setCamView(f, m1, s1, res); } catch (e) { /* 무시 */ }
       if (done) done();
       return;
     }
@@ -88,7 +90,7 @@
       const e = easeZoom(u);
       const m = { x: m0.x + (m1.x - m0.x) * e, y: m0.y + (m1.y - m0.y) * e };
       const s = s0 + (s1 - s0) * e;
-      try { T.setCamView(f, m, s); } catch (err) { /* 무시 */ }
+      try { T.setCamView(f, m, s, res); } catch (err) { /* 무시 */ }
       if (u < 1) {
         camAnim = requestAnimationFrame(step);
       } else {
@@ -266,7 +268,7 @@
       if (!z || !camOK()) return;
       lastZoom = z;
       cancelCamAnim();
-      try { ts().setCamView(z.f, z.t, z.s); } catch (e) { /* 무시 */ }
+      try { ts().setCamView(z.f, z.t, z.s, z.s); } catch (e) { /* 무시 */ }
     }, 120);
   });
 
