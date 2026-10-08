@@ -1,13 +1,13 @@
-/* 페이지 엔진 개조 준비: 랜드마크 인디케이터 + 카메라 줌 + 플레이스홀더 카드.
- * tsukuyomi.js의 canvas 렌더는 그대로 두고, DOM 오버레이와 transform으로
- * 카메라가 해당 위치로 이동하듯 확대한다. 확대 상태: 랜드마크 오른쪽, 카드 왼쪽.
+/* 랜드마크 인디케이터 + 인-캔버스 카메라 줌 + 플레이스홀더 카드.
+ * tsukuyomi.js의 canvas를 카메라 파라미터(f/m/s)로 직접 다시 그린다.
+ * 이전의 CSS transform 비트맵 확대와 달리 모든 프레임이 네이티브 해상도다.
+ * 확대 상태: 랜드마크 오른쪽, 카드 왼쪽.
  * - 핀은 랜드마크 왼쪽에 배치한다.
- * - 카메라 패턴: 단일 구간 동시 이동. 시작 키프레임을 pinned(f,1)
- *   (시각적 항등변환,内外 translate 고정)으로 두면 초점이 클릭 즉시 목표점으로
- *   선형 이동하면서 스케일이 동시에 커진다.内外 translate이 고정값이라
- *   부풀림 덜컹거림이 없고, s(u)와 커버 하한이 모두 선형이라 양 끝점만
- *   보장하면 중간 프레임도 항상 커버된다. 복귀는 그 역재생.
- * - 최종 스케일은 화면 전체가 항상 캔버스로 덮이도록(coverScale) 하한을 둔다.
+ * - 카메라 패턴: 단일 구간 동시 이동. 시작점을 항등(f→f, s=1)으로 두면
+ *   초점이 클릭 즉시 목표점으로 선형 이동하면서 스케일이 동시에 커진다.
+ *   s(u)와 커버 하한이 모두 u에 대한 단조 함수라 양 끝점만 보장하면
+ *   중간 프레임도 항상 커버된다. 복귀는 그 역재생.
+ * - 최종 스케일은 화면 전체가 항상 장면으로 덮이도록(coverScale) 하한을 둔다.
  * - 일반 달 / 미러볼은 같은 중심을 공유하므로 우세한 쪽의 핀 하나만 표시하고,
  *   카드는 서로 다른 플레이스홀더 내용을 보여준다.
  */
@@ -21,38 +21,82 @@
   const desc = document.getElementById('focusDesc');
   if (!pinTorii || !pinMoon || !pinMirror || !backBtn || !card) return;
 
-  const layers = () => [
-    document.getElementById('scene'),
-    document.getElementById('ripple'),
-    document.getElementById('fg'),
-  ].filter(Boolean);
-
-  // WAAPI로 직접 구동하므로 CSS transition은 끈다 (없으면 순간 이동 폴백)
+  // 구버전(CSS transform 확대)에서 남았을 수 있는 잔여 transform을 제거한다.
+  // 인-캔버스 카메라와 CSS 확대가 겹치면 이중 스케일이 된다.
   try {
-    for (const el of layers()) el.style.transition = 'none';
+    for (const id of ['scene', 'ripple', 'fg']) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      el.style.transition = 'none';
+      el.style.transform = '';
+      if (el.getAnimations) for (const a of el.getAnimations()) { try { a.cancel(); } catch (e) { /* 무시 */ } }
+    }
   } catch (e) { /* 무시 */ }
 
   const REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const waapiOK = () => {
-    try {
-      const l = layers();
-      return l.length > 0 && typeof l[0].animate === 'function';
-    } catch (e) { return false; }
-  };
 
   const ts = () => window.__TSUKUYOMI__ || null;
+  const camOK = () => {
+    const T = ts();
+    return !!(T && T.setCamView && T.clearCam && T.getCamView);
+  };
   let focus = null; // null | 'torii' | 'moon' | 'mirror'
-  let lastZoom = null; // { f, t, s, pinned, final }
+  let lastZoom = null; // { f, t, s }
   // 축소 애니메이션이 완전히 끝나고 멈춘 뒤에야 핀을 다시 보여준다.
   const ZOOM_MS = 1600;
-  const ZOOM_EASE = 'cubic-bezier(0.22, 0.8, 0.24, 1)';
   const EXIT_COOL_MS = REDUCED ? 60 : ZOOM_MS + 100;
   let exitCoolUntil = 0, exitCoolT = 0, focusBackT = 0;
   const cooling = () => performance.now() < exitCoolUntil;
-  let zoomAnims = [];
-  function stopZoom() {
-    for (const a of zoomAnims) { try { a.cancel(); } catch (e) { /* 무시 */ } }
-    zoomAnims = [];
+
+  // CSS cubic-bezier(0.22, 0.8, 0.24, 1)와 같은 easing을 JS 애니메이션에 쓴다.
+  function cubicBezier(p1x, p1y, p2x, p2y) {
+    const cx = 3 * p1x, bx = 3 * (p2x - p1x) - cx, ax = 1 - cx - bx;
+    const cy = 3 * p1y, by = 3 * (p2y - p1y) - cy, ay = 1 - cy - by;
+    const sx = t => ((ax * t + bx) * t + cx) * t;
+    const sy = t => ((ay * t + by) * t + cy) * t;
+    const dx = t => (3 * ax * t + 2 * bx) * t + cx;
+    return u => {
+      if (u <= 0) return 0;
+      if (u >= 1) return 1;
+      let t = u;
+      for (let i = 0; i < 5; i++) {
+        const e = sx(t) - u, d = dx(t);
+        if (Math.abs(e) < 1e-4 || Math.abs(d) < 1e-6) break;
+        t -= e / d;
+      }
+      return sy(t);
+    };
+  }
+  const easeZoom = cubicBezier(0.22, 0.8, 0.24, 1);
+
+  let camAnim = 0;
+  function cancelCamAnim() {
+    if (camAnim) { cancelAnimationFrame(camAnim); camAnim = 0; }
+  }
+  // f 고정, 화면 매핑 m과 스케일 s를 eased u로 함께 보간한다. 렌더는 코어가 매 프레임 네이티브로 수행.
+  function animCam(f, m0, s0, m1, s1, done) {
+    cancelCamAnim();
+    const T = ts();
+    if (REDUCED || !T || !camOK()) {
+      try { T.setCamView(f, m1, s1); } catch (e) { /* 무시 */ }
+      if (done) done();
+      return;
+    }
+    const t0 = performance.now();
+    const step = now => {
+      const u = Math.min(1, (now - t0) / ZOOM_MS);
+      const e = easeZoom(u);
+      const m = { x: m0.x + (m1.x - m0.x) * e, y: m0.y + (m1.y - m0.y) * e };
+      const s = s0 + (s1 - s0) * e;
+      try { T.setCamView(f, m, s); } catch (err) { /* 무시 */ }
+      if (u < 1) {
+        camAnim = requestAnimationFrame(step);
+      } else {
+        camAnim = 0;
+        if (done) done();
+      }
+    };
+    camAnim = requestAnimationFrame(step);
   }
 
   const NAMES = { torii: '토리이', moon: '달', mirror: '미러볼' };
@@ -73,7 +117,7 @@
     return mt >= 0.999;
   }
 
-  // 같은 중심을 공유하는 일반 달 / 미러볼 중 우세한 쪽의 좌표
+  // 같은 중심을 공유하는 일반 달 / 미러볼 중 우세한 쪽의 좌표 (월드 = 화면, css px)
   function moonPos(kind) {
     const T = ts();
     if (!T) return null;
@@ -105,8 +149,8 @@
     return { x: W * 0.72, y: H * 0.45 };
   }
 
-  // 변환 후 뷰포트 네 모서리의 원본 좌표가 모두 캔버스 안에 들어가는 최소 스케일.
-  // 최종 스케일이 이 하한보다 작으면 상·하·좌·우 중 한쪽이 뷰포트를 벗어나 빈공간이 보인다.
+  // 변환 후 뷰포트 네 모서리의 원본 좌표가 모두 장면 안에 들어가는 최소 스케일.
+  // 최종 스케일이 이 하한보다 작으면 상·하·좌·우 중 한쪽이 장면을 벗어나 빈공간이 보인다.
   // (특히 달처럼 화면 가장자리 랜드마크에서 두드러진다)
   function coverScale(fx, fy, tx, ty) {
     const W = window.innerWidth, H = window.innerHeight;
@@ -118,18 +162,6 @@
     return s;
   }
 
-  const fmtPx = n => `${n.toFixed(1)}px`;
-  // 스케일-인-플레이스: 랜드마크가 화면상 제자리에 머문 채로 확대된다. s>=1이면 항상 커버.
-  // K0으로는 translate(0) scale(1) translate(0)을 쓰지 않는다: 키프레임 보간이内外
-  // translate을 0↔fx로 함께 움직여 중간에 화면 전체가 부풀었다 되돌아오는
-  // 위/아래 덜컹거림이 생긴다. scale=1의 pinned 형태(시각적으로 항등변환)로 두면
-  //内外 translate이 상수로 고정돼 초점이 전 구간 완전히 고정된다.
-  const tfPinned = (f, s) =>
-    `translate(${fmtPx(f.x)}, ${fmtPx(f.y)}) scale(${s.toFixed(3)}) translate(${fmtPx(-f.x)}, ${fmtPx(-f.y)})`;
-  // 최종: 랜드마크가 목표점으로 이동. s가 coverScale 이상이면 커버.
-  const tfFinal = (t, f, s) =>
-    `translate(${fmtPx(t.x)}, ${fmtPx(t.y)}) scale(${s.toFixed(3)}) translate(${fmtPx(-f.x)}, ${fmtPx(-f.y)})`;
-
   function computeZoom(kind) {
     const f = landmarkCenter(kind);
     if (!f) return null;
@@ -137,21 +169,14 @@
     const need = coverScale(f.x, f.y, t.x, t.y);
     // 하한에 여유(+4%, +0.01)를 둬 서브픽셀 반올림에도 가장자리가 비지 않게 한다
     const s = Math.max(SCALES[kind] || 2, need * 1.04 + 0.01);
-    return { f, t, s, pinned0: tfPinned(f, 1), final: tfFinal(t, f, s) };
-  }
-
-  function commitFinal(final) {
-    for (const el of layers()) el.style.transform = final;
-  }
-
-  function clearZoom() {
-    for (const el of layers()) el.style.transform = '';
+    return { f, t, s };
   }
 
   function enter(kind) {
     if (focus === kind) return;
     const z = computeZoom(kind);
     if (!z) return;
+    if (!camOK()) return;
     exitCoolUntil = 0;
     clearTimeout(exitCoolT);
     clearTimeout(focusBackT);
@@ -165,36 +190,24 @@
     pinTorii.setAttribute('aria-expanded', kind === 'torii' ? 'true' : 'false');
     pinMoon.setAttribute('aria-expanded', kind === 'moon' ? 'true' : 'false');
     pinMirror.setAttribute('aria-expanded', kind === 'mirror' ? 'true' : 'false');
-    if (REDUCED || !waapiOK()) {
-      stopZoom();
-      commitFinal(z.final);
-    } else {
-      stopZoom();
-      // 단일 구간 동시 이동: 시작점을 pinned0(초점 고정·시각적 항등변환)으로 두면
-      // 초점은 클릭 즉시 목표점으로 선형 이동하고 스케일은 동시에 커진다.
-      //内外 translate이 양 끝점에서 고정값이라 부풀림이 없고,
-      // s(u)와 커버 하한 need(u)가 모두 u에 대한 선형 함수라 양 끝점만
-      // 보장하면(s(0)=need(0)=1, s(1)>=need(1)) 중간도 항상 커버된다.
-      const frames = [
-        { transform: z.pinned0, easing: ZOOM_EASE },
-        { transform: z.final },
-      ];
-      zoomAnims = layers().map(el => el.animate(frames, { duration: ZOOM_MS, fill: 'forwards' }));
-      Promise.allSettled(zoomAnims.map(a => a.finished)).then(() => {
-        if (focus !== kind) return;
-        commitFinal(z.final);
-        stopZoom();
-      });
-    }
+    // 같은 랜드마크의 진행 중 카메라에서 이어받으면 점프가 없다. 랜드마크가 다르면 항등에서 시작.
+    let m0 = { x: z.f.x, y: z.f.y }, s0 = 1;
+    try {
+      const cur = ts().getCamView();
+      if (cur && Math.abs(cur.f.x - z.f.x) < 0.5 && Math.abs(cur.f.y - z.f.y) < 0.5) {
+        m0 = cur.m; s0 = cur.s;
+      }
+    } catch (e) { /* 무시 */ }
+    animCam(z.f, m0, s0, z.t, z.s);
     backBtn.focus({ preventScroll: true });
   }
 
   function exit(restoreFocus) {
     if (!focus) return;
-    // 진입 애니메이션 진행 중이면 끝 상태로 확정한 뒤 복귀를 시작한다 (점프 방지)
-    for (const a of zoomAnims) { try { a.finish(); } catch (e) { /* 무시 */ } }
-    zoomAnims = [];
-    const z = lastZoom;
+    cancelCamAnim();
+    const T = ts();
+    let cur = null;
+    try { cur = T && T.getCamView ? T.getCamView() : null; } catch (e) { cur = null; }
     focus = null;
     lastZoom = null;
     delete document.body.dataset.focus;
@@ -208,27 +221,22 @@
     clearTimeout(exitCoolT);
     exitCoolT = setTimeout(() => { exitCoolUntil = 0; }, EXIT_COOL_MS);
     const done = () => {
-      stopZoom();
-      clearZoom();
+      cancelCamAnim();
+      try { T && T.clearCam && T.clearCam(); } catch (e) { /* 무시 */ }
       exitCoolUntil = 0;
       clearTimeout(exitCoolT);
     };
-    if (REDUCED || !waapiOK() || !z) {
-      stopZoom();
-      clearZoom();
+    if (REDUCED || !T || !camOK() || !cur) {
+      cancelCamAnim();
+      try { T && T.clearCam && T.clearCam(); } catch (e) { /* 무시 */ }
       exitCoolUntil = 0;
       clearTimeout(exitCoolT);
     } else {
-      // 복귀도 단일 구간 역재생: 목표점에서 시작점으로 선형 복귀 + 동시 축소
-      const frames = [
-        { transform: z.final, easing: ZOOM_EASE },
-        { transform: z.pinned0 },
-      ];
-      zoomAnims = layers().map(el => el.animate(frames, { duration: ZOOM_MS, fill: 'forwards' }));
-      Promise.allSettled(zoomAnims.map(a => a.finished)).then(() => {
-        if (focus) return;
-        done();
-      });
+      // 복귀도 단일 구간 역재생: 목표점에서 시작점으로 선형 복귀 + 동시 축소.
+      // 끝나면 카메라를 완전히 걷어 idle 렌더로 돌아간다.
+      animCam(cur.f, cur.m, cur.s, { x: cur.f.x, y: cur.f.y }, 1, done);
+      // animCam의 done은 u=1에서 호출되므로, 복귀 완료 시점에 카메라를 걷는다.
+      // (animCam 자체는 최종 항등 상태를 1프레임 그리므로 점프가 없다.)
     }
     if (restoreFocus !== false) {
       // 핀이 다시 보일 때 포커스를 되돌린다 (전이 중 포커스 시 핀이 숨은 채로 잡힌다)
@@ -255,10 +263,10 @@
     rzT = setTimeout(() => {
       if (!focus) return;
       const z = computeZoom(focus);
-      if (!z) return;
+      if (!z || !camOK()) return;
       lastZoom = z;
-      stopZoom();
-      commitFinal(z.final);
+      cancelCamAnim();
+      try { ts().setCamView(z.f, z.t, z.s); } catch (e) { /* 무시 */ }
     }, 120);
   });
 

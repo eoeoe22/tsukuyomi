@@ -347,6 +347,69 @@
 
             // ---------- state ----------
             let W = 0, H = 0, HZ = 0, dpr = 1, R = 1;
+            // ---------- in-canvas camera (focus zoom) ----------
+            // CSS transform 확대(비트맵 업스케일) 대신 장면을 카메라 파라미터로 직접 다시 그린다.
+            // world(f) -> screen(m) + scale(s): screen = m + s * (world - f).
+            // idle 경로와 동일 버퍼 크기로 렌더하므로 메모리 증가가 없고, 모든 프레임이 네이티브 해상도다.
+            // f/t/s 계산(cover 하한)은 focus.js의 computeZoom과 같은 식을 쓴다.
+            let CAM = { on: false, fx: 0, fy: 0, mx: 0, my: 0, s: 1 };
+            const camOn = () => CAM.on && CAM.s > 1.001 && W > 0 && H > 0;
+            const camSS = () => camOn() ? CAM.s : 1;
+            const camW2S = (x, y) => camOn()
+                ? { x: CAM.mx + CAM.s * (x - CAM.fx), y: CAM.my + CAM.s * (y - CAM.fy) }
+                : { x, y };
+            const camS2W = (x, y) => camOn()
+                ? { x: CAM.fx + (x - CAM.mx) / CAM.s, y: CAM.fy + (y - CAM.my) / CAM.s }
+                : { x, y };
+            // world 좌표계 그리기는 이 transform으로, 화면 고정 효과(vignette 등)는 dpr identity로 그린다.
+            // sky/cloudLayer 버퍼는 화면보다 위로 camExtra만큼 더 크다(아래쪽 물결이 비추는 화면 밖 윗하늘 원천용).
+            // 버퍼행 = 화면행 + camExtra.
+            let camExtra = 0;
+            // 화면 캔버스(cv/FG)용: world -> screen 그대로.
+            function camSet(c) {
+                if (!camOn()) c.setTransform(dpr, 0, 0, dpr, 0, 0);
+                else c.setTransform(dpr * CAM.s, 0, 0, dpr * CAM.s, dpr * (CAM.mx - CAM.s * CAM.fx), dpr * (CAM.my - CAM.s * CAM.fy));
+            }
+            // 확대 버퍼(sky/cloudLayer/rimL)용: 위로 camExtra만큼 더 크므로 같은 world가 버퍼행으로 내려간다.
+            function camSetBuf(c) {
+                if (!camOn()) c.setTransform(dpr, 0, 0, dpr, 0, 0);
+                else c.setTransform(dpr * CAM.s, 0, 0, dpr * CAM.s, dpr * (CAM.mx - CAM.s * CAM.fx), dpr * (CAM.my + camExtra - CAM.s * CAM.fy));
+            }
+            // 화면상 수평선 (css px). 달 줌처럼 수평선이 화면 밖이면 flat/reflection/ripple을 스킵한다.
+            const camHz = () => camOn() ? CAM.my + CAM.s * (HZ - CAM.fy) : HZ;
+            const camFlatOn = () => {
+                if (!camOn()) return true;
+                const hz = camHz();
+                return hz > -80 && hz < H + 80;
+            };
+            // 화면 밖 윗하늘 원천에 필요한 버퍼 여유(css px). 애니메이션 중에는 커지기만 하고(재할당 폭증 방지),
+            // 32px 단위로 양자화한다. 종료(clearCam)/리사이즈 때 정리된다.
+            function camNeed() {
+                if (!camOn()) return 0;
+                const hz = camHz();
+                if (!(hz > -40 && hz < H + 40)) return 0;
+                return clamp(H - hz - Math.max(0, hz), 0, H);
+            }
+            function camSyncBuffers() {
+                const E = camOn() ? Math.ceil(camNeed() / 32) * 32 : 0;
+                if (E !== camExtra) camExtra = E;
+                const wantH = Math.round(((camOn() ? H + camExtra : HZ)) * dpr);
+                if (sky.height !== wantH || cloudLayer.height !== wantH) {
+                    sky.height = wantH; cloudLayer.height = wantH;
+                }
+            }
+            function setCamView(f, m, s) {
+                CAM = { on: true, fx: f.x, fy: f.y, mx: m.x, my: m.y, s: Math.max(1, s) };
+                // 카메라 모드에서 sky/cloudLayer는 화면 크기 + 윗하늘 원천 여유(월드 하늘 크기가 아님).
+                // 버퍼가 모드에 맞지 않으면 여기서 맞춰 다음 프레임부터 화면 공간 렌더가 깨지지 않게 한다.
+                camSyncBuffers();
+                bandValid = false;
+            }
+            function clearCam() {
+                CAM.on = false;
+                camSyncBuffers();
+                bandValid = false;
+            }
             let pole = { x: 0, y: 0 }, sunR = 20, moonR = 18;
             // (임시) 최초 접속 황혼→밤 인트로 비활성: false = 황혼 idle로 시작. true로 되돌리면 기존 인트로 복원.
             const INTRO_NIGHT = false;
@@ -433,6 +496,18 @@
             mbBody.width = MB_S; mbBody.height = MB_S;
             const MBG = mbBody.getContext('2d');
             let mbBodyRot = NaN;
+            // 카메라 줌(s)에서는 본체 캐시를 s배로 키워 타일 줄눈이 네이티브 해상도로 다시 그려지게 한다.
+            // 전체 캔버스가 아니라 작은 본체 캐시만 키우므로 메모리 증가가 미미하다.
+            let mbK = 1;
+            function mbEnsureRes() {
+                const k = Math.min(3, camSS());
+                if (k !== mbK) {
+                    mbK = k;
+                    mbBody.width = Math.max(1, Math.round(MB_S * k));
+                    mbBody.height = Math.max(1, Math.round(MB_S * k));
+                    mbBodyRot = NaN;
+                }
+            }
             const mbRad = d => d * Math.PI / 180;
             const mbSys = tilt => { const T = mbRad(tilt); return { ct: Math.cos(T), st: Math.sin(T) }; };
             const mbV = (lat, lon, s) => {
@@ -498,7 +573,8 @@
             function mbRenderBody() {
                 const g = MBG, s = mbSys(MB.tilt), K = 1 - MB.gap, fk = MB_R / 200;
                 g.setTransform(1, 0, 0, 1, 0, 0);
-                g.clearRect(0, 0, MB_S, MB_S);
+                g.clearRect(0, 0, mbBody.width, mbBody.height);
+                g.setTransform(mbK, 0, 0, mbK, 0, 0);
                 g.save();
                 g.beginPath(); g.arc(MB_C, MB_C, MB_R, 0, Math.PI * 2);
                 g.fillStyle = MB.grout; g.fill(); g.clip();
@@ -570,7 +646,7 @@
                     g.beginPath(); g.arc(MB_C, MB_C, MB_R, 0, Math.PI * 2); g.clip();
                     g.globalCompositeOperation = 'lighter';
                     g.globalAlpha = MB.bloom * 0.65;
-                    g.filter = `blur(${((4 + MB.bloom * 10) * fk).toFixed(1)}px)`;
+                    g.filter = `blur(${((4 + MB.bloom * 10) * fk * mbK).toFixed(1)}px)`;
                     for (const [q, c] of capQ) {
                         g.beginPath();
                         q.forEach((p, k) => { k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); });
@@ -823,13 +899,14 @@
                         g.beginPath(); g.moveTo(X(sg.x0), Y(sg.y0)); g.lineTo(X(sg.x1), Y(sg.y1)); g.stroke();
                     }
                 };
-                // halo → 오프스크린(달 영역, 기기 px 정렬)
+                // halo → 오프스크린(달 영역, 기기 px 정렬). 카메라 줌에서는 s배 밀도로 구워 화면 확대 후에도 선명하게.
                 const pad = Math.max(0.6, G.hw * k) / 2 + 2;
+                const cs = camSS();
                 const ox = Math.floor((mx - mr - pad) * dpr) / dpr, oy = Math.floor((my - mr - pad) * dpr) / dpr;
-                const side = Math.ceil((2 * (mr + pad) + 1) * dpr);
+                const side = Math.ceil((2 * (mr + pad) + 1) * dpr * cs);
                 if (mbHaloC.width !== side || mbHaloC.height !== side) { mbHaloC.width = side; mbHaloC.height = side; }
                 else { MBH.setTransform(1, 0, 0, 1, 0, 0); MBH.clearRect(0, 0, side, side); }
-                MBH.setTransform(dpr, 0, 0, dpr, -ox * dpr, -oy * dpr);
+                MBH.setTransform(dpr * cs, 0, 0, dpr * cs, -ox * dpr * cs, -oy * dpr * cs);
                 MBH.globalCompositeOperation = 'lighter';
                 MBH.lineCap = 'round';
                 strokeSegs(MBH, G.hw, 'halo', 0.9);
@@ -847,6 +924,7 @@
             function mbDrawMoon(mx, my, mr, m) {
                 mbMX = mx; mbMY = my; mbMR = mr; mbMV = m;
                 if (m <= 0.001) return;
+                mbEnsureRes();
                 // 기존 외곽 후광은 유지 (밤 하늘·수면 반사에 어우러지도록)
                 const mg = S.createRadialGradient(mx, my, mr * 0.8, mx, my, mr * CFG.MOON_GLOW);
                 mg.addColorStop(0, `rgba(200,215,255,${CFG.MOON_A * m})`);
@@ -871,8 +949,13 @@
             const PM_S = 256, PM_C = 128, PM_R = 120;
             const pmBody = document.createElement('canvas');
             pmBody.width = PM_S; pmBody.height = PM_S;
-            (function pmBake() {
+            // 카메라 줌에서는 미러볼과 같은 배율로 다시 구워 일반 달 확대도 선명하게 한다.
+            let pmK = 1;
+            function pmBake() {
                 const g = pmBody.getContext('2d'), rng = mulberry32(23);
+                g.setTransform(1, 0, 0, 1, 0, 0);
+                g.clearRect(0, 0, pmBody.width, pmBody.height);
+                g.setTransform(pmK, 0, 0, pmK, 0, 0);
                 const d = g.createRadialGradient(PM_C - PM_R * 0.3, PM_C - PM_R * 0.3, PM_R * 0.1, PM_C, PM_C, PM_R);
                 d.addColorStop(0, '#fcfbf3'); d.addColorStop(0.7, '#f2f1e6'); d.addColorStop(1, '#dfe1d4');
                 g.fillStyle = d;
@@ -902,9 +985,21 @@
                 rim.addColorStop(0, 'rgba(250,252,246,0)'); rim.addColorStop(1, 'rgba(250,252,246,0.35)');
                 g.fillStyle = rim; g.fillRect(0, 0, PM_S, PM_S);
                 g.restore();
-            })();
+                g.setTransform(1, 0, 0, 1, 0, 0);
+            }
+            function pmEnsureRes() {
+                const k = Math.min(3, camSS());
+                if (k !== pmK) {
+                    pmK = k;
+                    pmBody.width = Math.max(1, Math.round(PM_S * k));
+                    pmBody.height = Math.max(1, Math.round(PM_S * k));
+                    pmBake();
+                }
+            }
+            pmBake();
             function pmDrawMoon(mx, my, mr0, m, glowA) {
                 if (m <= 0.001) return;
+                pmEnsureRes();
                 // 원반 크기는 미러볼 구(mbBody 안의 MB_R/MB_C)에 맞춘다. 외곽 후광은 미러볼과 같은 mr0 기준.
                 const mr = mr0 * MB_R / MB_C;
                 if (glowA > 0.001) {
@@ -1021,13 +1116,15 @@
             function endShow() { if (showT >= 0) showKill = true; }
             function drawShow() {
                 if (showT < 0 || !showBeams.length) return;
-                const w = Math.max(1, Math.ceil(W / SHOW_DS)), h = Math.max(1, Math.ceil(HZ / SHOW_DS));
+                // 카메라 줌에서는 다운스케일을 완화해 줄기 확대 후에도 선명하게 (SHOW_DS=3 → 유효 2).
+                const ds = camOn() ? Math.max(1.5, SHOW_DS - 1) : SHOW_DS;
+                const w = Math.max(1, Math.ceil(W / ds)), h = Math.max(1, Math.ceil(HZ / ds));
                 fitCanvas(showC, w, h); fitCanvas(showC2, w, h);
                 SHG.setTransform(1, 0, 0, 1, 0, 0);
                 SHG.globalCompositeOperation = 'source-over';
                 SHG.clearRect(0, 0, w, h);
                 SHG.globalCompositeOperation = 'lighter';
-                const L = Math.hypot(W, HZ) * 1.05, k = 1 / SHOW_DS;
+                const L = Math.hypot(W, HZ) * 1.05, k = 1 / ds;
                 const u = showT / Math.max(0.1, SHOW.dur), ts = showT * SHOW.speed;
                 let any = false;
                 for (const b of showBeams) {
@@ -1047,14 +1144,14 @@
                 if (FILTER_OK) {
                     SHG2.setTransform(1, 0, 0, 1, 0, 0);
                     SHG2.clearRect(0, 0, w, h);
-                    SHG2.filter = `blur(${Math.max(1, W * 0.007 / SHOW_DS).toFixed(1)}px)`;
+                    SHG2.filter = `blur(${Math.max(1, W * 0.007 / ds).toFixed(1)}px)`;
                     SHG2.drawImage(showC, 0, 0);
                     SHG2.filter = 'none';
                     src = showC2;
                 }
                 S.save();
                 S.globalCompositeOperation = 'lighter';
-                S.drawImage(src, 0, 0, w, h, 0, 0, w * SHOW_DS, h * SHOW_DS);
+                S.drawImage(src, 0, 0, w, h, 0, 0, w * ds, h * ds);
                 S.restore();
             }
             function updateMoonMode(dt) {
@@ -2074,6 +2171,28 @@
             }
             function drawFarLanterns(a, night) {
                 if (!farCount || a <= 0.01) return;
+                if (camOn()) {
+                    // 인-캔버스 카메라: 월드 스트립을 카메라 transform으로 화면에 직접 매핑한다.
+                    // 수평선이 화면 밖(달 줌)이면 스트립도 화면 밖이라 그려봤자 클리핑되므로 스킵.
+                    if (!camFlatOn()) return;
+                    camSet(ctx);
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.globalAlpha = a;
+                    ctx.drawImage(farReflC, 0, farReflTop, W, farReflH);
+                    ctx.globalAlpha = 1;
+                    camSet(FG);
+                    FG.globalCompositeOperation = 'source-over';
+                    FG.globalAlpha = a;
+                    FG.drawImage(farBodyC, 0, farTop, W, farBodyH);
+                    if (night > 0.01) {
+                        FG.globalCompositeOperation = 'lighter';
+                        FG.globalAlpha = a * 0.45 * night * CFG.LANTERN_GLOW;
+                        FG.drawImage(farBodyC, 0, farTop, W, farBodyH);
+                        FG.globalCompositeOperation = 'source-over';
+                    }
+                    FG.globalAlpha = 1;
+                    return;
+                }
                 ctx.setTransform(1, 0, 0, 1, 0, 0);
                 ctx.globalCompositeOperation = 'source-over';
                 ctx.globalAlpha = a;
@@ -2308,8 +2427,9 @@
                 band.width = Math.ceil(W * dpr / BAND_SCALE);
                 band.height = Math.ceil((bandH + CFG.BAND_PAD * 2) * dpr / BAND_SCALE);
                 bandValid = false;   // 크기 변경 시 블러 캐시 무효
+                camSyncBuffers();
                 for (const c of [sky, cloudLayer]) {
-                    c.width = Math.round(W * dpr); c.height = Math.round(HZ * dpr);
+                    c.width = Math.round(W * dpr); c.height = Math.round((camOn() ? H + camExtra : HZ) * dpr);
                 }
                 pole = { x: W * CFG.POLE_X, y: HZ * CFG.POLE_Y };
                 placeDuskCb();
@@ -2324,7 +2444,7 @@
                 torBase = H - CFG.TORII_BASE * (H - HZ);
                 torX = W * effToriiX() - (340 - TB.x) * torS;
                 torY = torBase - (TB.base - TB.y) * torS;
-                for (const c of [torC, torR]) fitCanvas(c, Math.max(1, Math.ceil(torW * dpr)), Math.max(1, Math.ceil(torH * dpr)));
+                for (const c of [torC, torR]) fitCanvas(c, Math.max(1, Math.ceil(torW * dpr * camSS())), Math.max(1, Math.ceil(torH * dpr * camSS())));
                 // NOTE: 같은 값을 대입해도 비트맵이 지워지므로 fitCanvas 가드가 필수.
                 // 무조건 대입하면 토리이 형상과 무관한 resize(MOON_SIZE 등) 때
                 // 캐시 키가 그대로라 스프라이트가 다시 그려지지 않고 토리이가 사라진다.
@@ -2511,7 +2631,7 @@
                 }
                 thumbTick++;
                 const D = thumbData, TW = thumb.width, THh = thumb.height, reflH = H - HZ;
-                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                camSet(ctx);
                 ctx.globalCompositeOperation = 'lighter';
                 ctx.fillStyle = '#e8f4ff';
                 for (const gl of glints) {
@@ -2533,7 +2653,9 @@
                 ctx.globalCompositeOperation = 'source-over';
             }
             function drawSky() {
-                S.setTransform(dpr, 0, 0, dpr, 0, 0);
+                camSetBuf(S);
+                // 카메라 모드에서 sky 버퍼는 화면 크기이므로, 월드 하늘 rect 밖(수면 영역) 잔상을 지운다.
+                if (camOn()) { S.save(); S.setTransform(1, 0, 0, 1, 0, 0); S.clearRect(0, 0, sky.width, sky.height); S.restore(); camSetBuf(S); }
                 S.globalCompositeOperation = 'source-over';
                 S.globalAlpha = 1;
 
@@ -2617,7 +2739,7 @@
                     CL.setTransform(1, 0, 0, 1, 0, 0);
                     CL.globalCompositeOperation = 'source-over';
                     CL.clearRect(0, 0, cloudLayer.width, cloudLayer.height);
-                    CL.setTransform(dpr, 0, 0, dpr, 0, 0);
+                    camSetBuf(CL);
                     if (set.isDoc) {
                         // 브러시 구름 문서: 하늘 크기 스프라이트 한 장 (편집 중이면 편집기의 라이브 캔버스)
                         CL.drawImage(set.live || (set.anim && set.anim.canvas) || set.spr, 0, 0, W, HZ);
@@ -2647,14 +2769,17 @@
                         RL.globalCompositeOperation = 'source-over';
                         RL.clearRect(0, 0, rimL.width, rimL.height);
                         {
-                            const rr = Math.max(W, HZ) * 0.38 * dpr;
-                            const cx = d2lx * dpr, cy = d2ly * dpr;
+                            // 카메라 모드에서는 림라이트 중심/반경을 화면 기준으로 (rimL은 cloudLayer와 같은 화면 크기 + 여유).
+                            // rimL 버퍼행 = 화면행 + camExtra이므로 y에만 여유를 더한다 (x는 그대로).
+                            const _cs = camSS(), _cc = camW2S(d2lx, d2ly), _ce = camOn() ? camExtra : 0;
+                            const rr = Math.max(W, HZ) * 0.38 * dpr * _cs;
+                            const cx = _cc.x * dpr, cy = (_cc.y + _ce) * dpr;
                             const rg = RL.createRadialGradient(cx, cy, 0, cx, cy, rr);
                             rg.addColorStop(0, `rgba(240,250,255,${(0.62 * CFG.DY_LIGHT).toFixed(3)})`);
                             rg.addColorStop(0.45, `rgba(200,228,250,${(0.16 * CFG.DY_LIGHT).toFixed(3)})`);
                             rg.addColorStop(1, 'rgba(200,228,250,0)');
                             RL.fillStyle = rg; RL.fillRect(0, 0, rimL.width, rimL.height);
-                            const cutY = Math.max(d2ly + 2, HZ * (CFG.DY_RIMBOT ?? 0.62)) * dpr;
+                            const cutY = (camOn() ? Math.max(_cc.y + 2, camHz()) + camExtra : Math.max(d2ly + 2, HZ * (CFG.DY_RIMBOT ?? 0.62))) * dpr;
                             const mg = RL.createLinearGradient(0, 0, 0, rimL.height);
                             mg.addColorStop(0, 'rgba(0,0,0,1)');
                             mg.addColorStop(clamp(cy / rimL.height, 0, 1), 'rgba(0,0,0,1)');
@@ -2665,7 +2790,7 @@
                         CL.globalCompositeOperation = 'source-atop';
                         CL.setTransform(1, 0, 0, 1, 0, 0);
                         CL.drawImage(rimL, 0, 0);
-                        CL.setTransform(dpr, 0, 0, dpr, 0, 0);
+                        camSetBuf(CL);
                         // 앞턱(음영층): 아래·안쪽에 짙게 깔려 뒷층과 톤이 갈린다
                         CL.globalCompositeOperation = 'source-over';
                         for (const c of set) {
@@ -2712,7 +2837,7 @@
                     S.globalAlpha = alpha;
                     S.drawImage(cloudLayer, 0, 0);
                     S.globalAlpha = 1;
-                    S.setTransform(dpr, 0, 0, dpr, 0, 0);
+                    camSetBuf(S);
                 };
                 const ca = (1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q)) * (sunVis - w2);
                 if (ca > 0.01) drawSet(clouds, CLOUD_TINT, ca, 0);
@@ -2810,7 +2935,9 @@
                     const [r2, b2] = keyed(TORII_DAY2, palQ());
                     red = mix(red, r2, w2); blk = mix(blk, b2, w2);
                 }
-                const k = torS * dpr;
+                const cs = camSS();
+                for (const c of [torC, torR]) fitCanvas(c, Math.max(1, Math.ceil(torW * dpr * cs)), Math.max(1, Math.ceil(torH * dpr * cs)));
+                const k = torS * dpr * cs;
                 const key = torC.width + 'x' + torC.height + '|' + k.toFixed(3) + '|' +
                     (red[0] | 0) + ',' + (red[1] | 0) + ',' + (red[2] | 0) + '|' +
                     (blk[0] | 0) + ',' + (blk[1] | 0) + ',' + (blk[2] | 0);
@@ -2841,7 +2968,7 @@
                     TR.globalCompositeOperation = 'source-over';
                 }
 
-                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                camSet(ctx);
                 ctx.globalAlpha = a;
                 // row r of the flipped copy lands at torBase + r - pad, where pad is the
                 // strip of empty sprite below the feet
@@ -2851,6 +2978,7 @@
                     ctx.drawImage(torR, torX, top, torW, torH);
                 } else {
                     const step = effReflStep(H - HZ);
+                    const tcs = camSS();
                     for (let r = 0; r < torH; r += step) {
                         const sh = Math.min(step, torH - r);
                         const y = top + r;
@@ -2858,11 +2986,11 @@
                         const d = y - HZ, kk = d / reflH;
                         const amp = CFG.REFL_AMP0 + CFG.REFL_AMP1 * kk * kk;
                         const dx = amp * (0.7 * Math.sin(d * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(d * CFG.SL_F2 - clock * CFG.SL_F3));
-                        ctx.drawImage(torR, 0, r * dpr, torR.width, sh * dpr, torX + dx, y, torW, sh + 0.5);
+                        ctx.drawImage(torR, 0, r * dpr * tcs, torR.width, sh * dpr * tcs, torX + dx, y, torW, sh + 0.5);
                     }
                 }
                 ctx.globalAlpha = 1;
-                FG.setTransform(dpr, 0, 0, dpr, 0, 0);
+                camSet(FG);
                 FG.globalAlpha = a;
                 FG.drawImage(torC, torX, torY, torW, torH);
                 FG.globalAlpha = 1;
@@ -2887,7 +3015,7 @@
                 // 수평 오프셋이 점프해 비틀려 보이므로 2px로 고정 + 중앙 샘플링.
                 const step = Math.max(1, Math.min(effReflStep(reflH), 2));
 
-                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                camSet(ctx);
                 ctx.globalCompositeOperation = 'source-over';
                 // reflections, far-to-near
                 for (const L of lanterns) {
@@ -2924,7 +3052,7 @@
                 ctx.globalAlpha = 1;
 
                 // bodies + night glow, far-to-near
-                FG.setTransform(dpr, 0, 0, dpr, 0, 0);
+                camSet(FG);
                 FG.globalCompositeOperation = 'source-over';
                 FG.globalAlpha = a;
                 for (const L of lanterns) {
@@ -3034,11 +3162,76 @@
                 ctx.setTransform(1, 0, 0, 1, 0, 0);
                 ctx.globalCompositeOperation = 'source-over';
                 ctx.globalAlpha = 1;
-                ctx.drawImage(sky, 0, 0);
+                // 카메라 모드에서 sky 버퍼는 위로 camExtra만큼 더 크므로 화면분을 잘라 붙인다.
+                if (camOn()) ctx.drawImage(sky, 0, camExtra * dpr, sky.width, cv.height, 0, 0, cv.width, cv.height);
+                else ctx.drawImage(sky, 0, 0);
 
                 // mirrored salt-flat reflection, sliced into rows for faint ripples
                 const reflH = H - HZ;
-                if (RM.matches) {
+                if (camOn()) {
+                    // 인-캔버스 카메라: 화면 공간에서 미러링한다. sky 버퍼도 화면 크기이므로
+                    // 화면 수평선(hzS) 기준 윗줄 → 아랫줄로 그대로 옮기면 네이티브 해상도가 유지된다.
+                    // 다운스케일 경로는 쓰지 않는다(선명도 우선). 수평선이 화면 밖이면 flat이 안 보이므로 스킵.
+                    const hzS = camHz();
+                    const flatS = H - hzS;
+                    // 화면에 보이는 flat이 화면에 보이는 하늘보다 길면(토리이 줌),
+                    // 아래쪽 물결이 화면 밖 하늘을 비춰야 해서 sky 버퍼에 소스가 없다.
+                    // 빈틈이 투명/검정으로 남지 않게 미러된 하늘 그라데이션으로 먼저 메운 뒤,
+                    // 소스가 있는 윗줄만 실제 하늘 줄로 덮는다. (이후 dim 오버레이가 동일하게 어둡게 한다.)
+                    if (hzS > -40 && hzS < H + 40 && flatS > 2) {
+                        const qF = palQ(), skyCF = skyAt(qF);
+                        const colAt = t => {
+                            const ST = SKY_STOPS;
+                            if (t <= ST[0]) return skyCF[0];
+                            for (let i = 1; i < ST.length; i++) {
+                                if (t <= ST[i]) {
+                                    const u = (t - ST[i - 1]) / (ST[i] - ST[i - 1]);
+                                    const A = skyCF[i - 1], B = skyCF[i];
+                                    return [A[0] + (B[0] - A[0]) * u, A[1] + (B[1] - A[1]) * u, A[2] + (B[2] - A[2]) * u];
+                                }
+                            }
+                            return skyCF[skyCF.length - 1];
+                        };
+                        // 화면 맨 아래가 비추는 월드 하늘 높이 → 그라데이션 끝색
+                        const wBotY = CAM.fy + (H - CAM.my) / CAM.s;
+                        const srcTopT = clamp((HZ - Math.max(0, wBotY - HZ)) / Math.max(1, HZ), 0, 1);
+                        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                        ctx.globalCompositeOperation = 'source-over';
+                        ctx.globalAlpha = 1;
+                        const fg = ctx.createLinearGradient(0, hzS, 0, H);
+                        fg.addColorStop(0, rgba(colAt(1)));
+                        fg.addColorStop(1, rgba(colAt(srcTopT)));
+                        ctx.fillStyle = fg;
+                        ctx.fillRect(0, hzS, W, H - hzS);
+                    }
+                    if (!RM.matches && hzS > -40 && hzS < H + 40 && flatS > 2) {
+                        const stepS = Math.max(1, effReflStep(flatS));
+                        const cs = CAM.s;
+                        for (let dS = 0; dS < flatS; dS += stepS) {
+                            const shS = Math.min(stepS, flatS - dS);
+                            const srcS = hzS - dS - shS + camExtra;
+                            if (srcS < 0) break;
+                            // 파문 위상은 월드 깊이 기준으로 (시간 연속성 유지), 진폭만 화면 스케일로.
+                            const dW = dS / cs, kW = dW / Math.max(1, reflH);
+                            const ampW = CFG.REFL_AMP0 + CFG.REFL_AMP1 * kW * kW;
+                            const dxW = ampW * (0.7 * Math.sin(dW * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(dW * CFG.SL_F2 - clock * CFG.SL_F3));
+                            const dxS = dxW * cs;
+                            ctx.setTransform(dpr, 0, 0, -dpr, dxS * dpr, (hzS + dS + shS) * dpr);
+                            ctx.drawImage(sky, 0, srcS * dpr, sky.width, shS * dpr, -3, -0.5, W + 6, shS + 0.5);
+                        }
+                    } else if (RM.matches && hzS > -40 && hzS < H + 40) {
+                        const vis = Math.min(Math.max(0, hzS), Math.max(1, H - Math.max(0, hzS)));
+                        const src0 = hzS - vis;
+                        const skip = Math.min(vis, Math.max(0, -(src0 + camExtra)));
+                        const hdraw = vis - skip;
+                        const ddest = hzS - hdraw, bsrc = src0 + skip + camExtra;
+                        if (hdraw > 0) {
+                            ctx.setTransform(dpr, 0, 0, -dpr, 0, hzS * 2 * dpr);
+                            ctx.drawImage(sky, 0, bsrc * dpr, sky.width, hdraw * dpr,
+                                0, ddest, W, hdraw);
+                        }
+                    }
+                } else if (RM.matches) {
                     ctx.setTransform(dpr, 0, 0, -dpr, 0, (HZ * 2) * dpr);
                     ctx.drawImage(sky, 0, Math.max(0, HZ - reflH) * dpr, sky.width, Math.min(HZ, reflH) * dpr,
                         0, HZ - Math.min(HZ, reflH), W, Math.min(HZ, reflH));
@@ -3087,7 +3280,8 @@
                 // soften the reflection near the horizon; the real ranges above stay sharp
                 // because only rows from the horizon downward are pasted back.
                 // blur+복사는 BAND_EVERY 프레임마다만 갱신 (사이 프레임은 캐시 blit만).
-                if (bandH > 0) {
+                // 카메라 줌 중에는 스킵한다: 밴드 버퍼가 월드 수평선 기준이라 화면 수평선과 어긋나고, 효과도 미미하다.
+                if (bandH > 0 && !camOn()) {
                     const every = Math.max(1, Math.round(CFG.BAND_EVERY ?? 3));
                     const qNow = palQ();
                     const pMoved = Math.abs(qNow - bandLastP) > 0.004;
@@ -3118,7 +3312,7 @@
                     ctx.drawImage(band, 0, y0, band.width, y1 - y0, 0, HZ * dpr, cv.width, bandH * dpr);
                 }
 
-                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                camSet(ctx);
                 const qR = palQ();
                 const w2 = day2W();
                 let [r0, r1] = keyed(REFL, qR);
@@ -3176,7 +3370,9 @@
                 FG.setTransform(dpr, 0, 0, dpr, 0, 0);
 
                 const v = lerp(keyed(VIG, qR)[0], keyed(VIG_DAY2, qR)[0], w2);
-                const vg = FG.createRadialGradient(W / 2, HZ, Math.min(W, H) * 0.35, W / 2, HZ, Math.hypot(W, H) * 0.72);
+                // 비네팅은 화면 고정 효과: 카메라 모드에서는 화면 중앙 기준으로 그린다 (월드 따라가지 않음).
+                const vcy = camOn() ? H * 0.5 : HZ;
+                const vg = FG.createRadialGradient(W / 2, vcy, Math.min(W, H) * 0.35, W / 2, vcy, Math.hypot(W, H) * 0.72);
                 vg.addColorStop(0, 'rgba(0,0,0,0)');
                 vg.addColorStop(1, `rgba(0,0,0,${v})`);
                 FG.fillStyle = vg; FG.fillRect(0, 0, W, H);
@@ -3318,6 +3514,8 @@ void main() {
             for (const c of [cv, glc, fg]) { try { c.style.touchAction = 'none'; } catch (e) {} }
 
             function spawnRipple(clientX, clientY) {
+                // 인-캔버스 카메라 줌 중에는 리플 셰이더의 지면 매핑이 월드 수평선 기준이라 끈다.
+                if (camOn()) return false;
                 const fh = floorH / dpr;
                 const s = clientY - floorTop / dpr;
                 if (s < 6 || s > fh) return false;
@@ -3360,11 +3558,13 @@ void main() {
             window.addEventListener('blur', () => dragPts.clear());
 
             // 미러볼(달) 클릭 → 줄눈 빛줄기 발사. 하늘 클릭이라 수면 ripple과 겹치지 않는다.
+            // 카메라 줌 중에는 화면 클릭을 월드로 되돌려 판정한다 (보이는 달 = 월드 달의 화면 매핑).
             window.addEventListener('pointerdown', e => {
                 if (e.button > 0 || RM.matches) return;
                 if (overUI(e.target)) return;
                 if (mbMV < 0.05 || mbMR < 2) return;
-                const dx = e.clientX - mbMX, dy = e.clientY - mbMY, rr = mbMR * 1.5;
+                const wp = camS2W(e.clientX, e.clientY);
+                const dx = wp.x - mbMX, dy = wp.y - mbMY, rr = mbMR * 1.5;
                 if (dx * dx + dy * dy <= rr * rr) mbFire();
             });
 
@@ -3377,6 +3577,12 @@ void main() {
             }
 
             function drawRipples() {
+                // 카메라 줌 중에는 리플 레이어를 숨긴다 (spawn도 막혀 있으므로 새로 생기지 않는다).
+                if (camOn()) {
+                    if (glOn) { glOn = false; glc.style.display = 'none'; }
+                    if (ripples.length) ripples.length = 0;
+                    return;
+                }
                 const on = gl !== null && ripples.length > 0;
                 if (on !== glOn) { glOn = on; glc.style.display = on ? 'block' : 'none'; }
                 if (!on) return;
@@ -3666,6 +3872,13 @@ void main() {
                 show: SHOW, showDefaults: SHOW_DEF,
                 get sunK() { return sunK(); },
                 get W() { return W; }, get H() { return H; }, get HZ() { return HZ; }, get dpr() { return dpr; },
+                // 인-캔버스 카메라 (tsukuyomi.focus.js가 구동). CSS transform 대신 장면을 직접 다시 그린다.
+                setCamView(f, m, s) { setCamView(f, m, s); },
+                clearCam() { clearCam(); },
+                getCamView() { return CAM.on ? { f: { x: CAM.fx, y: CAM.fy }, m: { x: CAM.mx, y: CAM.my }, s: CAM.s } : null; },
+                worldToScreen(x, y) { return camW2S(x, y); },
+                screenToWorld(x, y) { return camS2W(x, y); },
+                get camOn() { return camOn(); },
                 // 포커스 오버레이(tsukuyomi.focus.js)용 랜드마크 화면 좌표 (css px)
                 get torii() {
                     return {
