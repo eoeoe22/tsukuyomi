@@ -177,12 +177,51 @@
     return { x: t.cx, y: t.cy };
   }
 
+  // 랜드마크 중심(f)에서 왼쪽/아래 가장자리까지 거리 (월드 px, 스케일 1 기준)
+  function landmarkExtent(kind, f) {
+    const T = ts();
+    if (kind === 'torii') {
+      const t = T && T.torii;
+      if (!t) return { l: 0, b: 0 };
+      return { l: Math.max(0, f.x - t.x), b: Math.max(0, t.y + t.h - f.y) };
+    }
+    const m = T && (kind === 'mirror' ? T.moon : (T.plainMoon || T.moon));
+    const r = m ? m.r || 0 : 0;
+    return { l: r, b: r };
+  }
+
+  const isNarrow = () => window.innerWidth <= 460 ||
+    !!(window.matchMedia && window.matchMedia('(pointer: coarse) and (max-height: 500px)').matches);
+
   // 목표: 랜드마크는 오른쪽, 카드는 왼쪽. 좁은 화면에서는 랜드마크 중앙 상단 + 카드 하단.
   function targetFor() {
     const W = window.innerWidth, H = window.innerHeight;
-    const narrow = W <= 460 || (window.matchMedia && window.matchMedia('(pointer: coarse) and (max-height: 500px)').matches);
-    if (narrow) return { x: W * 0.5, y: H * 0.32 };
+    if (isNarrow()) return { x: W * 0.5, y: H * 0.32 };
     return { x: W * 0.72, y: H * 0.45 };
+  }
+
+  const CARD_GAP = 12;    // 확대된 랜드마크 가장자리 ↔ 카드 사이 최소 간격(px)
+  const CARD_MARGIN = 16; // 카드와 뷰포트 가장자리 사이 최소 여백(px)
+  const cardWidth = () => Math.min(340, window.innerWidth - 32); // CSS width와 일치
+
+  // 카드를 확대된 랜드마크 바로 옆(넓은 화면: 왼쪽, 좁은 화면: 아래)에 붙인다.
+  function placeCard(z) {
+    const W = window.innerWidth, H = window.innerHeight;
+    if (isNarrow()) {
+      // 하단 시트는 유지하되 상단을 랜드마크 바로 아래로 끌어올린다 (최소 높이 확보 시에만)
+      const top = Math.round(z.t.y + z.ext.b * z.s + CARD_GAP);
+      const fits = H - top - CARD_MARGIN >= 160;
+      card.style.top = fits ? top + 'px' : '';
+      card.style.left = '';
+      return;
+    }
+    const cw = cardWidth();
+    const left = Math.max(CARD_MARGIN, Math.round(z.t.x - z.ext.l * z.s - CARD_GAP - cw));
+    const ch = card.offsetHeight || 220;
+    const half = ch / 2;
+    const cy = Math.max(CARD_MARGIN + half, Math.min(H - CARD_MARGIN - half, z.t.y));
+    card.style.left = left + 'px';
+    card.style.top = Math.round(cy) + 'px';
   }
 
   // 변환 후 뷰포트 네 모서리의 원본 좌표가 모두 장면 안에 들어가는 최소 스케일.
@@ -202,10 +241,23 @@
     const f = landmarkCenter(kind);
     if (!f) return null;
     const t = targetFor();
-    const need = coverScale(f.x, f.y, t.x, t.y);
+    const ext = landmarkExtent(kind, f);
     // 하한에 여유(+4%, +0.01)를 둬 서브픽셀 반올림에도 가장자리가 비지 않게 한다
-    const s = Math.max(SCALES[kind] || 2, need * 1.04 + 0.01);
-    return { f, t, s };
+    const scaleAt = tx => Math.max(SCALES[kind] || 2, coverScale(f.x, f.y, tx, t.y) * 1.04 + 0.01);
+    let s = scaleAt(t.x);
+    if (!isNarrow()) {
+      // 카드+간격+랜드마크가 왼쪽 여백 안에 들어가지 않으면 랜드마크를 오른쪽으로 민다.
+      // tx가 바뀌면 커버 하한(s)도 바뀌므로 몇 번 반복해 수렴시킨다.
+      const W = window.innerWidth;
+      const minX = CARD_MARGIN + cardWidth() + CARD_GAP;
+      for (let i = 0; i < 4; i++) {
+        const need = Math.min(W * 0.86, minX + ext.l * s);
+        if (need <= t.x) break;
+        t.x = need;
+        s = scaleAt(t.x);
+      }
+    }
+    return { f, t, s, ext };
   }
 
   // 프로그램 포커스 이동 헬퍼: 마우스 복귀 경로에서는 원형 링(:focus-visible)을
@@ -239,6 +291,7 @@
     if (desc) desc.textContent = DESCS[kind] || '내용 준비 중입니다.';
     renderBody(kind);
     card.hidden = false;
+    placeCard(z);
     backBtn.hidden = false;
     pinTorii.setAttribute('aria-expanded', kind === 'torii' ? 'true' : 'false');
     pinMoon.setAttribute('aria-expanded', kind === 'moon' ? 'true' : 'false');
@@ -320,6 +373,7 @@
       const z = computeZoom(focus);
       if (!z || !camOK()) return;
       lastZoom = z;
+      placeCard(z);
       cancelCamAnim();
       try { ts().setCamView(z.f, z.t, z.s, z.s); } catch (e) { /* 무시 */ }
     }, 120);
