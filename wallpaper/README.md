@@ -35,7 +35,7 @@ wallpaper/
 
 ## 동결 버전
 
-- `CORE_VERSION.txt` 참고 (커밋 `4a6448a`, 2026-10-07 UTC 기준).
+- `CORE_VERSION.txt` 참고 (커밋 `ed18741` + `MOON_SIZE` 1.6, 2026-10-09 UTC 기준).
 - `project.json`의 고급 기본값 177종은 동결 CFG에서 그대로 생성됐다 (기존 176종 + `MOON_SIZE`).
 - 검증: `python wallpaper/tools/verify-wallpaper.py` (vendor 해시·기본값·참조·git 범위 검사).
 

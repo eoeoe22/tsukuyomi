@@ -1,5 +1,5 @@
-4a6448a8af8fce14736aff271f56cbd7ea978c76
-2026-10-07 (UTC)
+ed187417388f747eef585964d3d1c6d1e4170269 + MOON_SIZE 2 -> 1.6
+2026-10-09 (UTC)
 frozen source: public/tsukuyomi.js, public/tsukuyomi.css, public/cloud-doc.js,
   public/cloud-live.js, public/lantern-front.svg, public/assets/icons/icon.svg,
   public/clouds/index.json

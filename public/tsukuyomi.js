@@ -82,7 +82,7 @@
                 SUN_F: 0.03, SUN_MIN: 14, SUN_MAX: 34,
                 MOON_F: 0.026, MOON_MIN: 12, MOON_MAX: 28,
                 // MOON_SIZE: 달(미러볼) 크기 배율. moonR 계산 마지막에 곱한다.
-                MOON_SIZE: 2,
+                MOON_SIZE: 1.6,
                 TORII_SCALE: 0.7, TORII_X: 0.76, TORII_BASE: 0.75,
                 // TORII_X는 토리이 중심과 달 중심이 공유하는 수직선 (항상 같은 x)
                 MOON_Y: 0.34,
