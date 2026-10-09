@@ -3874,6 +3874,41 @@ void main() {
             if (elNight) elNight.addEventListener('click', () => onPick('night', elNight));
             if (elMirror) elMirror.addEventListener('click', () => onPick('mirror', elMirror));
 
+            // ---------- 배경화면 감상 모드 (단독 토글, 기본값 비활성화) ----------
+            // 시간대 버튼그룹과 별도. 활성화 시 클릭 인디케이터 및 텍스트(랜드마크 핀)를 숨겨
+            // 순수 배경화면만 감상한다. .on이면 접힘 상태에서도 종료 접근을 위해 표시된다(CSS).
+            const elWallpaper = document.getElementById('btnWallpaper');
+            let wallpaperMode = false;
+            function setWallpaper(on) {
+                wallpaperMode = !!on;
+                try {
+                    if (wallpaperMode) document.body.setAttribute('data-wallpaper', 'on');
+                    else document.body.removeAttribute('data-wallpaper');
+                } catch (e) { /* body 미지원 환경 무시 */ }
+                if (elWallpaper) {
+                    elWallpaper.classList.toggle('on', wallpaperMode);
+                    elWallpaper.setAttribute('aria-pressed', wallpaperMode ? 'true' : 'false');
+                }
+            }
+            if (elWallpaper) elWallpaper.addEventListener('click', e => {
+                e.stopPropagation();
+                // 터치 UI에서 접힌 채로 눌릴 수 없으므로(버튼 숨김), 펼친 상태에서만 토글된다.
+                // 만약을 위해 미펼침이면 먼저 펼치고 토글한다.
+                if (TOUCH_UI && elPanel && !elPanel.classList.contains('expanded')) {
+                    elPanel.classList.add('expanded');
+                    moveThumb();
+                }
+                setWallpaper(!wallpaperMode);
+                if (TOUCH_UI && elPanel) {
+                    // 선택 피드백이 보이도록 잠시 펼침 유지 후 접기 (.on이면 토글만 남는다)
+                    clearTimeout(collapseTimer);
+                    collapseTimer = setTimeout(() => {
+                        elPanel.classList.remove('expanded');
+                        moveThumb();
+                    }, 900);
+                }
+            });
+
             // ---------- debug bridge (F12 패널용) ----------
             // tsukuyomi.debug.js가 이 객체를 통해 모든 파라미터를 수동 조절한다.
             // CFG(수치) + 팔레트(색) + 상태(p/phi/state) + 재빌드 액션을 노출.
@@ -3902,6 +3937,7 @@ void main() {
                     }
                 },
                 get mode() { return activeOf(); }, set mode(v) { goTo(v); },
+                get wallpaper() { return wallpaperMode; }, set wallpaper(v) { setWallpaper(v); },
                 get moonTarget() { return moonTarget; }, get mbMix() { return mbMix; }, get showT() { return showT; },
                 show: SHOW, showDefaults: SHOW_DEF,
                 get sunK() { return sunK(); },
