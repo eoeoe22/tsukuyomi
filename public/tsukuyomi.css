@@ -449,6 +449,15 @@
             outline-offset: 2px;
         }
 
+        /* 프로그램 포커스 복원(마우스 클릭 복귀) 시에는 원형 링을 띄우지 않는다.
+           Tab 등 키보드 탐색은 :focus-visible 링을 그대로 유지한다. */
+        .focus-pin.no-focus-ring:focus,
+        .focus-pin.no-focus-ring:focus-visible,
+        #focusBack.no-focus-ring:focus,
+        #focusBack.no-focus-ring:focus-visible {
+            outline: none;
+        }
+
         .focus-pin .click-indicator {
             position: absolute;
             left: 50%;

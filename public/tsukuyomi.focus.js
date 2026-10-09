@@ -208,7 +208,23 @@
     return { f, t, s };
   }
 
-  function enter(kind) {
+  // 프로그램 포커스 이동 헬퍼: 마우스 복귀 경로에서는 원형 링(:focus-visible)을
+  // 띄우지 않고, 키보드(Enter/Space/Escape) 경로에서는 링을 유지한다.
+  function focusEl(el, showRing) {
+    if (!el) return;
+    if (showRing) {
+      el.classList.remove('no-focus-ring');
+    } else {
+      el.classList.add('no-focus-ring');
+    }
+    try { el.focus({ preventScroll: true }); } catch (e) { try { el.focus(); } catch (_) { /* 무시 */ } }
+  }
+  // 억제된 링은 blur 시점에 해제해 다음 Tab 탐색부터는 정상 표시한다.
+  for (const el of [pinTorii, pinMoon, pinMirror, backBtn]) {
+    el.addEventListener('blur', () => el.classList.remove('no-focus-ring'));
+  }
+
+  function enter(kind, showRing) {
     if (focus === kind) return;
     const z = computeZoom(kind);
     if (!z) return;
@@ -236,10 +252,10 @@
       }
     } catch (e) { /* 무시 */ }
     animCam(z.f, m0, s0, z.t, z.s);
-    backBtn.focus({ preventScroll: true });
+    focusEl(backBtn, !!showRing);
   }
 
-  function exit(restoreFocus) {
+  function exit(restoreFocus, showRing) {
     if (!focus) return;
     cancelCamAnim();
     const T = ts();
@@ -278,20 +294,22 @@
     if (restoreFocus !== false) {
       // 핀이 다시 보일 때 포커스를 되돌린다 (전이 중 포커스 시 핀이 숨은 채로 잡힌다)
       const el = lastPin;
+      const ring = !!showRing;
       clearTimeout(focusBackT);
       focusBackT = setTimeout(() => {
-        if (!focus && el && el.style.display !== 'none') el.focus({ preventScroll: true });
+        if (!focus && el && el.style.display !== 'none') focusEl(el, ring);
       }, EXIT_COOL_MS);
     }
   }
 
   let lastPin = null;
-  pinTorii.addEventListener('click', () => { lastPin = pinTorii; enter('torii'); });
-  pinMoon.addEventListener('click', () => { lastPin = pinMoon; enter('moon'); });
-  pinMirror.addEventListener('click', () => { lastPin = pinMirror; enter('mirror'); });
-  backBtn.addEventListener('click', () => exit(true));
+  // click.detail === 0이면 키보드(Enter/Space) 활성화이므로 링을 유지한다.
+  pinTorii.addEventListener('click', e => { lastPin = pinTorii; enter('torii', e.detail === 0); });
+  pinMoon.addEventListener('click', e => { lastPin = pinMoon; enter('moon', e.detail === 0); });
+  pinMirror.addEventListener('click', e => { lastPin = pinMirror; enter('mirror', e.detail === 0); });
+  backBtn.addEventListener('click', e => exit(true, e.detail === 0));
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && focus) exit(true);
+    if (e.key === 'Escape' && focus) exit(true, true);
   });
   // 리사이즈 중 확대 상태 유지: 랜드마크가 이동했으므로 최종값으로 즉시 갱신 (끝점 커버 보장)
   let rzT = 0;
