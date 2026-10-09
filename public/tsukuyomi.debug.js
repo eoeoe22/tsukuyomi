@@ -802,8 +802,18 @@
             '\nlanterns=' + (b.lanterns ? b.lanterns.length : 0) + '  lanReady=' + (b.lanReady ? 'yes' : 'no') +
             '  lanCached=' + (b.lanCached ? 'yes' : 'no') +
             '\nreflStep=' + b.reflStep + '  reflCost=' + fmt(b.reflCost) + 'ms' +
-            '  tor=' + b.torBuilds + '  band=' + b.bandBuilds +
-            (b.mb ? '\nmbRot=' + fmt(b.mbRot) + '  streaks=' + b.mbStreaks : '');
+            '  tor=' + b.torBuilds + '  band=' + b.bandBuilds + '  star=' + b.starBuilds +
+            (b.mb ? '\nmbRot=' + fmt(b.mbRot) + '  streaks=' + b.mbStreaks : '') +
+            zprofLine(b.zoomProf && b.zoomProf.last);
+    }
+
+    // 마지막 줌(확대/복귀) 계측 요약. 상세는 __TSUKUYOMI__.zoomProf.last 또는 ?zprof 콘솔 출력.
+    function zprofLine(z) {
+        if (!z) return '';
+        const ev = z.events.map(e => e.i + ':' + e.ev).join(' ');
+        return '\nzoom[' + z.label + '] ' + z.frames + 'f ' + z.fps + 'fps  dt p50=' + z.dtP50 +
+            ' p95=' + z.dtP95 + ' max=' + z.dtMax + '  js=' + z.jsAvg + '  long=' + z.long.length +
+            (ev ? '\n  ev ' + ev : '');
     }
 
     // ---------- 감지 ----------

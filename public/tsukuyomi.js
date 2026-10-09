@@ -370,6 +370,72 @@
             // sky/cloudLayer 버퍼는 화면보다 위로 camExtra만큼 더 크다(아래쪽 물결이 비추는 화면 밖 윗하늘 원천용).
             // 버퍼행 = 화면행 + camExtra.
             let camExtra = 0;
+            // ---------- 줌 프로파일러 (계측 전용) ----------
+            // focus.js가 확대/복귀 애니메이션을 begin/end로 감싼다. 구간 중에만 프레임별 JS 구간 시간(ms)과
+            // 캐시 재굽기·버퍼 재할당 이벤트를 모으고, 구간 밖에서는 performance.now 호출도 하지 않는다.
+            // GPU/합성 시간은 JS에서 보이지 않으므로 rAF 간격(dt)과 JS 합계(js)의 차이로 추정한다.
+            // 콘솔 출력: URL에 ?zprof 또는 __TSUKUYOMI__.zoomProf.log = true. 마지막 요약은 zoomProf.last.
+            const ZP = { on: false, label: '', t0: 0, acc: null, frames: [], last: null, log: /[?&]zprof\b/.test(location.search) };
+            const ZP_KEYS = ['update', 'live', 'sky', 'clouds', 'stars', 'moon', 'refl', 'water', 'fg', 'ripple', 'cam'];
+            const zpNow = () => ZP.on ? performance.now() : 0;
+            function zpAdd(k, t0) { if (ZP.on) ZP.acc[k] = (ZP.acc[k] || 0) + (performance.now() - t0); }
+            function zpEv(k) { if (ZP.on) (ZP.acc.ev || (ZP.acc.ev = [])).push(k); }
+            function zpBegin(label) {
+                if (ZP.on) zpEnd();
+                ZP.on = true; ZP.label = String(label || ''); ZP.t0 = performance.now(); ZP.acc = {}; ZP.frames = [];
+            }
+            function zpPush(now, gap, js) {
+                if (!ZP.on) return;
+                const a = ZP.acc;
+                ZP.acc = {};
+                a.t = now - ZP.t0; a.dt = gap; a.js = js;
+                ZP.frames.push(a);
+                if (ZP.frames.length >= 600) zpEnd(); // end 누락 대비 안전장치
+            }
+            function zpEnd() {
+                if (!ZP.on) return ZP.last;
+                ZP.on = false;
+                const F = ZP.frames;
+                ZP.frames = []; ZP.acc = null;
+                if (!F.length) return ZP.last;
+                const r2 = v => Math.round(v * 100) / 100;
+                const dts = F.map(f => f.dt).sort((a, b) => a - b);
+                const pct = q => dts[Math.min(dts.length - 1, Math.floor(q * dts.length))];
+                const dur = F.reduce((s, f) => s + f.dt, 0);
+                const avg = {}, max = {};
+                for (const k of ZP_KEYS) {
+                    let s = 0, m = 0;
+                    for (const f of F) { const v = f[k] || 0; s += v; if (v > m) m = v; }
+                    avg[k] = r2(s / F.length); max[k] = r2(m);
+                }
+                // 긴 프레임: 중앙값의 1.6배 초과(주사율 무관) 그리고 12ms 이상
+                const lim = Math.max(pct(0.5) * 1.6, 12);
+                const long = [];
+                F.forEach((f, i) => {
+                    if (f.dt <= lim) return;
+                    const row = { i, t: Math.round(f.t), dt: r2(f.dt), js: r2(f.js), gpu: r2(Math.max(0, f.dt - f.js)) };
+                    for (const k of ZP_KEYS) if (f[k] >= 0.5) row[k] = r2(f[k]);
+                    if (f.ev) row.ev = f.ev.join(',');
+                    long.push(row);
+                });
+                const events = [];
+                F.forEach((f, i) => { if (f.ev) events.push({ i, t: Math.round(f.t), ev: f.ev.join(',') }); });
+                const S = {
+                    label: ZP.label, frames: F.length, ms: Math.round(dur), fps: r2(F.length / Math.max(0.001, dur / 1000)),
+                    dtP50: r2(pct(0.5)), dtP95: r2(pct(0.95)), dtMax: r2(dts[dts.length - 1]),
+                    jsAvg: r2(F.reduce((s, f) => s + f.js, 0) / F.length), avg, max, long, events, raw: F,
+                    dpr, W, H,
+                };
+                ZP.last = S;
+                if (ZP.log) {
+                    console.groupCollapsed(`[zprof] ${S.label}  ${S.frames}f ${S.fps}fps  dt p50=${S.dtP50} p95=${S.dtP95} max=${S.dtMax}ms  js=${S.jsAvg}ms  long=${long.length}`);
+                    console.table({ avg, max });
+                    if (long.length) console.table(long);
+                    if (events.length) console.table(events);
+                    console.groupEnd();
+                }
+                return S;
+            }
             // 화면 캔버스(cv/FG)용: world -> screen 그대로.
             function camSet(c) {
                 if (!camOn()) c.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -406,17 +472,20 @@
                 if (E !== camExtra) camExtra = E;
                 const wantH = Math.round(((camOn() ? H + camExtra : HZ)) * dpr);
                 if (sky.height !== wantH || cloudLayer.height !== wantH) {
+                    zpEv('skyBuf');
                     sky.height = wantH; cloudLayer.height = wantH;
                 }
             }
             function setCamView(f, m, s, res) {
+                const z = zpNow();
                 CAM = { on: true, fx: f.x, fy: f.y, mx: m.x, my: m.y, s: Math.max(1, s) };
                 const rk = Math.min(3, Math.ceil(Math.max(1, Number(res) || 0, CAM.s) * 2) / 2);
-                if (rk > camResK) camResK = rk;
+                if (rk > camResK) { camResK = rk; zpEv('resK=' + rk); }
                 // 카메라 모드에서 sky/cloudLayer는 화면 크기 + 윗하늘 원천 여유(월드 하늘 크기가 아님).
                 // 버퍼가 모드에 맞지 않으면 여기서 맞춰 다음 프레임부터 화면 공간 렌더가 깨지지 않게 한다.
                 camSyncBuffers();
                 bandValid = false;
+                zpAdd('cam', z);
             }
             function clearCam() {
                 CAM.on = false;
@@ -520,6 +589,7 @@
             function mbEnsureRes() {
                 const k = camRK();
                 if (k !== mbK) {
+                    zpEv('mbRes');
                     mbK = k;
                     mbBody.width = Math.max(1, Math.round(MB_S * k));
                     mbBody.height = Math.max(1, Math.round(MB_S * k));
@@ -922,7 +992,7 @@
                 const cs = camRK();
                 const ox = Math.floor((mx - mr - pad) * dpr) / dpr, oy = Math.floor((my - mr - pad) * dpr) / dpr;
                 const side = Math.ceil((2 * (mr + pad) + 1) * dpr * cs);
-                if (mbHaloC.width !== side || mbHaloC.height !== side) { mbHaloC.width = side; mbHaloC.height = side; }
+                if (mbHaloC.width !== side || mbHaloC.height !== side) { zpEv('mbHalo'); mbHaloC.width = side; mbHaloC.height = side; }
                 else { MBH.setTransform(1, 0, 0, 1, 0, 0); MBH.clearRect(0, 0, side, side); }
                 MBH.setTransform(dpr * cs, 0, 0, dpr * cs, -ox * dpr * cs, -oy * dpr * cs);
                 MBH.globalCompositeOperation = 'lighter';
@@ -1008,6 +1078,7 @@
             function pmEnsureRes() {
                 const k = camRK();
                 if (k !== pmK) {
+                    zpEv('pmBake');
                     pmK = k;
                     pmBody.width = Math.max(1, Math.round(PM_S * k));
                     pmBody.height = Math.max(1, Math.round(PM_S * k));
@@ -2382,43 +2453,204 @@
             // ---------- stars and their trails ----------
             // Each trail runs from where the star was phiLen radians ago to where it is now.
             // It grows from the star's starting point until it reaches TRAIL_LEN, then keeps that length.
+            // 성능: 별은 화면 모서리까지 덮는 반경 R 원판 전체에 있어 상당수가 화면 밖이다.
+            // 궤적 원호 1600개를 전부 stroke하면 GPU 래스터 비용이 밤 장면 프레임의 대부분을 차지하므로
+            // sky 버퍼에 실제로 찍히는 world 영역과 겹치는 원호만 그린다(고리 판정 → 원호 bbox 판정).
+            // 점은 원 경로 대신 등급·색별 스프라이트를 drawImage해 GPU에서 한 번에 묶이게 한다.
+            // 스프라이트는 (해상도, 버킷)별로 보관한다. 캐시 굽기(고배율)와 직접 그리기(1배)가 같은 프레임에 섞여도
+            // 서로 지우지 않게 하고, 해상도 종류가 너무 많아지면(줌 배율 변화) 통째로 비운다.
+            const starSpr = new Map();
+            function starSprite(k, px) {
+                const id = px.toFixed(3) + '|' + k;
+                let c = starSpr.get(id);
+                if (c) return c;
+                if (starSpr.size >= 72) starSpr.clear();
+                const d = LV[(k / 3) | 0].d;
+                const n = Math.ceil(d * px) + 2;
+                c = document.createElement('canvas');
+                c.width = n; c.height = n;
+                const g = c.getContext('2d');
+                g.fillStyle = rgba(COLS[k % 3], 1);
+                g.beginPath(); g.arc(n / 2, n / 2, d * px / 2, 0, Math.PI * 2); g.fill();
+                c.wd = n / px; // world 크기
+                starSpr.set(id, c);
+                return c;
+            }
+            // sky 버퍼에 찍히는 world 영역. 카메라 모드에서는 버퍼가 화면 위로 camExtra만큼 더 크지만,
+            // camExtra는 줌 중 커지기만 하므로(복귀 중에도 최대치 유지) 실제로 반사가 읽는 윗줄(camNeed)만 센다.
+            // 그 위 버퍼 행은 쓰이지 않으므로 별이 비어 있어도 보이지 않는다.
+            function starView() {
+                if (!camOn()) return { x0: 0, y0: 0, x1: W, y1: HZ };
+                const up = Math.min(camExtra, Math.ceil(camNeed()) + 4);
+                const a = camS2W(0, -up), b = camS2W(W, H);
+                return { x0: a.x, y0: a.y, x1: b.x, y1: Math.min(b.y, HZ) };
+            }
+            const HALF_PI = Math.PI / 2, TAU = Math.PI * 2;
+            // 별 목록을 버킷(등급·색) 순서로 펼친 것. 캐시 굽기를 여러 프레임에 나눌 때 구간 단위로 자른다.
+            let starFlat = [], starFlatSrc = null;
+            function starList() {
+                if (starFlatSrc !== buckets) {
+                    starFlatSrc = buckets;
+                    starFlat = [];
+                    for (let k = 0; k < 12; k++) for (const s of buckets[k]) starFlat.push({ s, k });
+                }
+                return starFlat;
+            }
+            // 별 레이어 그리기 코어: list[i0, i1) 중 영역 v(world, pad 포함)와 겹치는 궤적·점만 g에 그린다.
+            // 같은 버킷이 연속된 구간마다 궤적 stroke 한 번 + 점 스프라이트를 그린다 (버킷별 순서 유지).
+            // g의 transform은 호출자가 world 좌표 기준으로 맞춰 둔다.
+            function drawStarRange(g, list, i0, i1, v, ph, len, a, sprPx) {
+                const x0 = v.x0, y0 = v.y0, x1 = v.x1, y1 = v.y1;
+                const px = pole.x, py = pole.y;
+                // 고리 판정용: 극점에서 영역까지 최근접/최원 거리
+                const nx = clamp(px, x0, x1) - px, ny = clamp(py, y0, y1) - py;
+                const dNear = Math.hypot(nx, ny);
+                const dFar = Math.max(Math.hypot(x0 - px, y0 - py), Math.hypot(x1 - px, y0 - py),
+                    Math.hypot(x0 - px, y1 - py), Math.hypot(x1 - px, y1 - py));
+                const ga0 = g.globalAlpha;
+                g.globalCompositeOperation = 'lighter';
+                g.lineCap = 'butt';
+                let i = i0;
+                while (i < i1) {
+                    const k = list[i].k;
+                    let j = i;
+                    while (j < i1 && list[j].k === k) j++;
+                    const L = LV[(k / 3) | 0];
+                    if (len > 0.0005) {
+                        g.strokeStyle = rgba(COLS[k % 3], L.al * a);
+                        g.lineWidth = L.d;
+                        g.beginPath();
+                        for (let n = i; n < j; n++) {
+                            const s = list[n].s;
+                            const r = s.rAbs ?? s.rn * R;
+                            if (r < dNear || r > dFar) continue;
+                            const head = s.th - ph, tail = head + len;   // decreasing angle = counter-clockwise on screen
+                            const hc = Math.cos(head), hs = Math.sin(head), tc = Math.cos(tail), ts = Math.sin(tail);
+                            // 원호 bbox: 양 끝점 + 범위 안의 축 극값 각도
+                            let bx0 = Math.min(hc, tc), bx1 = Math.max(hc, tc), by0 = Math.min(hs, ts), by1 = Math.max(hs, ts);
+                            const h = ((head % TAU) + TAU) % TAU, t = h + len;
+                            for (let q = Math.ceil(h / HALF_PI); q * HALF_PI <= t; q++) {
+                                const e = q & 3;
+                                if (e === 0) bx1 = 1; else if (e === 1) by1 = 1; else if (e === 2) bx0 = -1; else by0 = -1;
+                            }
+                            if (px + r * bx1 < x0 || px + r * bx0 > x1 || py + r * by1 < y0 || py + r * by0 > y1) continue;
+                            g.moveTo(px + r * tc, py + r * ts);
+                            g.arc(px, py, r, tail, head, true);
+                        }
+                        g.stroke();
+                    }
+                    const spr = starSprite(k, sprPx), sw = spr.wd, sh2 = sw / 2;
+                    g.globalAlpha = ga0 * L.al * a;
+                    for (let n = i; n < j; n++) {
+                        const s = list[n].s;
+                        const r = s.rAbs ?? s.rn * R;
+                        const ang = s.th - ph;
+                        const x = px + r * Math.cos(ang), y = py + r * Math.sin(ang);
+                        if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+                        g.drawImage(spr, x - sh2, y - sh2, sw, sw);
+                    }
+                    g.globalAlpha = ga0;
+                    i = j;
+                }
+                g.globalCompositeOperation = 'source-over';
+            }
+            // idle 회전 캐시: 궤적 길이가 고정(TRAIL_LEN)인 동안 별 레이어 전체는 극점 기준 강체 회전이다.
+            // 화면보다 STAR_PAD만큼 넓은 버퍼에 phi0 시점으로 그려 두고, 매 프레임 (phi - phi0)만큼 회전해 한 장으로 blit한다.
+            // - 1배 캐시를 회전 blit하면 얇은 궤적이 재샘플링되어 에일리어싱이 생기므로 STAR_SS배(기본 3)로 굽고
+            //   고품질(밉맵) 축소로 붙인다. 버퍼 픽셀 수는 starPxMax() 안으로 배율을 낮춰 메모리를 제한한다.
+            // - 고배율 굽기는 한 번에 100ms 넘게 걸리므로 버퍼 두 장을 두고, 여백의 절반을 쓰면 뒤 버퍼에
+            //   STAR_CHUNK개씩 여러 프레임에 나눠 구운 뒤 교체한다. 앞 버퍼가 아직 없거나 여백을 다 쓰면 직접 그리기로 대체.
+            // - 줌 중에는 직접 그리기 경로를 쓰지만 굽기는 계속 진행해 복귀 직후 바로 캐시를 쓸 수 있게 한다.
+            // CFG.STAR_CACHE=0이면 끈다.
+            const STAR_PAD = 128;
+            const starPxMax = () => (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ? 6e6 : 12e6;
+            const starBuf = [0, 1].map(() => { const c = document.createElement('canvas'); return { c, g: c.getContext('2d'), key: '', phi0: 0 }; });
+            let starFront = 0, starJob = null, starBuilds = 0;
+            function starGeom(len) {
+                const P = STAR_PAD;
+                const base = (W + 2 * P) * (HZ + 2 * P) * dpr * dpr;
+                const ssk = clamp(Math.min(CFG.STAR_SS ?? 3, Math.sqrt(starPxMax() / Math.max(1, base))), 1, 3);
+                const sp = dpr * ssk;
+                const cw = Math.round((W + 2 * P) * sp), ch = Math.round((HZ + 2 * P) * sp);
+                // 여백 P를 다 쓰기까지 허용 회전각 (영역 최원점 반경 기준, 80%만 사용)
+                const far = Math.max(Math.hypot(pole.x, pole.y), Math.hypot(W - pole.x, pole.y),
+                    Math.hypot(pole.x, HZ - pole.y), Math.hypot(W - pole.x, HZ - pole.y));
+                const key = cw + 'x' + ch + '|' + sp + '|' + pole.x + ',' + pole.y + '|' + R + '|' + len + '|' + stars.length;
+                return { P, sp, cw, ch, key, maxD: 0.8 * P / Math.max(1, far) };
+            }
+            // 뒤 버퍼 굽기를 한 구간 진행한다. 필요하면 새 작업을 시작하고, 끝나면 앞뒤를 바꾼다.
+            function starBakeStep(G, len) {
+                const F = starBuf[starFront];
+                if (starJob && starJob.key !== G.key) starJob = null;
+                if (!starJob && (F.key !== G.key || Math.abs(phi - F.phi0) > G.maxD * 0.5)) {
+                    const B = starBuf[1 - starFront];
+                    fitCanvas(B.c, G.cw, G.ch);
+                    B.key = '';
+                    B.g.setTransform(1, 0, 0, 1, 0, 0);
+                    B.g.globalAlpha = 1;
+                    B.g.clearRect(0, 0, G.cw, G.ch);
+                    starJob = { key: G.key, phi0: phi, i: 0 };
+                }
+                if (!starJob) return;
+                const B = starBuf[1 - starFront];
+                const list = starList();
+                const n = Math.max(1, Math.round(CFG.STAR_CHUNK ?? 48));
+                const pad = 3, P = G.P, sp = G.sp;
+                B.g.setTransform(sp, 0, 0, sp, P * sp, P * sp);
+                // 알파는 blit 때 곱한다 (캐시는 a=1로 굽는다)
+                drawStarRange(B.g, list, starJob.i, Math.min(list.length, starJob.i + n),
+                    { x0: -P - pad, y0: -P - pad, x1: W + P + pad, y1: HZ + P + pad }, starJob.phi0, len, 1, sp);
+                starJob.i += n;
+                if (starJob.i >= list.length) {
+                    B.key = starJob.key; B.phi0 = starJob.phi0;
+                    starFront = 1 - starFront;
+                    starJob = null;
+                    starBuilds++;
+                    zpEv('starBake');
+                }
+            }
             function drawStars() {
                 const a = starAlpha();
                 if (a <= 0.003) return;
                 const len = phiTail === null ? 0 : clamp(phi - phiTail, 0, CFG.TRAIL_LEN);
-                S.globalCompositeOperation = 'lighter';
-                S.lineCap = 'butt';
-                for (let k = 0; k < 12; k++) {
-                    const b = buckets[k];
-                    if (!b.length) continue;
-                    const L = LV[(k / 3) | 0];
-                    const col = rgba(COLS[k % 3], L.al * a);
-                    const rad = L.d / 2;
-                    if (len > 0.0005) {
-                        S.strokeStyle = col;
-                        S.lineWidth = L.d;
-                        S.beginPath();
-                        for (const s of b) {
-                            const r = s.rAbs ?? s.rn * R;
-                            const head = s.th - phi, tail = head + len;   // decreasing angle = counter-clockwise on screen
-                            S.moveTo(pole.x + r * Math.cos(tail), pole.y + r * Math.sin(tail));
-                            S.arc(pole.x, pole.y, r, tail, head, true);
-                        }
-                        S.stroke();
+                const pad = 3;
+                if (len >= CFG.TRAIL_LEN - 1e-6 && (CFG.STAR_CACHE ?? 1) >= 0.5) {
+                    const G = starGeom(len);
+                    starBakeStep(G, len);
+                    const F = starBuf[starFront];
+                    const P = G.P;
+                    // 줌 중에도 캐시를 쓴다: S는 이미 camSetBuf(world→버퍼) 상태라 같은 회전 blit이 그대로 맞는다.
+                    // 단 캐시 해상도(sp/dpr배)가 줌 배율 이상이어야 선명하고(업스케일 금지),
+                    // 버퍼에 찍히는 world 영역(윗하늘 여유 포함)이 캐시 범위 안이어야 빈틈이 없다.
+                    // 회전으로 캐시 경계가 최대 |phi - phi0| * far 만큼 안쪽으로 들어오므로, world 영역이 화면 밖으로
+                    // 나간 만큼(over)과 합쳐 여백 P 안이어야 한다. idle(over=0)에서는 maxD 조건과 같다.
+                    let over = 0, sOK = true;
+                    if (camOn()) {
+                        const v = starView();
+                        over = Math.max(0, -v.x0, -v.y0, v.x1 - W, v.y1 - HZ);
+                        sOK = CAM.s <= G.sp / dpr + 0.01;
                     }
-                    S.fillStyle = col;
-                    S.beginPath();
-                    for (const s of b) {
-                        const r = s.rAbs ?? s.rn * R;
-                        const ang = s.th - phi;
-                        const x = pole.x + r * Math.cos(ang), y = pole.y + r * Math.sin(ang);
-                        if (x < -3 || x > W + 3 || y < -3 || y > HZ + 3) continue;
-                        S.moveTo(x + rad, y);
-                        S.arc(x, y, rad, 0, Math.PI * 2);
+                    const rotOK = Math.abs(phi - F.phi0) <= G.maxD * (1 - over / (0.8 * P));
+                    if (sOK && rotOK && F.key === G.key) {
+                        S.save();
+                        S.globalCompositeOperation = 'lighter';
+                        S.globalAlpha *= a;
+                        // 별 각도는 th - phi: phi가 커지면 각도가 줄어든다 → -(phi - phi0) 회전
+                        S.translate(pole.x, pole.y);
+                        S.rotate(-(phi - F.phi0));
+                        S.translate(-pole.x, -pole.y);
+                        S.imageSmoothingEnabled = true;
+                        S.imageSmoothingQuality = 'high';
+                        S.drawImage(F.c, -P, -P, W + 2 * P, HZ + 2 * P);
+                        S.restore();
+                        return;
                     }
-                    S.fill();
+                } else {
+                    starJob = null;
                 }
-                S.globalCompositeOperation = 'source-over';
+                const v = starView();
+                const list = starList();
+                drawStarRange(S, list, 0, list.length, { x0: v.x0 - pad, y0: v.y0 - pad, x1: v.x1 + pad, y1: v.y1 + pad }, phi, len, a, dpr * camRK());
             }
 
             // ---------- layout ----------
@@ -2686,6 +2918,7 @@
                 ctx.globalCompositeOperation = 'source-over';
             }
             function drawSky() {
+                let zp = zpNow();
                 camSetBuf(S);
                 // 카메라 모드에서 sky 버퍼는 화면 크기이므로, 월드 하늘 rect 밖(수면 영역) 잔상을 지운다.
                 if (camOn()) { S.save(); S.setTransform(1, 0, 0, 1, 0, 0); S.clearRect(0, 0, sky.width, sky.height); S.restore(); camSetBuf(S); }
@@ -2895,9 +3128,13 @@
                     S.fillRect(-hr, -hr, hr * 2, hr * 2);
                     S.restore();
                 }
+                zpAdd('clouds', zp);
 
+                zp = zpNow();
                 drawStars();
+                zpAdd('stars', zp);
 
+                zp = zpNow();
                 // mirrorball moon (생성기 기본값 볼 + 클릭 발사 줄눈 빛줄기)
                 const m = ss(CFG.MOON_A0, CFG.MOON_A1, q);
                 if (m > 0.001) {
@@ -2907,6 +3144,7 @@
                     const my = lerp(HZ + moonR * 2.2, HZ * CFG.MOON_Y, mt);
                     drawMoon(mx, my, moonR, m);
                 } else { mbMV = 0; }
+                zpAdd('moon', zp);
 
                 // horizon haze
                 const hl = mix(hor, [255, 255, 255], CFG.HAZE_MIX);
@@ -2975,7 +3213,7 @@
                     (red[0] | 0) + ',' + (red[1] | 0) + ',' + (red[2] | 0) + '|' +
                     (blk[0] | 0) + ',' + (blk[1] | 0) + ',' + (blk[2] | 0);
                 if (key !== torKey) {
-                    torKey = key; torRKey = ''; torBuilds++;
+                    torKey = key; torRKey = ''; torBuilds++; zpEv('torBake');
                     TC.setTransform(1, 0, 0, 1, 0, 0);
                     TC.clearRect(0, 0, torC.width, torC.height);
                     TC.setTransform(k, 0, 0, k, -TB.x * k, -TB.y * k);
@@ -3190,7 +3428,10 @@
             }
 
             function render() {
+                let zp = zpNow();
                 drawSky();
+                zpAdd('sky', zp);
+                zp = zpNow();
 
                 ctx.setTransform(1, 0, 0, 1, 0, 0);
                 ctx.globalCompositeOperation = 'source-over';
@@ -3275,7 +3516,7 @@
                         // downscale path: 작은 버퍼에 row-slice 후 1회 업스케일 합성
                         const rw = Math.max(1, Math.round(cv.width * scale));
                         const rh = Math.max(1, Math.round((cv.height - floorTop) * scale));
-                        if (reflC.width !== rw || reflC.height !== rh) { reflC.width = rw; reflC.height = rh; }
+                        if (reflC.width !== rw || reflC.height !== rh) { zpEv('reflC'); reflC.width = rw; reflC.height = rh; }
                         RC.setTransform(1, 0, 0, 1, 0, 0);
                         RC.globalCompositeOperation = 'source-over';
                         RC.globalAlpha = 1;
@@ -3345,6 +3586,8 @@
                     ctx.drawImage(band, 0, y0, band.width, y1 - y0, 0, HZ * dpr, cv.width, bandH * dpr);
                 }
 
+                zpAdd('refl', zp);
+                zp = zpNow();
                 camSet(ctx);
                 const qR = palQ();
                 const w2 = day2W();
@@ -3387,6 +3630,8 @@
                 const sg = ctx.createLinearGradient(0, HZ - 6, 0, HZ + 14);
                 sg.addColorStop(0, rgba(hl, 0)); sg.addColorStop(0.3, rgba(hl, CFG.SEAM_A)); sg.addColorStop(1, rgba(hl, 0));
                 ctx.fillStyle = sg; ctx.fillRect(0, HZ - 6, W, 20);
+                zpAdd('water', zp);
+                zp = zpNow();
 
                 FG.setTransform(1, 0, 0, 1, 0, 0);
                 FG.clearRect(0, 0, fg.width, fg.height);
@@ -3409,6 +3654,7 @@
                 vg.addColorStop(0, 'rgba(0,0,0,0)');
                 vg.addColorStop(1, `rgba(0,0,0,${v})`);
                 FG.fillStyle = vg; FG.fillRect(0, 0, W, H);
+                zpAdd('fg', zp);
             }
 
             // ---------- click ripples on the flat (WebGL) ----------
@@ -3949,6 +4195,20 @@ void main() {
                 worldToScreen(x, y) { return camW2S(x, y); },
                 screenToWorld(x, y) { return camS2W(x, y); },
                 get camOn() { return camOn(); },
+                // 줌 프로파일러: focus.js가 begin/end로 확대·복귀 구간을 감싼다 (요약은 last, 콘솔은 log)
+                zoomProf: {
+                    begin(label) { zpBegin(label); },
+                    end() { return zpEnd(); },
+                    // 줌 없이 ms 동안 기준값(idle)을 잰다. 도중에 줌 구간이 시작되면 그쪽을 끊지 않는다.
+                    sample(ms = 2000, label = 'idle') {
+                        zpBegin(label);
+                        const tok = ZP.t0;
+                        setTimeout(() => { if (ZP.on && ZP.t0 === tok) zpEnd(); }, ms);
+                    },
+                    get on() { return ZP.on; },
+                    get last() { return ZP.last; },
+                    get log() { return ZP.log; }, set log(v) { ZP.log = !!v; },
+                },
                 // 포커스 오버레이(tsukuyomi.focus.js)용 랜드마크 화면 좌표 (css px)
                 get torii() {
                     return {
@@ -3998,6 +4258,7 @@ void main() {
                 get reflStep() { return reflStep; },
                 get reflCost() { return reflEMA; },
                 get torBuilds() { return torBuilds; },
+                get starBuilds() { return starBuilds; },
                 get bandBuilds() { return bandBuilds; },
                 get day2Builds() { return day2Builds; },
                 get day2W() { return day2W(); },
@@ -4078,9 +4339,14 @@ void main() {
             // ---------- loop ----------
             let lastT = performance.now();
             function frame(now) {
-                const dt = Math.min(0.05, Math.max(0, (now - lastT) / 1000));
+                const gap = now - lastT;
+                const dt = Math.min(0.05, Math.max(0, gap / 1000));
                 lastT = now;
+                const fz = zpNow();
+                let zp = fz;
                 update(dt);
+                zpAdd('update', zp);
+                zp = zpNow();
                 // 절차적 구름 타임랩스 갱신(동작 줄이기 설정이면 첫 장 그대로)
                 if (cloudLive && CFG.CL_LIVE >= 0.5 && !RM.matches) cloudLive.tick(clock, now, CFG);
                 // 브러시 구름 라이브 갱신(편집 중이 아닐 때, 켜진 장면만). 내부에서 fps로 솎아낸다
@@ -4089,11 +4355,15 @@ void main() {
                     if (D.anim && !D.live && docOn(k)) D.anim.tick(clock);
                 }
                 stepRipples(dt);
+                zpAdd('live', zp);
                 const t0 = performance.now();
                 render();
+                zp = zpNow();
                 drawRipples();
+                zpAdd('ripple', zp);
                 tickReflGovernor(performance.now() - t0);
                 updateUI();
+                if (ZP.on) zpPush(now, gap, performance.now() - fz);
                 requestAnimationFrame(frame);
             }
 

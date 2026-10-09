@@ -69,6 +69,23 @@
   }
   const easeZoom = cubicBezier(0.22, 0.8, 0.24, 1);
 
+  // 줌 프로파일러(코어 계측): 확대/복귀 애니메이션 구간을 감싼다. 결과는 __TSUKUYOMI__.zoomProf.last
+  // 종료는 2프레임 늦춰 마지막 setCamView/clearCam 직후 프레임 비용까지 포함한다.
+  // 그사이 새 구간이 시작됐으면(profId 변경) 그 구간을 끊지 않는다.
+  let profId = 0;
+  const prof = label => {
+    profId++;
+    try { const P = ts() && ts().zoomProf; if (P) P.begin(label); } catch (e) { /* 무시 */ }
+  };
+  const profEnd = () => {
+    const id = profId;
+    const fin = () => {
+      if (id !== profId) return;
+      try { const P = ts() && ts().zoomProf; if (P && P.on) P.end(); } catch (e) { /* 무시 */ }
+    };
+    requestAnimationFrame(() => requestAnimationFrame(fin));
+  };
+
   let camAnim = 0;
   function cancelCamAnim() {
     if (camAnim) { cancelAnimationFrame(camAnim); camAnim = 0; }
@@ -304,12 +321,14 @@
         m0 = cur.m; s0 = cur.s;
       }
     } catch (e) { /* 무시 */ }
-    animCam(z.f, m0, s0, z.t, z.s);
+    prof('in:' + kind + ' s=' + z.s.toFixed(2));
+    animCam(z.f, m0, s0, z.t, z.s, profEnd);
     focusEl(backBtn, !!showRing);
   }
 
   function exit(restoreFocus, showRing) {
     if (!focus) return;
+    const kind = focus;
     cancelCamAnim();
     const T = ts();
     let cur = null;
@@ -327,6 +346,7 @@
     clearTimeout(exitCoolT);
     exitCoolT = setTimeout(() => { exitCoolUntil = 0; }, EXIT_COOL_MS);
     const done = () => {
+      profEnd();
       cancelCamAnim();
       try { T && T.clearCam && T.clearCam(); } catch (e) { /* 무시 */ }
       exitCoolUntil = 0;
@@ -340,6 +360,7 @@
     } else {
       // 복귀도 단일 구간 역재생: 목표점에서 시작점으로 선형 복귀 + 동시 축소.
       // 끝나면 카메라를 완전히 걷어 idle 렌더로 돌아간다.
+      prof('out:' + kind + ' s=' + cur.s.toFixed(2));
       animCam(cur.f, cur.m, cur.s, { x: cur.f.x, y: cur.f.y }, 1, done);
       // animCam의 done은 u=1에서 호출되므로, 복귀 완료 시점에 카메라를 걷는다.
       // (animCam 자체는 최종 항등 상태를 1프레임 그리므로 점프가 없다.)
@@ -374,6 +395,7 @@
       if (!z || !camOK()) return;
       lastZoom = z;
       placeCard(z);
+      profEnd();
       cancelCamAnim();
       try { ts().setCamView(z.f, z.t, z.s, z.s); } catch (e) { /* 무시 */ }
     }, 120);
