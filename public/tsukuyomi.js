@@ -495,7 +495,6 @@
                 CAM.on = false;
                 camResK = 1;
                 camPath = null;
-                starReleaseZoom();
                 camSyncBuffers();
                 bandValid = false;
             }
@@ -2475,8 +2474,8 @@
             // 궤적 원호 1600개를 전부 stroke하면 GPU 래스터 비용이 밤 장면 프레임의 대부분을 차지하므로
             // sky 버퍼에 실제로 찍히는 world 영역과 겹치는 원호만 그린다(고리 판정 → 원호 bbox 판정).
             // 점은 원 경로 대신 등급·색별 스프라이트를 drawImage해 GPU에서 한 번에 묶이게 한다.
-            // 스프라이트는 (해상도, 버킷)별로 보관한다. 캐시 굽기(고배율)와 직접 그리기(1배)가 같은 프레임에 섞여도
-            // 서로 지우지 않게 하고, 해상도 종류가 너무 많아지면(줌 배율 변화) 통째로 비운다.
+            // (아래 2D 경로는 WebGL을 쓸 수 없을 때의 대체 경로다. 기본은 drawStarsGL.)
+            // 스프라이트는 (해상도, 버킷)별로 보관하고, 해상도 종류가 너무 많아지면(줌 배율 변화) 통째로 비운다.
             const starSpr = new Map();
             function starSprite(k, px) {
                 const id = px.toFixed(3) + '|' + k;
@@ -2504,7 +2503,7 @@
                 return { x0: a.x, y0: a.y, x1: b.x, y1: Math.min(b.y, HZ) };
             }
             const HALF_PI = Math.PI / 2, TAU = Math.PI * 2;
-            // 별 목록을 버킷(등급·색) 순서로 펼친 것. 캐시 굽기를 여러 프레임에 나눌 때 구간 단위로 자른다.
+            // 별 목록을 버킷(등급·색) 순서로 펼친 것. 2D 경로는 버킷 구간 단위로, WebGL 정점 버퍼는 이 순서로 만든다.
             let starFlat = [], starFlatSrc = null;
             function starList() {
                 if (starFlatSrc !== buckets) {
@@ -2572,157 +2571,169 @@
                 }
                 g.globalCompositeOperation = 'source-over';
             }
-            // 회전 캐시: 궤적 길이가 고정(TRAIL_LEN)인 동안 별 레이어 전체는 극점 기준 강체 회전이다.
-            // world 영역 rect를 phi0 시점으로 버퍼에 그려 두고, 매 프레임 (phi - phi0)만큼 회전해 한 장으로 blit한다.
-            // - 1배 캐시를 회전 blit하면 얇은 궤적이 재샘플링되어 에일리어싱이 생기므로 STAR_SS배(기본 3)로 굽고
-            //   고품질(밉맵) 축소로 붙인다. 버퍼 픽셀 수는 starPxMax() 안으로 배율을 낮춰 메모리를 제한한다.
-            // - 고배율 굽기는 한 번에 100ms 넘게 걸리므로 버퍼 두 장을 두고, 여백의 절반을 쓰면 뒤 버퍼에
-            //   STAR_CHUNK개씩 여러 프레임에 나눠 구운 뒤 교체한다.
-            // - 두 단계: full = 화면 전체(+STAR_PAD), zoom = 줌 경로 중 full 해상도(sp/dpr배)를 넘는 구간의 시야만
-            //   줌 배율로 굽는다(달·미러볼처럼 배율이 큰 줌). zoom 단계는 카메라가 꺼지면 버린다.
-            // - 매 프레임 쓸 수 있는 캐시(해상도 ≥ 줌 배율, 회전 후에도 시야를 덮음)가 없으면 직접 그리기로 대체.
-            // CFG.STAR_CACHE=0이면 끈다. CFG.STAR_ZPX: zoom 단계 버퍼 픽셀 예산(기본 starPxMax).
-            const STAR_PAD = 128;
-            const starPxMax = () => (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ? 6e6 : 12e6;
-            const starTier = () => ({
-                buf: [0, 1].map(() => { const c = document.createElement('canvas'); return { c, g: c.getContext('2d'), key: '', base: '', phi0: 0, sp: 1, x0: 0, y0: 0, x1: 0, y1: 0 }; }),
-                front: 0, job: null
-            });
-            const starFull = starTier(), starZoom = starTier();
-            let starBuilds = 0;
-            // 극점에서 영역 r 모서리까지 최원 거리
-            const starFar = r => Math.max(Math.hypot(r.x0 - pole.x, r.y0 - pole.y), Math.hypot(r.x1 - pole.x, r.y0 - pole.y),
-                Math.hypot(r.x0 - pole.x, r.y1 - pole.y), Math.hypot(r.x1 - pole.x, r.y1 - pole.y));
-            // rect(여백 P 포함)를 픽셀 예산 안에서 줌 배율 zs의 ss배로 굽는 기하. 버퍼 크기에 맞춰 rect 끝을 정렬한다.
-            function starGeomFor(x0, y0, x1, y1, P, zs, base, budget) {
-                const area = (x1 - x0) * (y1 - y0) * (dpr * zs) * (dpr * zs);
-                const ss = clamp(Math.min(CFG.STAR_SS ?? 3, Math.sqrt(budget / Math.max(1, area))), 1, 3);
-                const sp = dpr * zs * ss;
-                const cw = Math.max(1, Math.ceil((x1 - x0) * sp)), ch = Math.max(1, Math.ceil((y1 - y0) * sp));
-                const r = { x0, y0, x1: x0 + cw / sp, y1: y0 + ch / sp };
-                // 여백 P를 다 쓰기까지 허용 회전각 (안쪽 영역 최원점 반경 기준, 80%만 사용)
-                const far = starFar({ x0: x0 + P, y0: y0 + P, x1: x1 - P, y1: y1 - P });
-                return { ...r, sp, cw, ch, base, key: base + '|' + cw + 'x' + ch + '|' + sp + '|' + x0.toFixed(1) + ',' + y0.toFixed(1), maxD: 0.8 * P / Math.max(1, far) };
-            }
-            const starBaseKey = len => pole.x + ',' + pole.y + '|' + R + '|' + len + '|' + stars.length + '|' + dpr;
-            function starFullGeom(base) {
-                const P = STAR_PAD;
-                return starGeomFor(-P, -P, W + P, HZ + P, P, 1, base, starPxMax());
-            }
-            // 줌 경로: focus.js가 setCamView에 넘긴 {m0,s0,m1,s1}. f 고정, m과 s가 같은 진행률로 선형 보간된다.
-            // 시야 경계 x0(s) = fx - m(s).x / s 는 s에 대해 단조라 [sLo, sHi] 구간 시야의 합집합은 양 끝 시야의 합집합이다.
-            let starZoomG = null, starZoomSrc = '';
-            function starZoomGeom(base, sFull) {
-                if (!camOn() || !camPath) return null;
-                const Pt = camPath;
-                const sHi = Math.max(Pt.s0, Pt.s1, CAM.s);
-                if (sHi <= sFull + 0.01) return null;
-                const src = base + '|' + sFull + '|' + [CAM.fx, CAM.fy, Pt.m0.x, Pt.m0.y, Pt.s0, Pt.m1.x, Pt.m1.y, Pt.s1, W, H, HZ].join(',');
-                if (src === starZoomSrc) return starZoomG;
-                starZoomSrc = src;
-                const mAt = s => {
-                    const e = Math.abs(Pt.s1 - Pt.s0) < 1e-6 ? 1 : clamp((s - Pt.s0) / (Pt.s1 - Pt.s0), 0, 1);
-                    return { x: Pt.m0.x + (Pt.m1.x - Pt.m0.x) * e, y: Pt.m0.y + (Pt.m1.y - Pt.m0.y) * e };
-                };
-                const view = s => {
-                    const m = mAt(s), up = 8;
-                    return { x0: CAM.fx - m.x / s, y0: CAM.fy - (m.y + up) / s, x1: CAM.fx + (W - m.x) / s, y1: Math.min(HZ, CAM.fy + (H - m.y) / s) };
-                };
-                const a = view(Math.max(sFull, Math.min(Pt.s0, Pt.s1))), b = view(sHi), c = starView();
-                // 여백: 최대 배율 화면 기준 STAR_PAD (world로는 sHi배 작다). 여백 절반만큼 회전하면 다시 굽는다.
-                const P = STAR_PAD / sHi;
-                const x0 = Math.max(-STAR_PAD, Math.min(a.x0, b.x0, c.x0) - P), y0 = Math.max(-STAR_PAD, Math.min(a.y0, b.y0, c.y0) - P);
-                const x1 = Math.min(W + STAR_PAD, Math.max(a.x1, b.x1, c.x1) + P), y1 = Math.min(HZ + STAR_PAD, Math.max(a.y1, b.y1, c.y1) + P);
-                starZoomG = x1 > x0 && y1 > y0 ? starGeomFor(x0, y0, x1, y1, P, sHi, base, CFG.STAR_ZPX ?? starPxMax()) : null;
-                return starZoomG;
-            }
-            // 이 단계의 앞 버퍼가 G 기준으로 낡았으면(키 불일치·여백 절반 소진) 뒤 버퍼 굽기를 시작한다.
-            function starWant(T, G) {
-                if (T.job && T.job.G.key !== G.key) T.job = null;
-                if (T.job) return true;
-                const F = T.buf[T.front];
-                // 키가 달라도 앞 버퍼가 G 영역을 같은 이상 해상도로 덮으면 그대로 쓴다 (예: 확대 때 구운 캐시를 복귀 경로에서 재사용)
-                const covers = F.key === G.key || (F.key && F.base === G.base && F.sp >= G.sp * 0.98 &&
-                    F.x0 <= G.x0 + 0.5 && F.y0 <= G.y0 + 0.5 && F.x1 >= G.x1 - 0.5 && F.y1 >= G.y1 - 0.5);
-                if (covers && Math.abs(phi - F.phi0) <= G.maxD * 0.5) return false;
-                const B = T.buf[1 - T.front];
-                fitCanvas(B.c, G.cw, G.ch);
-                B.key = '';
-                B.g.setTransform(1, 0, 0, 1, 0, 0);
-                B.g.globalAlpha = 1;
-                B.g.clearRect(0, 0, G.cw, G.ch);
-                T.job = { G, phi0: phi, i: 0 };
-                return true;
-            }
-            // 뒤 버퍼 굽기를 한 구간 진행한다. 끝나면 앞뒤를 바꾼다.
-            function starBakeStep(T, len) {
-                const J = T.job, G = J.G;
-                const B = T.buf[1 - T.front];
-                const list = starList();
-                const n = Math.max(1, Math.round(CFG.STAR_CHUNK ?? 48));
-                const pad = 3, sp = G.sp;
-                B.g.setTransform(sp, 0, 0, sp, -G.x0 * sp, -G.y0 * sp);
-                // 알파는 blit 때 곱한다 (캐시는 a=1로 굽는다)
-                drawStarRange(B.g, list, J.i, Math.min(list.length, J.i + n),
-                    { x0: G.x0 - pad, y0: G.y0 - pad, x1: G.x1 + pad, y1: G.y1 + pad }, J.phi0, len, 1, sp);
-                J.i += n;
-                if (J.i >= list.length) {
-                    Object.assign(B, { key: G.key, base: G.base, phi0: J.phi0, sp, x0: G.x0, y0: G.y0, x1: G.x1, y1: G.y1 });
-                    T.front = 1 - T.front;
-                    T.job = null;
-                    starBuilds++;
-                    zpEv(T === starZoom ? 'starBakeZ' : 'starBake');
+            // WebGL 별 레이어: 매 프레임 별 전체를 정확한 위치에 새로 그린다.
+            // (예전 회전 캐시는 고배율로 구운 레이어를 회전 blit할 때 재샘플링 위상이 화면에 따라 어긋나
+            //  CRT 줄무늬 같은 넓은 모아레가 생겼다.)
+            // - 별마다 원호를 따라가는 띠(STAR_SEG구간)를 정적 정점 버퍼로 두고 buildStars 때만 올린다.
+            //   매 프레임은 uniform(phi, 궤적 길이, 극점, 버퍼 변환, 알파)만 바꾼다.
+            // - 프래그먼트 셰이더가 원호까지의 거리로 커버리지를 계산한다(반경 방향 박스 필터, 양 끝 1px 램프,
+            //   머리 점은 원판). 1px 미만 굵기는 폭 1px + 세기 축소. LV·COLS는 uniform이라 팔레트 변경에 재업로드가 없다.
+            // - 오프스크린 GL 캔버스(sky 버퍼 크기)에 덧셈 블렌딩으로 그린 뒤 S에 lighter로 1:1 합성한다.
+            // - WebGL·highp 미지원, 셰이더 실패, 컨텍스트 손실이면 drawStarRange(2D 직접 그리기)로 대체.
+            // CFG.STAR_GL=0이면 2D로 그린다.
+            const STAR_SEG = 16;
+            const STAR_VS = `
+attribute vec4 aStar;   // rn, th, lvl, col
+attribute vec2 aT;      // 띠 위치(0..1, 머리→꼬리), 바깥(1)/안쪽(-1)
+uniform vec2 uPole, uOff, uRes;
+uniform float uR, uPh, uLen, uScale;
+uniform vec2 uLv[4];    // 굵기, 밝기
+uniform vec3 uCol[3];
+varying vec2 vQ;
+varying float vR, vD, vAl;
+varying vec3 vC;
+void main() {
+  vec2 L = uLv[int(aStar.z + 0.5)];
+  float r = aStar.x * uR, d = L.x;
+  float hw = max(d, 1.0 / uScale) * 0.5 + 1.5 / uScale;   // 띠 반폭 = 선 반폭 + AA 여유 1.5 device px
+  float eps = hw / max(r, 1e-3);                          // 머리 점·양 끝 여유 각
+  float span = uLen + 2.0 * eps;
+  float a = -eps + aT.x * span;
+  // 바깥 정점은 1/cos(구간각/2)만큼 밀어 직선 구간이 실제 원호를 항상 덮게 한다
+  float rr = aT.y > 0.0 ? (r + hw) / cos(span / ${STAR_SEG}.0 * 0.5) : max(0.0, r - hw);
+  float ang = aStar.y - uPh + a;
+  vec2 b = (uPole + rr * vec2(cos(ang), sin(ang))) * uScale + uOff;   // 버퍼 px
+  gl_Position = vec4(b.x / uRes.x * 2.0 - 1.0, 1.0 - b.y / uRes.y * 2.0, 0.0, 1.0);
+  vQ = rr * vec2(cos(a), sin(a));   // 머리 기준 회전 좌표 (world 위치의 선형 함수라 보간이 정확)
+  vR = r; vD = d;
+  vC = uCol[int(aStar.w + 0.5)]; vAl = L.y;
+}`;
+            const STAR_FS = `
+precision highp float;
+uniform float uLen, uScale, uA;
+varying vec2 vQ;
+varying float vR, vD, vAl;
+varying vec3 vC;
+float lineCov(float dist, float w) {
+  float we = max(w, 1.0);
+  return clamp(we * 0.5 + 0.5 - dist, 0.0, 1.0) * (w / we);
+}
+void main() {
+  float wPx = vD * uScale;
+  float ang = atan(vQ.y, vQ.x);
+  float cr = lineCov(abs(length(vQ) - vR) * uScale, wPx);
+  float ca = clamp(ang * vR * uScale + 0.5, 0.0, 1.0) * clamp((uLen - ang) * vR * uScale + 0.5, 0.0, 1.0);
+  float trail = uLen > 0.0005 ? cr * ca : 0.0;
+  float dot_ = lineCov(length(vQ - vec2(vR, 0.0)) * uScale, wPx);
+  float v = (trail + dot_) * vAl * uA;
+  gl_FragColor = vec4(vC * v, v);
+}`;
+            const stC = document.createElement('canvas');
+            let stG = null, stU = null, stN = 0, stSrc = null, stBad = false, starBuilds = 0;
+            function starInitGL() {
+                stG = null; stSrc = null;
+                let g = null;
+                try {
+                    g = stC.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
+                } catch (e) { g = null; }
+                if (!g) { stBad = true; return; }
+                try {
+                    const hp = g.getShaderPrecisionFormat(g.FRAGMENT_SHADER, g.HIGH_FLOAT);
+                    if (!hp || hp.precision < 16) throw new Error('no highp');
+                    const sh = (type, src) => {
+                        const o = g.createShader(type);
+                        g.shaderSource(o, src);
+                        g.compileShader(o);
+                        if (!g.getShaderParameter(o, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(o));
+                        return o;
+                    };
+                    const prog = g.createProgram();
+                    g.attachShader(prog, sh(g.VERTEX_SHADER, STAR_VS));
+                    g.attachShader(prog, sh(g.FRAGMENT_SHADER, STAR_FS));
+                    g.linkProgram(prog);
+                    if (!g.getProgramParameter(prog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(prog));
+                    g.useProgram(prog);
+                    g.bindBuffer(g.ARRAY_BUFFER, g.createBuffer());
+                    const aS = g.getAttribLocation(prog, 'aStar'), aT = g.getAttribLocation(prog, 'aT');
+                    g.enableVertexAttribArray(aS);
+                    g.vertexAttribPointer(aS, 4, g.FLOAT, false, 24, 0);
+                    g.enableVertexAttribArray(aT);
+                    g.vertexAttribPointer(aT, 2, g.FLOAT, false, 24, 16);
+                    stU = {};
+                    for (const k of ['uPole', 'uOff', 'uRes', 'uR', 'uPh', 'uLen', 'uScale', 'uA']) stU[k] = g.getUniformLocation(prog, k);
+                    stU.uLv = g.getUniformLocation(prog, 'uLv[0]');
+                    stU.uCol = g.getUniformLocation(prog, 'uCol[0]');
+                    g.enable(g.BLEND);
+                    g.blendFunc(g.ONE, g.ONE);
+                    g.enable(g.SCISSOR_TEST);
+                    g.clearColor(0, 0, 0, 0);
+                    stG = g;
+                } catch (e) {
+                    console.warn('WebGL stars disabled:', e);
+                    stBad = true;
                 }
             }
-            // 앞 버퍼로 시야 v를 그릴 수 있나: 해상도가 줌 배율 이상이고(업스케일 금지),
-            // 회전으로 캐시 경계가 최대 |phi - phi0| * far 만큼 안쪽으로 들어와도 시야를 덮어야 한다.
-            function starUsable(F, base, v) {
-                if (!F.key || F.base !== base) return false;
-                if (camSS() > F.sp / dpr + 0.01) return false;
-                const e = Math.abs(phi - F.phi0) * starFar(v) * 1.25 + 3;
-                return v.x0 - e >= F.x0 && v.y0 - e >= F.y0 && v.x1 + e <= F.x1 && v.y1 + e <= F.y1;
+            stC.addEventListener('webglcontextlost', e => { e.preventDefault(); stG = null; });
+            stC.addEventListener('webglcontextrestored', () => { stBad = false; starInitGL(); });
+            // 별 목록이 바뀌었으면(buildStars) 정점 버퍼를 다시 올린다. 별마다 STAR_SEG개 사각형 = 6정점.
+            function starUpload() {
+                if (stSrc === buckets) return;
+                stSrc = buckets;
+                const list = starList(), SEG = STAR_SEG;
+                const data = new Float32Array(list.length * SEG * 36);
+                let o = 0;
+                for (const { s } of list) {
+                    for (let k = 0; k < SEG; k++) {
+                        const t0 = k / SEG, t1 = (k + 1) / SEG;
+                        for (const [t, sd] of [[t0, -1], [t1, -1], [t0, 1], [t0, 1], [t1, -1], [t1, 1]]) {
+                            data[o++] = s.rn; data[o++] = s.th; data[o++] = s.lvl; data[o++] = s.col; data[o++] = t; data[o++] = sd;
+                        }
+                    }
+                }
+                stG.bufferData(stG.ARRAY_BUFFER, data, stG.STATIC_DRAW);
+                stN = list.length * SEG * 6;
+                starBuilds++;
             }
-            function starReleaseZoom() {
-                for (const B of starZoom.buf) { B.key = ''; fitCanvas(B.c, 1, 1); }
-                starZoom.job = null;
-                starZoomG = null; starZoomSrc = '';
+            // S의 현재 변환(world→버퍼, 축척·이동만)으로 시야 v의 버퍼 행만 그려 S에 합성한다.
+            function drawStarsGL(v, len, a) {
+                if (!stG && !stBad) starInitGL();
+                const g = stG;
+                if (!g || g.isContextLost()) return false;
+                const m = S.getTransform();
+                const bw = sky.width, bh = sky.height;
+                const y0 = clamp(Math.floor(v.y0 * m.d + m.f) - 2, 0, bh), y1 = clamp(Math.ceil(v.y1 * m.d + m.f) + 2, 0, bh);
+                if (y1 <= y0) return true;
+                if (stC.width !== bw || stC.height !== bh) { stC.width = bw; stC.height = bh; }
+                starUpload();
+                g.viewport(0, 0, bw, bh);
+                g.scissor(0, bh - y1, bw, y1 - y0);
+                g.clear(g.COLOR_BUFFER_BIT);
+                g.uniform2f(stU.uPole, pole.x, pole.y);
+                g.uniform2f(stU.uOff, m.e, m.f);
+                g.uniform2f(stU.uRes, bw, bh);
+                g.uniform1f(stU.uR, R);
+                g.uniform1f(stU.uPh, phi);
+                g.uniform1f(stU.uLen, len);
+                g.uniform1f(stU.uScale, m.a);
+                g.uniform1f(stU.uA, a);
+                g.uniform2fv(stU.uLv, LV.flatMap(L => [L.d, L.al]));
+                g.uniform3fv(stU.uCol, COLS.flatMap(c => [c[0] / 255, c[1] / 255, c[2] / 255]));
+                g.drawArrays(g.TRIANGLES, 0, stN);
+                S.save();
+                S.setTransform(1, 0, 0, 1, 0, 0);
+                S.globalCompositeOperation = 'lighter';
+                S.drawImage(stC, 0, y0, bw, y1 - y0, 0, y0, bw, y1 - y0);
+                S.restore();
+                return true;
             }
             function drawStars() {
                 const a = starAlpha();
                 if (a <= 0.003) return;
                 const len = phiTail === null ? 0 : clamp(phi - phiTail, 0, CFG.TRAIL_LEN);
-                const pad = 3;
                 const v = starView();
-                if (len >= CFG.TRAIL_LEN - 1e-6 && (CFG.STAR_CACHE ?? 1) >= 0.5) {
-                    const base = starBaseKey(len);
-                    const G = starFullGeom(base);
-                    const Z = starZoomGeom(base, G.sp / dpr);
-                    // 한 프레임에 한 단계만 굽는다. 줌 단계가 급하다(full 앞 버퍼는 여백 절반이 남아 있음).
-                    const zw = Z ? starWant(starZoom, Z) : false;
-                    if (zw) starBakeStep(starZoom, len);
-                    else if (starWant(starFull, G)) starBakeStep(starFull, len);
-                    // S는 이미 camSetBuf(world→버퍼) 상태라 world 기준 회전 blit이 줌에서도 그대로 맞는다.
-                    let F = null;
-                    if (camOn() && starUsable(starZoom.buf[starZoom.front], base, v)) F = starZoom.buf[starZoom.front];
-                    else if (starUsable(starFull.buf[starFull.front], base, v)) F = starFull.buf[starFull.front];
-                    if (F) {
-                        S.save();
-                        S.globalCompositeOperation = 'lighter';
-                        S.globalAlpha *= a;
-                        // 별 각도는 th - phi: phi가 커지면 각도가 줄어든다 → -(phi - phi0) 회전
-                        S.translate(pole.x, pole.y);
-                        S.rotate(-(phi - F.phi0));
-                        S.translate(-pole.x, -pole.y);
-                        S.imageSmoothingEnabled = true;
-                        S.imageSmoothingQuality = 'high';
-                        S.drawImage(F.c, F.x0, F.y0, F.x1 - F.x0, F.y1 - F.y0);
-                        S.restore();
-                        return;
-                    }
-                } else {
-                    starFull.job = null; starZoom.job = null;
-                }
+                if ((CFG.STAR_GL ?? 1) >= 0.5 && drawStarsGL(v, len, a)) return;
                 if (ZP.on) ZP.acc.sdir = 1;
+                const pad = 3;
                 const list = starList();
                 drawStarRange(S, list, 0, list.length, { x0: v.x0 - pad, y0: v.y0 - pad, x1: v.x1 + pad, y1: v.y1 + pad }, phi, len, a, dpr * camRK());
             }
