@@ -103,10 +103,44 @@
 
   const NAMES = { torii: '토리이', moon: '달', mirror: '미러볼' };
   const DESCS = {
-    torii: '토리이 내용 준비 중입니다.',
-    moon: '달 내용 준비 중입니다.',
-    mirror: '미러볼 내용 준비 중입니다.',
+    torii: '수면 위에 선 붉은 토리이. 실물과 물에 비친 상을 서로 다른 레이어로 그린다.',
+    moon: '수평선 아래에서 떠오르는 달. 하늘 그라디언트·별 궤적과 같은 시간축으로 움직인다.',
+    mirror: '달 자리를 대신하는 미러볼. 회전하는 타일이 장면에 빛 조각을 흩뿌린다.',
   };
+  // 카드 본문 예시: 페이지의 기술적인 내용을 대략 정리 (dl 형식)
+  const BODIES = {
+    torii: [
+      ['스프라이트', '색(p)·DPR이 바뀔 때만 torC/torR 캔버스를 다시 래스터하고, 평소엔 캐시를 blit한다.'],
+      ['반사', '뒤집고 어둡게 만든 사본을 ripple 레이어에 그려, 물결 굴절은 반사상에만 적용된다.'],
+      ['레이어', '실물 토리이와 비네트는 fg 캔버스에 따로 올려 물결 왜곡을 받지 않는다.'],
+    ],
+    moon: [
+      ['상승', 'moonMT 0→1 보간으로 수평선 아래에서 올라오며, 완전히 떠오른 뒤에만 인디케이터가 표시된다.'],
+      ['동기화', '별 궤적 회전은 달 상승과 같은 보간을 공유한다 (T_NIGHT 전환 시간 기준).'],
+      ['수면 띠', '수평선 근처 반사 띠는 축소 해상도에서 blur 후 BAND_EVERY 프레임마다만 갱신한다.'],
+    ],
+    mirror: [
+      ['공유 중심', '일반 달과 같은 중심을 쓰므로 화면 불투명도(v)가 우세한 쪽 핀 하나만 노출한다.'],
+      ['카메라', '확대는 인-캔버스 카메라(f/m/s)로 매 프레임 네이티브 해상도로 다시 그린다.'],
+      ['커버 보장', 'coverScale 하한으로 확대 중 어느 프레임에서도 장면 밖 빈 공간이 보이지 않는다.'],
+    ],
+  };
+  const body = document.getElementById('focusBody');
+  function renderBody(kind) {
+    if (!body) return;
+    body.textContent = '';
+    const rows = BODIES[kind];
+    if (!rows) return;
+    const dl = document.createElement('dl');
+    for (const [k, v] of rows) {
+      const dt = document.createElement('dt');
+      dt.textContent = k;
+      const dd = document.createElement('dd');
+      dd.textContent = v;
+      dl.append(dt, dd);
+    }
+    body.append(dl);
+  }
   const SCALES = { torii: 1.8, moon: 2.4, mirror: 2.4 };
 
   // 달 상승(moonMT)이 완료된 뒤에만 인디케이터를 노출한다.
@@ -187,6 +221,7 @@
     document.body.dataset.focus = kind;
     if (title) title.textContent = NAMES[kind] || '플레이스홀더';
     if (desc) desc.textContent = DESCS[kind] || '내용 준비 중입니다.';
+    renderBody(kind);
     card.hidden = false;
     backBtn.hidden = false;
     pinTorii.setAttribute('aria-expanded', kind === 'torii' ? 'true' : 'false');
@@ -280,12 +315,27 @@
 
   const PIN_GAP = 22; // 랜드마크 가장자리에서 핀 중심까지 거리(px). 핀은 랜드마크 왼쪽에 둔다.
 
+  // 제목 라벨은 기본적으로 핀의 왼쪽 위로 뻗는다. 왼쪽 공간이 모자라면 오른쪽 위로 뒤집는다.
+  const LABEL_REACH = 26; // 핀 중심 → 수평선 시작점까지 가로 거리(px), CSS와 일치
+  function flipLabel(el, x) {
+    const lb = el._lb || (el._lb = el.querySelector('.pin-title'));
+    if (!lb) return;
+    // 텍스트는 고정이므로 폭은 한 번만 측정한다 (매 프레임 레이아웃 강제 방지)
+    const w = el._lw || (el._lw = lb.offsetWidth || 0);
+    const flip = x - LABEL_REACH - w < 8;
+    if (el._flip !== flip) {
+      el._flip = flip;
+      el.classList.toggle('label-right', flip);
+    }
+  }
+
   function place(el, x, y, show) {
     if (!show) {
       el.style.display = 'none';
       return;
     }
     el.style.display = '';
+    flipLabel(el, x);
     // 같은 값 반복 대입으로 인한 스타일 스래싱 방지
     const nx = Math.round(x), ny = Math.round(y);
     const key = nx + ',' + ny;

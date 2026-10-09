@@ -403,6 +403,74 @@
             }
         }
 
+        /* 인디케이터 옆 제목 표시기: 핀 중심에서 45° 왼쪽 위로 짧은 선 → 수평선, 수평선 위에 제목.
+           라벨은 버튼의 자식이라 텍스트 클릭이 그대로 핀 클릭으로 처리된다. */
+        .focus-pin .pin-label {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 0;
+            height: 0;
+            animation: pin-label-in 0.5s ease-out both;
+        }
+
+        .focus-pin .pin-diag {
+            position: absolute;
+            left: -26px;
+            top: -26px;
+            width: 25px; /* (26-8)·√2 ≈ 25: 코어 가장자리(8px)부터 시작 */
+            height: 1px;
+            background: rgba(240, 238, 232, 0.8);
+            transform-origin: 0 0;
+            transform: rotate(45deg);
+            box-shadow: 0 0 3px rgba(0, 0, 0, 0.35);
+        }
+
+        .focus-pin .pin-title {
+            position: absolute;
+            right: 26px;
+            bottom: 26px;
+            padding: 0 4px 3px;
+            border-bottom: 1px solid rgba(240, 238, 232, 0.8);
+            font-family: 'Noto Sans KR', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            line-height: 1.2;
+            color: #f4f2ee;
+            white-space: nowrap;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+            box-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
+            transition: color 0.2s ease, border-color 0.2s ease;
+        }
+
+        /* 왼쪽 공간이 부족하면 오른쪽 위로 뒤집는다 */
+        .focus-pin.label-right .pin-diag {
+            left: 26px;
+            transform: rotate(135deg);
+        }
+
+        .focus-pin.label-right .pin-title {
+            right: auto;
+            left: 26px;
+        }
+
+        .focus-pin:hover .pin-title,
+        .focus-pin:focus-visible .pin-title {
+            color: #ffd99a;
+            border-bottom-color: #ffd99a;
+        }
+
+        @keyframes pin-label-in {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
         /* 줌 상태에서는 핀 숨김, 카드·뒤로가기 표시 */
         body[data-focus] {
             background: #04060d;
@@ -475,16 +543,35 @@
             letter-spacing: -0.01em;
         }
 
-        #focusCard .focus-empty {
-            margin: 0 0 12px;
+        #focusCard .focus-lead {
+            margin: 0 0 14px;
             font-size: 14px;
+            line-height: 1.55;
             color: #b9b7b3;
         }
 
-        #focusCard .focus-placeholder {
-            min-height: 120px;
-            border: 1px dashed rgba(255, 255, 255, 0.25);
-            border-radius: 10px;
+        #focusCard .focus-body dl {
+            margin: 0;
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 10px 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.14);
+        }
+
+        #focusCard .focus-body dt {
+            font-size: 12px;
+            font-weight: 700;
+            color: #e6c48a;
+            white-space: nowrap;
+            padding-top: 1px;
+        }
+
+        #focusCard .focus-body dd {
+            margin: 0;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #d6d4d0;
         }
 
         /* 좁은 화면: 카드는 하단 시트, 랜드마크는 상단 중앙에 */
@@ -500,8 +587,9 @@
                 min-height: 160px;
             }
 
-            #focusCard .focus-placeholder {
-                min-height: 80px;
+            #focusCard {
+                max-height: 52vh;
+                overflow-y: auto;
             }
         }
 
@@ -516,6 +604,10 @@
             .focus-pin .click-indicator .pulse {
                 animation: none;
                 opacity: 0;
+            }
+
+            .focus-pin .pin-label {
+                animation: none;
             }
         }
     
