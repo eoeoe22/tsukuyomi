@@ -813,6 +813,7 @@
         const ev = z.events.map(e => e.i + ':' + e.ev).join(' ');
         return '\nzoom[' + z.label + '] ' + z.frames + 'f ' + z.fps + 'fps  dt p50=' + z.dtP50 +
             ' p95=' + z.dtP95 + ' max=' + z.dtMax + '  js=' + z.jsAvg + '  long=' + z.long.length +
+            '  starDirect=' + Math.round((z.avg.sdir || 0) * 100) + '%  ' + z.W + 'x' + z.H + '@' + z.dpr +
             (ev ? '\n  ev ' + ev : '');
     }
 

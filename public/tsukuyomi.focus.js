@@ -96,8 +96,10 @@
     cancelCamAnim();
     const T = ts();
     const res = Math.max(s0, s1);
+    // 코어 별 줌 캐시가 경로 전체 시야를 미리 굽도록 경로를 함께 넘긴다.
+    const path = { m0, s0, m1, s1 };
     if (REDUCED || !T || !camOK()) {
-      try { T.setCamView(f, m1, s1, res); } catch (e) { /* 무시 */ }
+      try { T.setCamView(f, m1, s1, res, path); } catch (e) { /* 무시 */ }
       if (done) done();
       return;
     }
@@ -107,7 +109,7 @@
       const e = easeZoom(u);
       const m = { x: m0.x + (m1.x - m0.x) * e, y: m0.y + (m1.y - m0.y) * e };
       const s = s0 + (s1 - s0) * e;
-      try { T.setCamView(f, m, s, res); } catch (err) { /* 무시 */ }
+      try { T.setCamView(f, m, s, res, path); } catch (err) { /* 무시 */ }
       if (u < 1) {
         camAnim = requestAnimationFrame(step);
       } else {
@@ -397,7 +399,7 @@
       placeCard(z);
       profEnd();
       cancelCamAnim();
-      try { ts().setCamView(z.f, z.t, z.s, z.s); } catch (e) { /* 무시 */ }
+      try { ts().setCamView(z.f, z.t, z.s, z.s, { m0: z.t, s0: z.s, m1: z.t, s1: z.s }); } catch (e) { /* 무시 */ }
     }, 120);
   });
 
