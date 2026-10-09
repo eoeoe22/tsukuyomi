@@ -933,7 +933,7 @@
                 S.globalCompositeOperation = 'lighter';
                 S.lineCap = 'round';
                 if (FILTER_OK) S.filter = `blur(${(G.hw * k * 0.45).toFixed(1)}px)`;
-                S.drawImage(mbHaloC, 0, 0, side, side, ox, oy, side / dpr, side / dpr);
+                S.drawImage(mbHaloC, 0, 0, side, side, ox, oy, side / (dpr * cs), side / (dpr * cs));
                 S.filter = 'none';
                 strokeSegs(S, G.mw, 'halo', 0.85);
                 strokeSegs(S, G.cw, 'core', 1.15);
