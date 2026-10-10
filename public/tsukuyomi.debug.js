@@ -6,7 +6,7 @@
     'use strict';
 
     // ---------- DevTools 감지 + 패널 표시 ----------
-    // 항상 숨김 정책: 어떤 자동 표시도 하지 않고 ` 또는 F12로만 호출한다.
+    // 항상 숨김 정책: 어떤 자동 표시도 하지 않고 `로만 호출한다.
     // (?debug=1 / localStorage / DevTools 도크 감지 / FAB에 의한 자동 표시 없음)
     let detectSrc = '';
     let panelVisible = false;
@@ -174,7 +174,7 @@
         // 플로팅 패널: 열 때마다 기본 위치(CSS: 우상단)에 생성
         resetPosition();
         panel.hidden = false;
-        // 항상 숨김 정책: 닫은 뒤에도 FAB을 띄우지 않는다 (`/F12로만 호출).
+        // 항상 숨김 정책: 닫은 뒤에도 FAB을 띄우지 않는다 (`로만 호출).
         fab.hidden = true;
         panelVisible = true;
         renderSrc();
@@ -192,7 +192,7 @@
         const el = document.getElementById('tsdSrc');
         const dot = document.getElementById('tsdDot');
         if (!el || !dot) return;
-        el.textContent = detectSrc ? ('감지: ' + detectSrc) : '숨김 상태 (`/F12)';
+        el.textContent = detectSrc ? ('감지: ' + detectSrc) : '숨김 상태 (`)';
         dot.className = 'tsd-dot off';
     }
 
@@ -942,15 +942,6 @@
             else hide();
             return;
         }
-        // F12 토글: 열려 있으면 완전 숨김, 닫혀 있으면 기본 위치에 생성.
-        // 브라우저 DevTools를 열지 않도록 기본 동작 차단 시도.
-        if ((e.key || '') === 'F12' || e.code === 'F12') {
-            if (e.repeat) return;
-            e.preventDefault();
-            if (panel.hidden) show('단축키(F12)');
-            else hide();
-            return;
-        }
     });
 
     // ---------- 플로팅 드래그 (헤더 드래그 이동, Pointer Events: 마우스/터치/펜 호환) ----------
@@ -1034,7 +1025,7 @@
             body.style.display = hidden ? '' : 'none';
             ev.target.textContent = hidden ? '접기' : '펼치기';
         });
-        // 항상 숨김 정책: 자동 표시 없음. (`/F12 키로만 show)
+        // 항상 숨김 정책: 자동 표시 없음. (` 키로만 show)
         renderSrc();
         buildCard();
         waitBridge(b => {
