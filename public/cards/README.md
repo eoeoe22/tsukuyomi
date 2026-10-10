@@ -4,7 +4,7 @@
 `torii.wiki`, `moon.wiki`, `mirror.wiki`가 있다.
 렌더러는 `tsukuyomi.markup.js`이고, Cloudwiki 문법에서 위키 전용 기능을 뺀 포크다.
 
-- **미리보기:** `` ` `` 또는 F12로 디버그 패널을 연다. **카드 미리보기**에서 원문을 고치면 카드에 바로 반영된다.
+- **미리보기:** `` ` ``로 디버그 패널을 연다. **카드 미리보기**에서 원문을 고치면 카드에 바로 반영된다.
   메모리에만 반영되므로 **복사**해서 이 파일들에 붙여넣어 저장한다.
 - **폴백:** 파일을 못 읽거나 렌더러가 로드되지 않으면 `tsukuyomi.focus.js`의 내장 표(NAMES/DESCS/BODIES)가 대신 보인다.
 - **기반 문법:** 기본은 Markdown(marked)이다. 원시 HTML은 sanitize(DOMPurify)되고 `<script>` 등은 글자로 보인다.

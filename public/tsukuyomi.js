@@ -4221,8 +4221,34 @@ void main() {
                     elWallpaper.setAttribute('aria-pressed', wallpaperMode ? 'true' : 'false');
                 }
             }
+            // 홀드 경로: 버튼을 길게 누르면 감상 모드를 토글한다 (이후 따라오는 click은 무시).
+            let wallpaperHoldTimer = 0;
+            let wallpaperHeld = false;
+            const WALLPAPER_HOLD_MS = 600;
+            function cancelWallpaperHold() {
+                clearTimeout(wallpaperHoldTimer);
+                wallpaperHoldTimer = 0;
+            }
+            if (elWallpaper) {
+                elWallpaper.addEventListener('pointerdown', e => {
+                    if (e.button !== undefined && e.button !== 0) return;
+                    wallpaperHeld = false;
+                    cancelWallpaperHold();
+                    wallpaperHoldTimer = setTimeout(() => {
+                        wallpaperHoldTimer = 0;
+                        wallpaperHeld = true;
+                        setWallpaper(!wallpaperMode);
+                    }, WALLPAPER_HOLD_MS);
+                });
+                ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev =>
+                    elWallpaper.addEventListener(ev, cancelWallpaperHold));
+                elWallpaper.addEventListener('contextmenu', e => {
+                    if (wallpaperHeld) e.preventDefault();
+                });
+            }
             if (elWallpaper) elWallpaper.addEventListener('click', e => {
                 e.stopPropagation();
+                if (wallpaperHeld) { wallpaperHeld = false; return; }
                 // 터치 UI에서 접힌 채로 눌릴 수 없으므로(버튼 숨김), 펼친 상태에서만 토글된다.
                 // 만약을 위해 미펼침이면 먼저 펼치고 토글한다.
                 if (TOUCH_UI && elPanel && !elPanel.classList.contains('expanded')) {
