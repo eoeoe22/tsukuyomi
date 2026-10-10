@@ -1,10 +1,10 @@
 :::meta
-title = 토리이
-lead = 수면 위에 선 붉은 토리이. 실물과 물에 비친 상을 서로 다른 레이어로 그린다.
+title = 공식 체널 
+lead = 공식 체널 목록
 :::
 
 :::infobox
-| 스프라이트 | 색(p)·DPR이 바뀔 때만 torC/torR 캔버스를 다시 래스터하고, 평소엔 캐시를 blit한다. |
-| 반사 | 뒤집고 어둡게 만든 사본을 ripple 레이어에 그려, 물결 굴절은 반사상에만 적용된다. |
-| 레이어 | 실물 토리이와 비네트는 fg 캔버스에 따로 올려 물결 왜곡을 받지 않는다. |
+| {bi:youtube} | [공식 유튜브](https://youtube.com/@cho-kaguyahime-pr) |
+| {bi:camera-reels-fill} | [넷플릭스 페이지](https://www.netflix.com/kr/title/81756595?preventIntent=true)  |
+| {bi:question} | 몰라레후 |
 :::
