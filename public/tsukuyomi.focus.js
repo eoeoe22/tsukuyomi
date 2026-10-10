@@ -120,6 +120,8 @@
     camAnim = requestAnimationFrame(step);
   }
 
+  // 아래 NAMES/DESCS/BODIES 는 cards/{kind}.wiki 를 못 읽거나 렌더러가 없을 때의 폴백이다.
+  // 실제 카드 내용은 cards/*.wiki 에서 편집한다 (문법: cards/README.md).
   const NAMES = { torii: '토리이', moon: '달', mirror: '미러볼' };
   const DESCS = {
     torii: '수면 위에 선 붉은 토리이. 실물과 물에 비친 상을 서로 다른 레이어로 그린다.',
@@ -145,8 +147,78 @@
     ],
   };
   const body = document.getElementById('focusBody');
-  function renderBody(kind) {
+  const markup = () => window.TsukuyomiMarkup || null;
+
+  function teardownBody() {
+    const M = markup();
+    if (M && body) M.teardown(body);
+  }
+
+  function setHead(t, d) {
+    if (title) title.textContent = t;
+    if (desc) {
+      desc.textContent = d || '';
+      desc.hidden = !d;
+    }
+  }
+
+  // 확대 전 인디케이터 제목(.pin-title + aria-label)도 :::meta title 을 따른다.
+  const PINS = { torii: pinTorii, moon: pinMoon, mirror: pinMirror };
+  function parsePinTitleFallback(src) {
+    if (typeof src !== 'string') return '';
+    const text = src.replace(/\r\n?/g, '\n');
+    let found = '';
+    // 여러 :::meta 블록이 있으면 마지막 title 이 이긴다(_applyDocMetaVars 와 동일).
+    const re = /^:::meta[ \t]*\n([\s\S]*?)\n:::[ \t]*$\n?/gm;
+    let b;
+    while ((b = re.exec(text)) !== null) {
+      for (const line of b[1].split('\n')) {
+        const eq = line.indexOf('=');
+        if (eq === -1) continue;
+        if (line.slice(0, eq).trim() !== 'title') continue;
+        const v = line.slice(eq + 1).trim();
+        if (v) found = v;
+      }
+    }
+    return found;
+  }
+  function metaTitleOf(src) {
+    try {
+      const M = markup();
+      if (M && typeof M.extractMeta === 'function') {
+        const meta = M.extractMeta(src) || {};
+        if (typeof meta.title === 'string' && meta.title.trim()) return meta.title.trim();
+      }
+    } catch (e) { /* 폴백으로 계속 */ }
+    return parsePinTitleFallback(src);
+  }
+  function applyPinTitle(kind, titleText) {
+    const el = PINS[kind];
+    if (!el) return;
+    const t = (typeof titleText === 'string' && titleText.trim())
+      ? titleText.trim()
+      : (NAMES[kind] || '');
+    if (!t) return;
+    const lb = el.querySelector('.pin-title');
+    if (lb && lb.textContent !== t) {
+      lb.textContent = t;
+      // 라벨 폭 캐시 무효화: 다음 tick 의 flipLabel 이 새 폭으로 좌/우를 판단한다.
+      el._lw = 0;
+    }
+    const label = t + ' 확대 보기';
+    if (el.getAttribute('aria-label') !== label) el.setAttribute('aria-label', label);
+  }
+  function refreshPinFromSrc(kind, src) {
+    if (typeof src !== 'string') return;
+    const t = metaTitleOf(src);
+    applyPinTitle(kind, t || NAMES[kind]);
+  }
+
+  function renderFallback(kind) {
+    setHead(NAMES[kind] || '플레이스홀더', DESCS[kind] || '내용 준비 중입니다.');
     if (!body) return;
+    teardownBody();
+    body.classList.remove('wiki-content');
     body.textContent = '';
     const rows = BODIES[kind];
     if (!rows) return;
@@ -160,6 +232,71 @@
     }
     body.append(dl);
   }
+
+  // 위키 원문을 카드에 렌더한다. :::meta 의 title/lead 가 제목·설명이 된다. 실패하면 false.
+  function renderSource(kind, src) {
+    const M = markup();
+    if (!M || !body || typeof src !== 'string') return false;
+    let meta;
+    try {
+      meta = M.render(src, body, { dark: true }).meta || {};
+    } catch (e) {
+      console.warn('[tsukuyomi] 카드 렌더 실패:', kind, e);
+      return false;
+    }
+    setHead(meta.title || NAMES[kind] || '플레이스홀더', meta.lead || '');
+    applyPinTitle(kind, meta.title || NAMES[kind]);
+    body.scrollTop = 0;
+    card.scrollTop = 0;
+    return true;
+  }
+
+  // cards/{kind}.wiki 원문 캐시. 성공한 응답만 캐시하고, 실패는 다음 진입 때 다시 시도한다.
+  const cardSrc = {};
+  const cardReq = {};
+  function loadCardSrc(kind) {
+    if (cardSrc[kind] != null) return Promise.resolve(cardSrc[kind]);
+    if (!cardReq[kind]) {
+      cardReq[kind] = fetch('cards/' + encodeURIComponent(kind) + '.wiki', { cache: 'no-cache' })
+        .then(r => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(t => { cardSrc[kind] = t; refreshPinFromSrc(kind, t); return t; })
+        .finally(() => { delete cardReq[kind]; });
+    }
+    return cardReq[kind];
+  }
+
+  // 디버그 패널 미리보기 원문(kind → src). 있으면 파일보다 우선한다.
+  const previewSrc = {};
+  let bodySeq = 0;
+
+  function renderBody(kind) {
+    const seq = ++bodySeq;
+    if (previewSrc[kind] != null && renderSource(kind, previewSrc[kind])) return;
+    if (cardSrc[kind] != null && renderSource(kind, cardSrc[kind])) return;
+    // 첫 진입: 파일이 올 때까지 제목만 먼저 보여 준다.
+    teardownBody();
+    if (body) body.textContent = '';
+    setHead(NAMES[kind] || '플레이스홀더', '');
+    loadCardSrc(kind).then(src => {
+      // 응답 전에 카드를 닫았거나 다른 랜드마크로 바꿨으면 버린다.
+      if (seq !== bodySeq || focus !== kind) return;
+      if (!renderSource(kind, src)) renderFallback(kind);
+      if (lastZoom) placeCard(lastZoom);
+    }, err => {
+      if (seq !== bodySeq || focus !== kind) return;
+      console.warn('[tsukuyomi] cards/' + kind + '.wiki 를 불러오지 못해 내장 내용으로 대체:', err);
+      renderFallback(kind);
+      if (lastZoom) placeCard(lastZoom);
+    });
+  }
+
+  // 첫 클릭이 바로 그려지도록 유휴 시간에 미리 받아 둔다.
+  const prefetchCards = () => Object.keys(NAMES).forEach(k => loadCardSrc(k).catch(() => { /* 진입 시 재시도 */ }));
+  if (window.requestIdleCallback) requestIdleCallback(prefetchCards, { timeout: 3000 });
+  else setTimeout(prefetchCards, 1500);
   const SCALES = { torii: 1.8, moon: 2.4, mirror: 2.4 };
 
   // 달 상승(moonMT)이 완료된 뒤에만 인디케이터를 노출한다.
@@ -306,8 +443,6 @@
     focus = kind;
     lastZoom = z;
     document.body.dataset.focus = kind;
-    if (title) title.textContent = NAMES[kind] || '플레이스홀더';
-    if (desc) desc.textContent = DESCS[kind] || '내용 준비 중입니다.';
     renderBody(kind);
     card.hidden = false;
     placeCard(z);
@@ -337,6 +472,8 @@
     try { cur = T && T.getCamView ? T.getCamView() : null; } catch (e) { cur = null; }
     focus = null;
     lastZoom = null;
+    bodySeq++;
+    teardownBody();
     delete document.body.dataset.focus;
     card.hidden = true;
     backBtn.hidden = true;
@@ -385,6 +522,8 @@
   pinMirror.addEventListener('click', e => { lastPin = pinMirror; enter('mirror', e.detail === 0); });
   backBtn.addEventListener('click', e => exit(true, e.detail === 0));
   window.addEventListener('keydown', e => {
+    // 입력 필드(디버그 패널 카드 미리보기 등)에서의 Escape 는 카드를 닫지 않는다
+    if (e.target instanceof Element && e.target.closest('input,textarea,select,[contenteditable="true"]')) return;
     if (e.key === 'Escape' && focus) exit(true, true);
   });
   // 리사이즈 중 확대 상태 유지: 랜드마크가 이동했으므로 최종값으로 즉시 갱신 (끝점 커버 보장)
@@ -403,6 +542,44 @@
     }, 120);
   });
 
+  // 디버그 패널(카드 미리보기)용 API
+  window.__TSUKUYOMI_CARD__ = {
+    kinds: () => Object.keys(NAMES),
+    current: () => focus,
+    // 파일 원문(미리보기 무시). 실패 시 reject.
+    source: kind => loadCardSrc(kind),
+    // 미리보기 원문 지정. 해당 카드가 열려 있으면 즉시 다시 그린다. 렌더 결과 meta 를 반환.
+    // 확대 전 인디케이터 제목에도 즉시 반영한다(확대 중 핀은 숨겨져 있으나 복귀 후 확인 가능).
+    preview(kind, src) {
+      previewSrc[kind] = String(src);
+      refreshPinFromSrc(kind, previewSrc[kind]);
+      if (focus !== kind) return null;
+      bodySeq++;
+      const ok = renderSource(kind, previewSrc[kind]);
+      if (lastZoom) placeCard(lastZoom);
+      return ok;
+    },
+    // 미리보기를 지우고 파일 내용으로 되돌린다.
+    reset(kind) {
+      delete previewSrc[kind];
+      if (cardSrc[kind] != null) refreshPinFromSrc(kind, cardSrc[kind]);
+      else loadCardSrc(kind).catch(() => { /* 실패 시 기존 폴백 제목 유지 */ });
+      if (focus === kind) {
+        renderBody(kind);
+        if (lastZoom) placeCard(lastZoom);
+      }
+    },
+    // 카드 열기 (랜드마크가 화면에 없으면 false)
+    open(kind) {
+      if (focus === kind) return true;
+      if (focus) exit(false);
+      const pin = { torii: pinTorii, moon: pinMoon, mirror: pinMirror }[kind];
+      if (pin) lastPin = pin;
+      enter(kind, false);
+      return focus === kind;
+    },
+  };
+
   // 핀 클릭이 scene의 ripple/미러볼 핸들러까지 버블되지 않게 차단
   for (const el of [pinTorii, pinMoon, pinMirror, backBtn, card]) {
     el.addEventListener('pointerdown', e => e.stopPropagation(), true);
@@ -416,7 +593,7 @@
   function flipLabel(el, x) {
     const lb = el._lb || (el._lb = el.querySelector('.pin-title'));
     if (!lb) return;
-    // 텍스트는 고정이므로 폭은 한 번만 측정한다 (매 프레임 레이아웃 강제 방지)
+    // 텍스트가 바뀌면 applyPinTitle 이 el._lw 를 0으로 지우므로 다음 tick 에서 다시 측정한다.
     const w = el._lw || (el._lw = lb.offsetWidth || 0);
     const flip = x - LABEL_REACH - w < 8;
     if (el._flip !== flip) {

@@ -149,6 +149,7 @@
         '<div class="tsd-status" id="tsdStatus">bridge 대기 중…</div>' +
         '<details open><summary>장면 상태 (수동 스크럽)</summary><div class="tsd-sec" id="tsdScene"></div></details>' +
         '<details><summary>미러볼 (달)</summary><div class="tsd-sec" id="tsdMirror"></div></details>' +
+        '<details><summary>카드 미리보기 (cards/*.wiki)</summary><div class="tsd-sec" id="tsdCard"></div></details>' +
         '<div id="tsdGroups"></div>' +
         '<details><summary>팔레트 (색/레벨 JSON)</summary><div class="tsd-sec" id="tsdPal"></div></details>' +
         '<details><summary>가져오기 / 내보내기</summary><div class="tsd-sec" id="tsdIO"></div></details>' +
@@ -786,6 +787,112 @@
         host.appendChild(ta); host.appendChild(err); host.appendChild(row);
     }
 
+    // ---------- 카드 미리보기 ----------
+    // 입력한 위키 원문을 #focusCard 에 바로 렌더한다. 메모리에만 반영되므로
+    // 확정하려면 복사해서 public/cards/{kind}.wiki 에 붙여넣는다.
+    function buildCard() {
+        const host = document.getElementById('tsdCard');
+        const api = window.__TSUKUYOMI_CARD__;
+        if (!host) return;
+        host.innerHTML = '';
+        if (!api) {
+            host.textContent = '카드 API 없음: tsukuyomi.focus.js가 먼저 로드되어야 한다.';
+            return;
+        }
+        const drafts = {}; // kind → 편집 중 원문
+        let kind = api.kinds()[0];
+        let rt = 0;
+
+        const kindRow = document.createElement('div');
+        kindRow.className = 'tsd-btnrow';
+        const kindBtns = {};
+        for (const k of api.kinds()) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = k;
+            btn.addEventListener('click', () => select(k));
+            kindBtns[k] = btn;
+            kindRow.appendChild(btn);
+        }
+        const ta = document.createElement('textarea');
+        ta.className = 'tsd-card-src';
+        ta.spellcheck = false;
+        ta.placeholder = '위키 문법 원문. 입력 즉시 카드에 반영된다.';
+        const err = document.createElement('div');
+        err.className = 'tsd-err';
+        const row = document.createElement('div');
+        row.className = 'tsd-btnrow';
+        const mk = (label, fn) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = label;
+            btn.addEventListener('click', fn);
+            row.appendChild(btn);
+            return btn;
+        };
+        const hint = document.createElement('div');
+        hint.className = 'tsd-hint';
+        hint.textContent = '미리보기는 메모리에만 반영된다. 복사해서 cards/<kind>.wiki 에 저장. 문법: cards/README.md';
+
+        function apply() {
+            drafts[kind] = ta.value;
+            if (api.current() !== kind && !api.open(kind)) {
+                err.textContent = '랜드마크가 화면에 없어 카드를 열 수 없다 (장면 상태를 밤으로).';
+                return;
+            }
+            err.textContent = api.preview(kind, ta.value) === false ? '렌더 실패 (콘솔 참고)' : '';
+        }
+
+        function select(k) {
+            kind = k;
+            for (const key of Object.keys(kindBtns)) kindBtns[key].setAttribute('aria-pressed', key === k ? 'true' : 'false');
+            err.textContent = '';
+            if (drafts[k] != null) {
+                ta.value = drafts[k];
+                return;
+            }
+            ta.value = '';
+            ta.placeholder = '불러오는 중…';
+            api.source(k).then(src => {
+                if (kind !== k || drafts[k] != null) return;
+                ta.value = src;
+                ta.placeholder = '위키 문법 원문. 입력 즉시 카드에 반영된다.';
+            }, e => {
+                if (kind !== k) return;
+                err.textContent = 'cards/' + k + '.wiki 를 불러오지 못함: ' + e.message;
+            });
+        }
+
+        ta.addEventListener('input', () => {
+            clearTimeout(rt);
+            rt = setTimeout(apply, 150);
+        });
+        mk('카드 열기', () => {
+            if (drafts[kind] != null) apply();
+            else if (!api.open(kind)) err.textContent = '랜드마크가 화면에 없어 카드를 열 수 없다 (장면 상태를 밤으로).';
+        });
+        mk('복사', () => {
+            try {
+                if (navigator.clipboard) navigator.clipboard.writeText(ta.value).then(
+                    () => { err.textContent = ''; hint.textContent = '복사됨 → cards/' + kind + '.wiki 에 붙여넣기'; },
+                    () => { err.textContent = '클립보드 접근 실패: 텍스트를 직접 선택해 복사'; });
+            } catch (e) { err.textContent = '클립보드 접근 실패: 텍스트를 직접 선택해 복사'; }
+        });
+        mk('되돌리기', () => {
+            clearTimeout(rt);
+            delete drafts[kind];
+            api.reset(kind);
+            select(kind);
+        });
+
+        host.appendChild(kindRow);
+        host.appendChild(ta);
+        host.appendChild(err);
+        host.appendChild(row);
+        host.appendChild(hint);
+        select(kind);
+    }
+
     // ---------- 상태 읽기 ----------
     function tickStatus() {
         const b = bridge();
@@ -929,6 +1036,7 @@
         });
         // 항상 숨김 정책: 자동 표시 없음. (`/F12 키로만 show)
         renderSrc();
+        buildCard();
         waitBridge(b => {
             if (!b) return;
             buildScene(b);

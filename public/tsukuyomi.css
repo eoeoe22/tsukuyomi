@@ -619,6 +619,13 @@
             transform: translateY(-50%);
             width: min(340px, calc(100vw - 32px));
             min-height: 220px;
+            /* 본문이 길면 카드 안에서 스크롤 (폭은 고정) */
+            max-height: calc(100vh - 32px);
+            max-height: calc(100dvh - 32px);
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
             padding: 20px;
             border-radius: 16px;
             background: rgba(18, 20, 26, 0.72);
@@ -638,6 +645,10 @@
             font-size: 18px;
             font-weight: 700;
             letter-spacing: -0.01em;
+        }
+
+        #focusCard .focus-lead[hidden] {
+            display: none;
         }
 
         #focusCard .focus-lead {
@@ -669,6 +680,12 @@
             font-size: 13px;
             line-height: 1.5;
             color: #d6d4d0;
+        }
+
+        /* cards/*.wiki 렌더 본문 (스타일 본체는 tsukuyomi.markup.css) */
+        #focusCard .focus-body.wiki-content:not(:empty) {
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.14);
         }
 
         /* 좁은 화면: 카드는 하단 시트, 랜드마크는 상단 중앙에 */

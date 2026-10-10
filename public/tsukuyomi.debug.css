@@ -216,3 +216,6 @@
 .tsce-ref-handle[data-handle="se"] { right: -7px; bottom: -7px; cursor: nwse-resize; }
 .tsce-ref-handle[data-handle="ne"] { right: -7px; top: -7px; cursor: nesw-resize; }
 .tsce-ref-handle[data-handle="sw"] { left: -7px; bottom: -7px; cursor: nesw-resize; }
+
+/* 카드 미리보기 (cards/*.wiki) */
+.tsd-body textarea.tsd-card-src { min-height: 220px; resize: vertical; white-space: pre; tab-size: 2; }
