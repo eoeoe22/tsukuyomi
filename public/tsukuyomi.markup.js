@@ -661,7 +661,8 @@
     }
     textNodes.forEach(node => {
       const parts = node.nodeValue.split(/((?<!\{)\{bi:[\w-]+\}(?!\})|(?<!\{)\{icon:[\w-]+\}(?!\}))/g).filter(Boolean);
-      if (parts.length === 1) return;
+      // 노드 전체가 토큰 하나({bi:x})인 경우도 parts 길이는 1이므로, 길이가 아니라 토큰 여부로 건너뛴다.
+      if (parts.length === 1 && !/^\{(?:bi|icon):/.test(parts[0])) return;
       const frag = document.createDocumentFragment();
       parts.forEach(part => {
         let cls = '';
