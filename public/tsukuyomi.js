@@ -4221,7 +4221,7 @@ void main() {
                     elWallpaper.setAttribute('aria-pressed', wallpaperMode ? 'true' : 'false');
                 }
             }
-            // 홀드 경로: 버튼을 길게 누르면 감상 모드를 토글한다 (이후 따라오는 click은 무시).
+            // 홀드 경로: 버튼을 길게 누르면 디버그 패널을 토글한다 (감상 모드 토글은 클릭 그대로, 홀드 직후 click은 무시).
             let wallpaperHoldTimer = 0;
             let wallpaperHeld = false;
             const WALLPAPER_HOLD_MS = 600;
@@ -4237,7 +4237,8 @@ void main() {
                     wallpaperHoldTimer = setTimeout(() => {
                         wallpaperHoldTimer = 0;
                         wallpaperHeld = true;
-                        setWallpaper(!wallpaperMode);
+                        const dbg = window.__TSUKUYOMI_DEBUG__;
+                        if (dbg && dbg.toggle) dbg.toggle();
                     }, WALLPAPER_HOLD_MS);
                 });
                 ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev =>
