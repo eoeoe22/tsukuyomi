@@ -61,7 +61,7 @@
             ['DC_CB_SUN', 20, 160, 1, 'clouds'], ['DC_CB_SCALE', 2, 12, 0.1, 'clouds'], ['DC_CB_ABSORB', 0.2, 4, 0.05, 'clouds'],
             ['DC_CB_RIMK', 0, 1.2, 0.01, 'clouds'], ['DC_CB_RS', 0.5, 1, 0.05, 'clouds'],
         ]},
-        { title: '새 낮 (day-empty-ref)', keys: [
+        { title: '공백 장면', keys: [
             ['DAY_SCENE', 0, 1, 1],
             ['DY_SEED', 0, 50, 1, 'clouds'], ['DY_BAND_N', 0, 14, 1, 'clouds'], ['DY_SP', 0, 0.02, 0.0005, 'clouds'],
             ['DY_COV', 0.2, 0.8, 0.01, 'clouds'], ['DY_SCALE', 2, 12, 0.1, 'clouds'], ['DY_ABSORB', 0.2, 4, 0.05, 'clouds'],
@@ -74,6 +74,7 @@
             ['DY_WATER', 0, 1, 0.01], ['DY_COLUMN', 0, 2, 0.01],
             ['DS_A', 0, 1.5, 0.01], ['DS_GROW', 0.2, 12, 0.1], ['DS_FADE', 0.1, 5, 0.1],
             ['DS_POLE_X', -1, 2, 0.005, 'stars'], ['DS_POLE_Y', -3, 1, 0.005, 'stars'],
+            ['DS_FADE0', 0, 1, 0.005], ['DS_FADE1', 0, 1, 0.005],
             ['DY_HOLE', 0, 1, 0.05, 'clouds'], ['DY_HOLE_S', 0.3, 2.5, 0.05, 'clouds'], ['DY_HOLE_N', 0, 8, 1, 'clouds'],
             ['DY_HOLE_EDGE', 0, 2, 0.05, 'clouds'], ['DY_HOLE_RIM', 0, 1.5, 0.05, 'clouds'], ['DY_HOLE_SKY', 0, 1.5, 0.05, 'clouds'],
         ]},

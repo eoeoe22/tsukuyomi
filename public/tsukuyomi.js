@@ -142,6 +142,8 @@
                 DS_A: 0.8, DS_GROW: 4.5, DS_FADE: 1.4,
                 // DS_POLE_X/Y: 공백 별 궤적 전용 북극성(회전 중심) 위치(화면 너비/수평선 비율, 음수 = 화면 위 밖). 밤 장면 POLE_X/Y와 별개.
                 DS_POLE_X: 0.215, DS_POLE_Y: 0.145,
+                // DS_FADE0/1: 수평선 근처 궤적 감쇠 구간(수평선 높이 비율). FADE0부터 옅어져 FADE1 아래로는 그리지 않는다.
+                DS_FADE0: 0.45, DS_FADE1: 0.7,
                 // DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
                 DY_COLUMN: 0,
                 // 구름 뚫림(ref: 어두운 앞 구름이 불균일하게 찢겨 그 너머 햇빛 받은 흰 구름이 비친다):
@@ -2697,7 +2699,7 @@ uniform float uR, uPh, uLen, uScale;
 uniform vec2 uLv[4];    // 굵기, 밝기
 uniform vec3 uCol[3];
 varying vec2 vQ;
-varying float vR, vD, vAl;
+varying float vR, vD, vAl, vWy;
 varying vec3 vC;
 void main() {
   vec2 L = uLv[int(aStar.z + 0.5)];
@@ -2709,7 +2711,9 @@ void main() {
   // 바깥 정점은 1/cos(구간각/2)만큼 밀어 직선 구간이 실제 원호를 항상 덮게 한다
   float rr = aT.y > 0.0 ? (r + hw) / cos(span / ${STAR_SEG}.0 * 0.5) : max(0.0, r - hw);
   float ang = aStar.y - uPh + a;
-  vec2 b = (uPole + rr * vec2(cos(ang), sin(ang))) * uScale + uOff;   // 버퍼 px
+  vec2 w = uPole + rr * vec2(cos(ang), sin(ang));
+  vWy = w.y;
+  vec2 b = w * uScale + uOff;   // 버퍼 px
   gl_Position = vec4(b.x / uRes.x * 2.0 - 1.0, 1.0 - b.y / uRes.y * 2.0, 0.0, 1.0);
   vQ = rr * vec2(cos(a), sin(a));   // 머리 기준 회전 좌표 (world 위치의 선형 함수라 보간이 정확)
   vR = r; vD = d;
@@ -2718,8 +2722,9 @@ void main() {
             const STAR_FS = `
 precision highp float;
 uniform float uLen, uScale, uA;
+uniform vec2 uFade;     // world y: 이 구간에서 1 → 0 (수평선 근처 감쇠)
 varying vec2 vQ;
-varying float vR, vD, vAl;
+varying float vR, vD, vAl, vWy;
 varying vec3 vC;
 float lineCov(float dist, float w) {
   float we = max(w, 1.0);
@@ -2732,7 +2737,7 @@ void main() {
   float ca = clamp(ang * vR * uScale + 0.5, 0.0, 1.0) * clamp((uLen - ang) * vR * uScale + 0.5, 0.0, 1.0);
   float trail = uLen > 0.0005 ? cr * ca : 0.0;
   float dot_ = lineCov(length(vQ - vec2(vR, 0.0)) * uScale, wPx);
-  float v = (trail + dot_) * vAl * uA;
+  float v = (trail + dot_) * vAl * uA * (1.0 - smoothstep(uFade.x, uFade.y, vWy));
   gl_FragColor = vec4(vC * v, v);
 }`;
             const stC = document.createElement('canvas');
@@ -2766,7 +2771,7 @@ void main() {
                     g.enableVertexAttribArray(aT);
                     stA = { aS, aT };
                     stU = {};
-                    for (const k of ['uPole', 'uOff', 'uRes', 'uR', 'uPh', 'uLen', 'uScale', 'uA']) stU[k] = g.getUniformLocation(prog, k);
+                    for (const k of ['uPole', 'uOff', 'uRes', 'uR', 'uPh', 'uLen', 'uScale', 'uA', 'uFade']) stU[k] = g.getUniformLocation(prog, k);
                     stU.uLv = g.getUniformLocation(prog, 'uLv[0]');
                     stU.uCol = g.getUniformLocation(prog, 'uCol[0]');
                     g.enable(g.BLEND);
@@ -2836,6 +2841,8 @@ void main() {
                 g.uniform1f(stU.uLen, len);
                 g.uniform1f(stU.uScale, m.a);
                 g.uniform1f(stU.uA, a);
+                const fd = set.fade || [1e9, 2e9];
+                g.uniform2f(stU.uFade, fd[0], fd[1]);
                 g.uniform2fv(stU.uLv, LV.flatMap(L => [L.d, L.al]));
                 g.uniform3fv(stU.uCol, COLS.flatMap(c => [c[0] / 255, c[1] / 255, c[2] / 255]));
                 g.drawArrays(g.TRIANGLES, 0, n);
@@ -2859,7 +2866,9 @@ void main() {
                 if (ZP.on) ZP.acc.sdir = 1;
                 const pad = 3;
                 const list = starList(set.buckets);
-                drawStarRange(S, list, 0, list.length, { x0: v.x0 - pad, y0: v.y0 - pad, x1: v.x1 + pad, y1: v.y1 + pad }, ph, len, a, dpr * camRK(), set);
+                // 2D 대체 경로는 감쇠 대신 FADE1에서 잘라낸다
+                const y1 = set.fade ? Math.min(v.y1, set.fade[1]) : v.y1;
+                drawStarRange(S, list, 0, list.length, { x0: v.x0 - pad, y0: v.y0 - pad, x1: v.x1 + pad, y1: y1 + (set.fade ? 0 : pad) }, ph, len, a, dpr * camRK(), set);
             }
 
             // ---------- layout ----------
@@ -3159,6 +3168,7 @@ void main() {
                 // 공백 별 궤적: 하늘·틈 빛 위, 구름 아래에 그려 구름 사이로 드러난 하늘에만 보인다 (수면 반사도 sky 버퍼를 따라간다)
                 if (dsA > 0.003 && d2Live > 0.005) {
                     const dk = dsK > 0 ? dsLen() : 0;
+                    dsSet.fade = [HZ * CFG.DS_FADE0, HZ * Math.max(CFG.DS_FADE0 + 0.001, CFG.DS_FADE1)];
                     drawStarLayer(dsSet, dsTail + dk, dk, CFG.DS_A * ss(0, 1, dsA) * d2Live);
                 }
 
