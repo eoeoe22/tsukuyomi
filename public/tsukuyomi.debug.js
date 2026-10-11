@@ -50,7 +50,6 @@
             ['DC_SEED', 0, 50, 1, 'clouds'], ['DC_N', 0, 16, 1, 'clouds'],
             ['DC_Y0', 0.6, 1.1, 0.01, 'clouds'], ['DC_YR', 0, 0.3, 0.01, 'clouds'],
             ['DC_CB_N', 0, 6, 1, 'clouds'], ['DC_CB_S0', 0.3, 2.5, 0.01, 'clouds'], ['DC_CB_S1', 0.3, 2.5, 0.01, 'clouds'], ['DC_CB_SP', 0, 1.5, 0.05, 'clouds'],
-            ['CLOUD_DOC', 0, 1, 1],
             ['CL_LIVE', 0, 1, 1, 'clouds'], ['CL_RATE', 0, 6, 0.05], ['CL_BOIL', 0, 4, 0.05], ['CL_WARP', 0, 3, 0.05], ['CL_RAND', 0, 3, 0.05], ['CL_HZ', 2, 30, 1], ['CL_UP', 0, 2, 0.05],
             ['BLOOM', 0, 2, 0.01], ['BLOOM_POW', 1, 16, 1], ['BLOOM_R', 0.002, 0.08, 0.001], ['BLOOM_WIDE', 0, 2, 0.01],
             ['DC_F0', 0.3, 1, 0.01], ['DC_F1', 0.3, 1, 0.01],
@@ -362,19 +361,6 @@
             det.appendChild(sum);
             const sec = document.createElement('div');
             sec.className = 'tsd-sec';
-            // 구름 탭 맨 위: 브러시 구름 편집기(tsukuyomi.cloudedit.js)
-            if (g.title === '구름' && window.TsukuyomiCloudEdit) {
-                const ed = document.createElement('details');
-                ed.className = 'tsce';
-                const es = document.createElement('summary');
-                es.textContent = '브러시 구름 편집 (황혼 / 낮)';
-                const eh = document.createElement('div');
-                eh.className = 'tsd-sec';
-                ed.appendChild(es); ed.appendChild(eh);
-                sec.appendChild(ed);
-                try { window.TsukuyomiCloudEdit.mount(eh, b); }
-                catch (e) { console.error(e); eh.textContent = '편집기 초기화 실패: ' + e.message; }
-            }
             for (const [key, min, max, step, rebuild] of g.keys) {
                 if (!(key in b.cfg)) continue;
                 const row = document.createElement('div');
@@ -760,6 +746,7 @@
                     Object.assign(b.cfg, snap.cfg);
                     delete b.cfg.MOON_X0; delete b.cfg.MOON_X1;
                     delete b.cfg.W_FAST; delete b.cfg.DECAY; delete b.cfg.FAST_HOLD;
+                    delete b.cfg.CLOUD_DOC;
                 }
                 if (snap.palettes) for (const k of Object.keys(snap.palettes)) {
                     try { b.setPalette(k, snap.palettes[k]); } catch (e) { /* 개별 실패 무시 */ }

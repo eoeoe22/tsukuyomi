@@ -120,8 +120,6 @@
                 // DY_STAR_A: 구름 틈 사이 낮 별 밝기, DY_GLINT_N/A: 수면 반짝임 개수/밝기, DY_WATER: 수면 청색 틴트.
                 // DY_VLIFT: 셰이더 중간톤 리프트(낮추면 그늘이 깊어져 혹 단위 대비 강화), DY_SKYBOT: 구름 아랫쪽 직사광 감쇠 바닥(1=없음).
                 DAY_SCENE: 1,
-                // CLOUD_DOC: 1 = 브러시 구름 문서(디버그 패널 › 구름 › 브러시 구름 편집)가 있으면 황혼/새 낮 구름 대신 그린다, 0 = 항상 절차적 구름.
-                CLOUD_DOC: 1,
                 // 절차적 구름 라이브(cloud-live.js): CL_LIVE 1 = GPU로 계속 다시 그림(0 = 예전처럼 CPU로 한 번 굽기, 재생성 필요),
                 // CL_RATE 변화 속도 배율, CL_BOIL 혹 끓음 세기, CL_WARP 윤곽 일렁임/타원 호 지우기, CL_RAND 경계 랜덤화(덮임 변동·침식),
                 // CL_HZ 스프라이트당 갱신 빈도, CL_UP 혹 음영에 섞는 위쪽 빛(0 = 해 방향만 → 세로 붓자국 줄무늬가 다시 생김)
@@ -2018,61 +2016,6 @@
                 }
             }
 
-            // ---------- 브러시 구름 문서 (편집: tsukuyomi.cloudedit.js, 셰이더·형식: cloud-doc.js) ----------
-            // 출처 우선순위: 편집기에서 "장면에 적용"한 문서(localStorage) → public/clouds/index.json에 등록된 파일 → 없음(절차적 구름).
-            // 문서는 하늘(W × HZ) 크기 투명 스프라이트로 구워 두고(resize마다 다시 굽는다) drawSet이 통째로 그린다.
-            // 굽는 순간의 모양으로 고정되며 흐르지 않는다. 밤으로 갈 때는 기존 세트처럼 틴트로만 어두워진다.
-            // live: 편집 모드에서 편집기가 매 획마다 다시 그리는 캔버스. 있으면 구운 스프라이트 대신 그린다(반사·틴트까지 그대로).
-            const docCloud = {
-                dusk: { isDoc: true, doc: null, spr: null, live: null, src: '' },
-                day: { isDoc: true, doc: null, spr: null, live: null, src: '' }
-            };
-            let cloudIndex = null;
-            const docOn = k => CFG.CLOUD_DOC >= 0.5 && !!(docCloud[k].live || docCloud[k].spr);
-            function setCloudDoc(k, json, src) {
-                const D = docCloud[k];
-                try { D.doc = window.CloudDoc.parse(typeof json === 'string' ? JSON.parse(json) : json, k); D.src = src; }
-                catch (e) { console.warn('구름 문서 읽기 실패 (' + k + ', ' + src + ')', e); D.doc = null; D.src = ''; }
-                bakeCloudDoc(k);
-            }
-            function bakeCloudDoc(k) {
-                const D = docCloud[k];
-                D.spr = null;
-                if (!D.doc || !W || !HZ) return;
-                try { D.spr = window.CloudDoc.bake(D.doc, W, HZ, Math.min(dpr, 1.5)); }
-                catch (e) { console.warn('구름 문서 굽기 실패 (' + k + ')', e); }
-                // 라이브 렌더: 구운 한 장(D.spr)은 폴백/동작 줄이기용으로 두고, 평소엔 매 1/20초 다시 그린 캔버스를 쓴다
-                if (window.CloudDoc.createLive && !RM.matches) {
-                    try {
-                        if (!D.anim || D.animDoc !== D.doc) { D.anim = window.CloudDoc.createLive(D.doc, { fps: 20 }); D.animDoc = D.doc; }
-                        if (D.anim) { D.anim.resize(W, HZ, Math.min(dpr, 1.5) * 0.6); D.anim.tick(clock, true); }
-                    } catch (e) { console.warn('구름 문서 라이브 렌더 실패 (' + k + ')', e); D.anim = null; }
-                }
-                if (D.spr) bandValid = false;
-            }
-            function loadCloudDoc(k) {
-                let applied = null;
-                try { applied = localStorage.getItem(window.CloudDoc.KEY.applied(k)); } catch (e) { /* 저장소 차단 */ }
-                if (applied) { setCloudDoc(k, applied, 'editor'); return; }
-                const file = cloudIndex && cloudIndex[k];
-                if (!file) { docCloud[k].doc = null; docCloud[k].spr = null; docCloud[k].src = ''; return; }
-                fetch(assetUrl('clouds/' + file), { cache: 'no-cache' })
-                    .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
-                    .then(j => setCloudDoc(k, j, 'file:' + file))
-                    .catch(e => console.warn('구름 문서 파일을 불러오지 못함: clouds/' + file, e));
-            }
-            function loadCloudDocs() {
-                if (!window.CloudDoc) return;
-                fetch(assetUrl('clouds/index.json'), { cache: 'no-cache' })
-                    .then(r => r.ok ? r.json() : null).catch(() => null)
-                    .then(ix => { cloudIndex = ix || {}; for (const k of window.CloudDoc.SCENES) loadCloudDoc(k); });
-            }
-            // 에디터(다른 탭)에서 적용/해제하면 바로 반영
-            window.addEventListener('storage', e => {
-                if (!window.CloudDoc || !e.key) return;
-                for (const k of window.CloudDoc.SCENES) if (e.key === window.CloudDoc.KEY.applied(k)) loadCloudDoc(k);
-            });
-
             // 낮 구름 세트 (547f49e 시점 로직 그대로)
             function buildClouds() {
                 const rng = mulberry32(42);
@@ -2778,7 +2721,6 @@ void main() {
                 }
                 pole = { x: W * CFG.POLE_X, y: HZ * CFG.POLE_Y };
                 placeDuskCb();
-                for (const k in docCloud) bakeCloudDoc(k);
                 const m = Math.min(W, H);
                 sunR = clamp(m * CFG.SUN_F, CFG.SUN_MIN, CFG.SUN_MAX);
                 moonR = clamp(m * CFG.MOON_F, CFG.MOON_MIN, CFG.MOON_MAX) * (CFG.MOON_SIZE ?? 1);
@@ -3091,10 +3033,7 @@ void main() {
                     CL.globalCompositeOperation = 'source-over';
                     CL.clearRect(0, 0, cloudLayer.width, cloudLayer.height);
                     camSetBuf(CL);
-                    if (set.isDoc) {
-                        // 브러시 구름 문서: 하늘 크기 스프라이트 한 장 (편집 중이면 편집기의 라이브 캔버스)
-                        CL.drawImage(set.live || (set.anim && set.anim.canvas) || set.spr, 0, 0, W, HZ);
-                    } else if (set === clouds) {
+                    if (set === clouds) {
                         // 낮 구름 배치 (547f49e 시점 식 그대로, PAD 여백만 보정)
                         for (const c of set) {
                             const k = base * lerp(1, 0.4, (c.yn - CFG.CLOUD_Y0) / (CFG.CLOUD_YR || 1));
@@ -3192,11 +3131,9 @@ void main() {
                 };
                 const ca = (1 - ss(CFG.CLOUD_F0, CFG.CLOUD_F1, q)) * (sunVis - w2);
                 if (ca > 0.01) drawSet(clouds, CLOUD_TINT, ca, 0);
-                if (d2Live > 0.01) drawSet(docOn('day') ? docCloud.day : day2Clouds, DAY2_TINT, d2Live, 0);
-                // 브러시 문서는 에디터에서 본 색 그대로 쓰므로 광원 반사·하부 음영(light)을 더하지 않는다
+                if (d2Live > 0.01) drawSet(day2Clouds, DAY2_TINT, d2Live, 0);
                 if (dLive > 0.01) {
-                    if (docOn('dusk')) drawSet(docCloud.dusk, DCLOUD_TINT, dLive, 0);
-                    else drawSet(duskClouds, DCLOUD_TINT, dLive, 1 - ss(DUSK_Q, CFG.DC_F1, q));
+                    drawSet(duskClouds, DCLOUD_TINT, dLive, 1 - ss(DUSK_Q, CFG.DC_F1, q));
                 }
 
                 // 새 낮: 틈 아래 수평선 발광 — 낮은 구름 띠 너머로 빛이 고여 밝은 수평 스트릭이 진다 (수면 미러에도 그대로 비침)
@@ -4308,13 +4245,6 @@ void main() {
                 get plainMoon() {
                     return { x: pmMX, y: pmMY, r: pmMR, v: pmMV, visible: pmMV > 0.05 && pmMR >= 2 };
                 },
-                // 브러시 구름 편집기(tsukuyomi.cloudedit.js)용: 라이브 캔버스 연결, 적용본 다시 읽기
-                cloudEdit: {
-                    setLive(k, canvas) { if (docCloud[k]) { docCloud[k].live = canvas || null; bandValid = false; } },
-                    touch() { bandValid = false; },
-                    reload(k) { loadCloudDoc(k); },
-                },
-                get cloudDocs() { return Object.fromEntries(Object.entries(docCloud).map(([k, D]) => [k, D.doc ? { src: D.src, w: D.doc.w, h: D.doc.h, baked: !!D.spr } : null])); },
                 get nk() { return nk; }, set nk(v) { nk = clamp(Number(v) || 0, 0, 1); },
                 get sunVis() { return sunVis; }, set sunVis(v) { sunVis = svFrom = svTo = clamp(Number(v) || 0, 0, 1); },
                 get p() { return p; }, set p(v) { p = clamp(Number(v) || 0, 0, 1); },
@@ -4378,16 +4308,16 @@ void main() {
                 actions: {
                     resize, buildStars, buildMountains, buildLanterns,
                     buildClouds() { buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); },
-                    reloadCloudDocs: loadCloudDocs,
                     goTo,
                     toNight() { goTo('night'); },
                     toDay() { goTo('day'); },
                     toDusk() { goTo('dusk'); },
                     reset() {
                         Object.assign(CFG, JSON.parse(JSON.stringify(CFG_DEFAULTS)));
-                        // 구버전 스냅샷(MOON_X0/MOON_X1, W_FAST/DECAY/FAST_HOLD)으로 가져온 잔여 키 제거
+                        // 구버전 스냅샷(MOON_X0/MOON_X1, W_FAST/DECAY/FAST_HOLD, CLOUD_DOC)으로 가져온 잔여 키 제거
                         delete CFG.MOON_X0; delete CFG.MOON_X1;
                         delete CFG.W_FAST; delete CFG.DECAY; delete CFG.FAST_HOLD;
+                        delete CFG.CLOUD_DOC;
                         reflStep = Math.max(1, Math.round(CFG.ROW_STEP)); reflLastBase = reflStep; reflEMA = 16; reflCool = 0;
                         torKey = ''; torRKey = ''; torBuilds = 0;
                         bandValid = false; bandTick = 0; bandLastP = -1; bandBuilds = 0;
@@ -4434,11 +4364,6 @@ void main() {
                 zp = zpNow();
                 // 절차적 구름 타임랩스 갱신(동작 줄이기 설정이면 첫 장 그대로)
                 if (cloudLive && CFG.CL_LIVE >= 0.5 && !RM.matches) cloudLive.tick(clock, now, CFG);
-                // 브러시 구름 라이브 갱신(편집 중이 아닐 때, 켜진 장면만). 내부에서 fps로 솎아낸다
-                for (const k in docCloud) {
-                    const D = docCloud[k];
-                    if (D.anim && !D.live && docOn(k)) D.anim.tick(clock);
-                }
                 stepRipples(dt);
                 zpAdd('live', zp);
                 const t0 = performance.now();
@@ -4468,7 +4393,6 @@ void main() {
             buildLanterns();
             loadLanternSprite();
             resize();
-            loadCloudDocs();
             requestAnimationFrame(t => { lastT = t; frame(t); });
         })();
     

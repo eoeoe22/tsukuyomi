@@ -16,12 +16,12 @@
 ```
 wallpaper/
   project.json        WE 프로젝트 정의 (file=wallpaper.html, 장면/연출/고급 속성)
-  wallpaper.html      WE 진입점. dock DOM은 유지(코어 참조) + 표시만 숨김. debug/cloudedit 미로드
+  wallpaper.html      WE 진입점. dock DOM은 유지(코어 참조) + 표시만 숨김. debug 미로드
   wallpaper.css       WE 전용 오버라이드 (하단 시간대 UI·디버그 잔재 숨김)
   wallpaper.js        WE 브릿지 (scene/intro/cfg_*/snapshot_json → __TSUKUYOMI__ 호출)
   vendor/             코어 동결본 (public에서 바이트 복사, 수정 금지)
-    tsukuyomi.js / tsukuyomi.css / cloud-doc.js / cloud-live.js
-    lantern-front.svg / assets/icons/icon.svg / clouds/index.json
+    tsukuyomi.js / tsukuyomi.css / cloud-live.js
+    lantern-front.svg / assets/icons/icon.svg
   tools/
     generate-project-json.py  project.json 생성기 (vendor CFG + public GROUPS 읽기만)
     rebuild-map.json          GROUPS rebuild 플래그 추출본 (wallpaper.js REBUILD와 대조용)
@@ -30,18 +30,18 @@ wallpaper/
   CORE_VERSION.txt    동결 커밋·날짜·원본 목록
 ```
 
-`wallpaper.html`은 `../public`을 참조하지 않으며, `tsukuyomi.debug.js`·`tsukuyomi.cloudedit.js`·
+`wallpaper.html`은 `../public`을 참조하지 않으며, `tsukuyomi.debug.js`·
 `bootstrap-icons`를 로드하지 않는다 (숨겨진 dock 아이콘용 외부 CSS 불필요).
 
 ## 동결 버전
 
 - `CORE_VERSION.txt` 참고 (커밋 `ed18741` + `MOON_SIZE` 1.6, 2026-10-09 UTC 기준).
-- `project.json`의 고급 기본값 177종은 동결 CFG에서 그대로 생성됐다 (기존 176종 + `MOON_SIZE`).
+- `project.json`의 고급 기본값 176종은 동결 CFG에서 그대로 생성됐다 (기존 176종 + `MOON_SIZE` − 브러시 구름 에디터 `CLOUD_DOC` 1종).
 - 검증: `python wallpaper/tools/verify-wallpaper.py` (vendor 해시·기본값·참조·git 범위 검사).
 
 ## WE 옵션
 
-기본 4종은 그룹에 속하지 않고 맨 위에 표시된다. 고급 177종은 디버그 패널과 같은
+기본 4종은 그룹에 속하지 않고 맨 위에 표시된다. 고급 176종은 디버그 패널과 같은
 12개 카테고리 그룹(전환 타이밍·레이아웃·토리이/달·별·산·구름·새 낮·태양·달/안개·
 반사·물결·랜턴)으로 접어서 보여준다. 키 앞의 영문+숫자 접두사는 카테고리 순서를 고정하며,
 WE 조건식이 해석할 수 있도록 반드시 문자 시작으로 쓴다 (숫자 시작 키는 조건 평가 실패로 숨겨진다).
@@ -54,7 +54,7 @@ WE 조건식이 해석할 수 있도록 반드시 문자 시작으로 쓴다 (�
 | `a01_intro` | 체크 (밤 계열일 때만 표시) | 켜짐 | 초기 진입 연출 재생. 밤=황혼→밤, 미러볼=황혼→밤 이후 미러볼 전환까지. 끄면 밤은 즉시 idle, 미러볼은 즉시 밤에서 전환 연출만 재생 |
 | `a02_show_advanced` | 체크 | 꺼짐 | 켜면 아래 12개 고급 그룹이 표시된다 |
 | `a03_snapshot_json` | 텍스트 | 비움 | 웹 디버그 패널 "내보내기" JSON을 붙여넣는 탈출구 (cfg+palettes 반영, 장면은 WE 옵션이 우선) |
-| `a04_~a15_` + CFG키 177종 | 슬라이더/체크 | 동결값 | 웹 디버그 패널 파라미터를 카테고리별로 위임. 0/1 토글(CLOUD_DOC·CL_LIVE·DAY_SCENE·MTN_SHOW·REFL_AUTO·LANTERN_CARD_AVOID)은 체크로 표시 |
+| `a04_~a15_` + CFG키 176종 | 슬라이더/체크 | 동결값 | 웹 디버그 패널 파라미터를 카테고리별로 위임. 0/1 토글(CL_LIVE·DAY_SCENE·MTN_SHOW·REFL_AUTO·LANTERN_CARD_AVOID)은 체크로 표시 |
 
 낮·황혼 선택 시에는 인트로 없이 해당 idle로 바로 진입한다.
 실행 중 장면을 바꾸면 전환 애니메이션으로 이동한다 (밤+연출 끄기는 즉시 점프,
@@ -83,17 +83,17 @@ python wallpaper/tools/verify-wallpaper.py
 
 ## 배포 패키지 (`dist-we/Tsukuyomi-WE.zip`)
 
-필수 12종만 포함. `tools/`·`README.md`·`CORE_VERSION.txt`는 제외.
+필수 10종만 포함. `tools/`·`README.md`·`CORE_VERSION.txt`는 제외.
 
 - `project.json` (`"preview": "preview.jpg"` 포함), `wallpaper.html`,
   `wallpaper.js`, `wallpaper.css`, `preview.jpg`
-- `vendor/` 7종: `tsukuyomi.js`·`tsukuyomi.css`·`cloud-doc.js`·`cloud-live.js`·
-  `lantern-front.svg`·`assets/icons/icon.svg`·`clouds/index.json`
+- `vendor/` 5종: `tsukuyomi.js`·`tsukuyomi.css`·`cloud-live.js`·
+  `lantern-front.svg`·`assets/icons/icon.svg`
 - `preview.jpg`는 `thumbnail.png`(원본, 128px)를 300x300 JPEG으로 변환한
   WE용 썸네일이다. WE가 인식하는 썸네일명은 `preview.jpg`/`preview.gif`뿐이므로
   `thumbnail.png`를 직접 지정하면 표시되지 않는다. `thumbnail.png`는 원본 보관용으로
   소스에만 두고 배포 zip에는 넣지 않는다.
-- 재생성은 이 12개를 `Tsukuyomi/` 폴더에 담아 zip으로 묶으면 된다.
+- 재생성은 이 10개를 `Tsukuyomi/` 폴더에 담아 zip으로 묶으면 된다.
 
 ## Workshop 릴리즈 업로드 (폴더째 복사 방식)
 

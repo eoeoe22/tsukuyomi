@@ -2,7 +2,7 @@
 """wallpaper 패키지 검증 (읽기 전용, 수정 없음).
 
 검사:
-  1. vendor 동결본 == public 현행본 (sha256, 7개 파일)
+  1. vendor 동결본 == public 현행본 (sha256, 5개 파일)
   2. project.json 유효성 (file/type/기본 4종/전 GROUPS 커버/기본값 일치/타입·조건)
   3. wallpaper.js 내 REBUILD 맵 == tools/rebuild-map.json (GROUPS rebuild와 1:1)
   4. wallpaper.html 참조 무결성 (vendor만 참조, public/debug/cloudedit/bootstrap 금지)
@@ -27,11 +27,9 @@ VENDOR = WP / "vendor"
 FROZEN_FILES = [
     "tsukuyomi.js",
     "tsukuyomi.css",
-    "cloud-doc.js",
     "cloud-live.js",
     "lantern-front.svg",
     "assets/icons/icon.svg",
-    "clouds/index.json",
 ]
 
 failures = []
@@ -251,7 +249,7 @@ def main() -> int:
     # 4. wallpaper.html 참조
     html = (WP / "wallpaper.html").read_text(encoding="utf-8")
     for ref in ("vendor/tsukuyomi.js", "vendor/tsukuyomi.css",
-                "vendor/cloud-doc.js", "vendor/cloud-live.js",
+                "vendor/cloud-live.js",
                 "wallpaper.js", "wallpaper.css"):
         check(f"html 참조: {ref}", ref in html, "누락")
     for banned in ("../public", "public/tsukuyomi", "tsukuyomi.debug.js",

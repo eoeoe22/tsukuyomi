@@ -10,12 +10,10 @@
 }
 
 /* 디버그 패널이 어떤 경로로도 살아나지 못하게 차단.
- * (wallpaper.html은 debug/cloudedit 스크립트를 로드하지 않으며,
+ * (wallpaper.html은 debug 스크립트를 로드하지 않으며,
  *  이 규칙은 만일의 잔재까지 가린다. 고급 조절은 WE 옵션에 위임.) */
 .tsd-panel,
-#tsdFab,
-.tsce-pad,
-.tsce-ref {
+#tsdFab {
     display: none !important;
 }
 
