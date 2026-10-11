@@ -141,7 +141,7 @@
                 // DS_A: 밝기, DS_GROW: 궤적이 TRAIL_LEN까지 자라는 시간(초), DS_FADE: 켜고 끌 때 페이드 시간(초)
                 DS_A: 0.8, DS_GROW: 4.5, DS_FADE: 1.4,
                 // DS_POLE_X/Y: 공백 별 궤적 전용 북극성(회전 중심) 위치(화면 너비/수평선 비율, 음수 = 화면 위 밖). 밤 장면 POLE_X/Y와 별개.
-                DS_POLE_X: 0.12, DS_POLE_Y: -0.35,
+                DS_POLE_X: 0.215, DS_POLE_Y: 0.145,
                 // DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
                 DY_COLUMN: 0,
                 // 구름 뚫림(ref: 어두운 앞 구름이 불균일하게 찢겨 그 너머 햇빛 받은 흰 구름이 비친다):
