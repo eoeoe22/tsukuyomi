@@ -361,6 +361,7 @@
             det.appendChild(sum);
             const sec = document.createElement('div');
             sec.className = 'tsd-sec';
+            if (g.title === '구름') sec.appendChild(buildCloudLayers());
             for (const [key, min, max, step, rebuild] of g.keys) {
                 if (!(key in b.cfg)) continue;
                 const row = document.createElement('div');
@@ -407,6 +408,37 @@
         syncSceneUI();
         refreshMirror(b);
         buildPaletteEditors(b, true);
+    }
+
+    // ---------- 구름 레이어 편집기 켜기/끄기 (tsukuyomi.cloudlayers.js) — 구름 탭 맨 위 ----------
+    let cloudToggle = null;
+    function syncCloudToggle() {
+        if (!cloudToggle) return;
+        const on = !!(window.TsukuyomiCloudLayers && window.TsukuyomiCloudLayers.isOpen);
+        cloudToggle.classList.toggle('on', on);
+        cloudToggle.setAttribute('aria-pressed', String(on));
+        cloudToggle.textContent = on ? '구름 레이어 편집기 끄기' : '구름 레이어 편집기 켜기';
+    }
+    function buildCloudLayers() {
+        const box = document.createElement('div');
+        const row = document.createElement('div');
+        row.className = 'tsd-btnrow';
+        const hint = document.createElement('div');
+        hint.className = 'tsd-hint';
+        hint.textContent = '공백 장면 구름을 레이어 단위로 고친다(기존 덩어리 + 그린 레이어, 형태·빛 비침·음영).';
+        cloudToggle = document.createElement('button');
+        cloudToggle.type = 'button';
+        cloudToggle.className = 'tsd-toggle';
+        cloudToggle.addEventListener('click', () => {
+            if (window.TsukuyomiCloudLayers) window.TsukuyomiCloudLayers.toggle();
+            else hint.textContent = 'tsukuyomi.cloudlayers.js가 로드되지 않았다.';
+            syncCloudToggle();
+        });
+        row.appendChild(cloudToggle);
+        box.appendChild(row);
+        box.appendChild(hint);
+        syncCloudToggle();
+        return box;
     }
 
     // ---------- 미러볼 (미러볼 SVG 생성기 파라미터 이식) ----------
@@ -1025,7 +1057,7 @@
             renderSrc();
             // 패널이 닫혀 있을 때는 DOM 쓰기를 생략: DevTools를 닫은 상태의 백그라운드 비용 제거.
             // 패널이 열려 있을 때(DevTools 도크 포함) 300ms마다 상태 텍스트+슬라이더 동기화만 수행.
-            setInterval(() => { if (panel.hidden) return; tickStatus(); syncSceneUI(); }, 300);
+            setInterval(() => { if (panel.hidden) return; tickStatus(); syncSceneUI(); syncCloudToggle(); }, 300);
             tickStatus();
         });
     });

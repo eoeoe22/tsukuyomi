@@ -147,6 +147,7 @@
 .tsd-check input { accent-color: #4b70e2; }
 
 .tsd-btnrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.tsd-body button.tsd-toggle.on { background: #c2410c; border-color: #fb923c; color: #fff; }
 
 .tsd-body textarea {
     width: 100%;
@@ -186,3 +187,191 @@
 
 /* 카드 미리보기 (cards/*.wiki) */
 .tsd-body textarea.tsd-card-src { min-height: 220px; resize: vertical; white-space: pre; tab-size: 2; }
+
+/* 구름 레이어 편집기 (tsukuyomi.cloudlayers.js) — 공백 장면 오버레이 */
+.tcl-panel {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    width: min(340px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px);
+    display: flex;
+    flex-direction: column;
+    background: rgba(16, 19, 26, 0.94);
+    color: #dfe5ee;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    z-index: 10000;
+    overflow: hidden;
+}
+.tcl-panel[hidden] { display: none; }
+.tcl-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.03);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.tcl-head strong { flex: 1; min-width: 0; font-size: 12px; letter-spacing: 0.04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tcl-head button { white-space: nowrap; }
+.tcl-panel button {
+    background: #232936;
+    color: #dfe5ee;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 7px;
+    padding: 3px 8px;
+    font: inherit;
+    cursor: pointer;
+}
+.tcl-panel button:hover:not(:disabled) { background: #2e3646; }
+.tcl-panel button:disabled { opacity: 0.4; cursor: default; }
+.tcl-panel button.on { background: #3b5bdb; border-color: #748ffc; color: #fff; }
+.tcl-head .tcl-edit.on { background: #c2410c; border-color: #fb923c; }
+.tcl-body { overflow-y: auto; padding: 8px 10px 12px; overscroll-behavior: contain; user-select: none; -webkit-user-select: none; }
+.tcl-body input[type=text], .tcl-body input[type=number] { user-select: text; -webkit-user-select: text; }
+.tcl-body[hidden] { display: none; }
+.tcl-body details { border-top: 1px solid rgba(255, 255, 255, 0.07); padding: 4px 0; }
+.tcl-body summary { cursor: pointer; color: #aab3c5; padding: 2px 0; }
+.tcl-sec { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 2px; }
+.tcl-status {
+    background: #0d1117;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    white-space: pre-wrap;
+    color: #aab3c5;
+    font-size: 11px;
+}
+.tcl-tools, .tcl-btns { display: flex; flex-wrap: wrap; gap: 4px; }
+.tcl-tools button { flex: 1 1 auto; }
+.tcl-hint { color: #8b93a5; font-size: 11px; }
+.tcl-hint[hidden] { display: none; }
+.tcl-row { display: grid; grid-template-columns: 76px 1fr 56px auto; gap: 6px; align-items: center; }
+.tcl-row > label:first-child { color: #aab3c5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tcl-row.sel { grid-template-columns: 76px 1fr; }
+.tcl-row.col { grid-template-columns: 76px 34px 1fr 56px; }
+.tcl-row input[type=range] { width: 100%; min-width: 0; }
+.tcl-row input[type=number], .tcl-row select, .tcl-name {
+    width: 100%;
+    min-width: 0;
+    background: #0d1117;
+    color: #dfe5ee;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 6px;
+    padding: 2px 4px;
+    font: inherit;
+}
+.tcl-row input[type=color] { width: 34px; height: 22px; padding: 0; border: 0; background: none; }
+.tcl-auto { display: flex; align-items: center; gap: 2px; color: #8b93a5; font-size: 11px; }
+.tcl-checks { display: flex; flex-wrap: wrap; gap: 4px 12px; color: #aab3c5; }
+.tcl-props { display: flex; flex-direction: column; gap: 4px; }
+.tcl-props.off { display: none; }
+.tcl-list {
+    display: flex;
+    flex-direction: column;
+    background: #0d1117;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    max-height: 340px;
+    overflow-y: auto;
+}
+.tcl-stage {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 3px 8px;
+    background: #161b24;
+    color: #8b93a5;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.tcl-stage.drop-into { background: #2b3f7a; color: #fff; }
+.tcl-empty { padding: 6px 10px; color: #5d6577; font-size: 10px; font-style: italic; }
+.tcl-layer {
+    display: grid;
+    grid-template-columns: 24px 58px 1fr;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px 3px 2px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 2px solid transparent;
+    cursor: pointer;
+    position: relative;
+}
+.tcl-layer:hover { background: rgba(255, 255, 255, 0.04); }
+.tcl-layer.on { background: rgba(59, 91, 219, 0.38); }
+.tcl-layer.on:focus-visible, .tcl-layer:focus-visible { outline: 1px solid #748ffc; outline-offset: -1px; }
+.tcl-layer.hid .tcl-thumb, .tcl-layer.hid .tcl-meta { opacity: 0.45; }
+.tcl-layer.dragging { opacity: 0.4; }
+.tcl-layer.drop-above { border-top-color: #748ffc; }
+.tcl-layer.drop-below { box-shadow: inset 0 -2px 0 #748ffc; }
+.tcl-panel .tcl-eye {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    background: none;
+    border: 0;
+    color: #c3cbdb;
+}
+.tcl-panel .tcl-eye:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+.tcl-panel .tcl-eye.off { color: #5d6577; }
+.tcl-thumb {
+    position: relative;
+    width: 56px;
+    height: 34px;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    /* 하늘색 + 옅은 체크무늬: 투명 부분이 보이게 */
+    background:
+        conic-gradient(rgba(255, 255, 255, 0.05) 25%, transparent 0 50%, rgba(255, 255, 255, 0.05) 0 75%, transparent 0) 0 0 / 8px 8px,
+        linear-gradient(#3b5a8c, #8fb0d6);
+}
+.tcl-layer.on .tcl-thumb { border-color: #9fb3ff; }
+.tcl-thumb-c { display: block; width: 100%; height: 100%; }
+.tcl-thumb-e {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.75);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.tcl-thumb-e[hidden] { display: none; }
+.tcl-meta { min-width: 0; display: flex; flex-direction: column; }
+.tcl-ltop { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.tcl-lname { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e6ebf3; }
+.tcl-layer.base .tcl-lname { color: #c9d1de; }
+.tcl-lsub { color: #8b93a5; font-size: 10px; min-height: 1em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tcl-tag {
+    flex: 0 0 auto;
+    font-size: 9px;
+    line-height: 1;
+    padding: 2px 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #aab3c5;
+}
+.tcl-tag.ed { background: rgba(251, 146, 60, 0.22); color: #fdba74; }
+.tcl-tag.solo { background: rgba(116, 143, 252, 0.3); color: #c7d2fe; }
+.tcl-rename { padding: 0 4px; }
+.tcl-row[hidden], .tcl-hint[hidden] { display: none; }
+.tcl-pad { position: fixed; inset: 0; z-index: 9990; display: none; touch-action: none; cursor: none; }
+.tcl-pad.on { display: block; }
+.tcl-cur { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+@media (max-width: 460px) {
+    .tcl-panel { top: auto; bottom: 8px; left: 8px; width: calc(100vw - 16px); max-height: 46vh; }
+}
