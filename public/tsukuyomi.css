@@ -326,6 +326,22 @@
             }
         }
 
+        /* 별 궤적 토글: 공백 장면(.scene-day)에서만 시간대 버튼과 감상 모드 버튼 사이에 나타난다.
+           나타남/사라짐은 감상 토글 접힘과 같은 폭·여백·투명도·축소 트랜지션. 펼침/접힘 규칙은 위 .wallpaper-toggle 규칙을 공유. */
+        .panel:not(.scene-day) .stars-toggle {
+            width: 0;
+            min-width: 0;
+            margin-left: 0;
+            padding-left: 0;
+            padding-right: 0;
+            border-width: 0;
+            opacity: 0;
+            transform: scale(0.5);
+            pointer-events: none;
+            visibility: hidden;
+            transition: background-color 0.25s, color 0.25s, transform 0.25s, width 0.35s ease, min-width 0.35s ease, margin-left 0.35s ease, opacity 0.3s ease, box-shadow 1.25s ease, visibility 0s 0.35s;
+        }
+
         /* 순수 배경화면 감상 모드: 클릭 인디케이터 및 텍스트(핀 전체) 숨김 */
         body[data-wallpaper] .focus-pin {
             display: none !important;

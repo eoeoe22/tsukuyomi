@@ -137,6 +137,11 @@
                 // DY_RIMBOT: 뒷층 림라이트가 0이 되는 높이(수평선 비율). 이 아래 하부 구름층·수평선에는 빛이 닿지 않는다.
                 DY_RIMBOT: 0.62,
                 DY_STAR_A: 0.6, DY_GLINT_N: 420, DY_GLINT_A: 1, DY_WATER: 0.34,
+                // 공백 별 궤적(reference-images/day-empty-star.png): bi-stars 토글 시 구름 뒤 하늘에 밤 별 궤적 렌더러를 그대로 합성.
+                // DS_A: 밝기, DS_GROW: 궤적이 TRAIL_LEN까지 자라는 시간(초), DS_FADE: 켜고 끌 때 페이드 시간(초)
+                DS_A: 0.8, DS_GROW: 4.5, DS_FADE: 1.4,
+                // DS_POLE_X/Y: 공백 별 궤적 전용 북극성(회전 중심) 위치(화면 너비/수평선 비율, 음수 = 화면 위 밖). 밤 장면 POLE_X/Y와 별개.
+                DS_POLE_X: 0.12, DS_POLE_Y: -0.35,
                 // DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
                 DY_COLUMN: 0,
                 // 구름 뚫림(ref: 어두운 앞 구름이 불균일하게 찢겨 그 너머 햇빛 받은 흰 구름이 비친다):
@@ -536,9 +541,15 @@
                 return sunVis <= 0 ? k : k.map((c, i) => mix(c, d[i], sunVis));
             };
             let phi = 0, phiTail = null, omega = 0, clock = 0;   // phiTail: 궤적 꼬리 각도 (null = 궤적 없음)
+            // 공백 별 궤적: 밤 궤적(phi/phiTail)과 독립. dsK = 궤적 성장(0..1), dsTail = 꼬리 각도, dsA = 페이드
+            let dsOn = false, dsA = 0, dsK = 0, dsTail = 0;
+            const dsLen = () => CFG.TRAIL_LEN * (1 - Math.pow(1 - dsK, 3));
             // 달 상승 보간(mt)과 궤적 길이를 공유하는 헬퍼: drawSky의 달 위치와 동일한 식
             const moonMT = pp => { const m = ss(CFG.MOON_A0, CFG.MOON_A1, pp); return 1 - Math.pow(1 - m, 3); };
             let stars = [], buckets = [];
+            // 공백 별 궤적 전용 별 세트(극점 DS_POLE_X/Y). 밤 세트는 전역 pole/R/buckets 그대로.
+            let dsSet = { pole: { x: 0, y: 0 }, R: 1, buckets: [] };
+            const nightSet = () => ({ pole, R, buckets });
             let mtn = [], clouds = [], duskClouds = [];
             // 새 낮: 구름(day2Clouds, 스프라이트는 유휴 시간에 하나씩 굽는다), 구름 틈 별, 수면 반짝임
             let day2Clouds = [], day2Stars = [], glints = [];
@@ -1275,11 +1286,13 @@
 
             // ---------- scene construction ----------
             function buildStars() {
+                buildDayStars();
                 const rng = mulberry32(7);
                 const corners = [[0, 0], [W, 0], [0, HZ], [W, HZ]];
                 R = Math.max(...corners.map(([x, y]) => Math.hypot(x - pole.x, y - pole.y)));
                 const dens = 1 / (CFG.STAR_DENS * clamp(W / 1400, 0.55, 1));
                 const n = Math.min(CFG.STAR_MAX, Math.round(Math.PI * R * R * dens));
+                starFree(buckets);
                 stars = [];
                 buckets = Array.from({ length: 12 }, () => []);
                 for (let i = 0; i < n; i++) {
@@ -1303,6 +1316,31 @@
                     stars.push(s);
                     buckets[lvl * 3 + col].push(s);
                 }
+            }
+
+            // 공백 별 세트: 극점이 화면 밖이면 시야에 닿는 고리(rMin..R)에만 별을 뿌려 밤과 같은 화면 밀도를 유지한다.
+            // 회전해도 시야는 항상 이 고리 안이므로 원주 전체에 고르게 둔다.
+            function buildDayStars() {
+                const rng = mulberry32(11);
+                const px = W * CFG.DS_POLE_X, py = HZ * CFG.DS_POLE_Y;
+                const corners = [[0, 0], [W, 0], [0, HZ], [W, HZ]];
+                const R2 = Math.max(...corners.map(([x, y]) => Math.hypot(x - px, y - py)));
+                const rMin = Math.hypot(clamp(px, 0, W) - px, clamp(py, 0, HZ) - py);
+                const q0 = Math.max(0.0004, (rMin / R2) ** 2);
+                const dens = 1 / (CFG.STAR_DENS * clamp(W / 1400, 0.55, 1));
+                const n = Math.min(4000, Math.round(Math.PI * (R2 * R2 - rMin * rMin) * dens));
+                const bk = Array.from({ length: 12 }, () => []);
+                for (let i = 0; i < n; i++) {
+                    const rn = Math.sqrt(q0 + rng() * (1 - q0));
+                    const th = rng() * Math.PI * 2;
+                    const u = rng();
+                    const lvl = u < 0.55 ? 0 : u < 0.83 ? 1 : u < 0.95 ? 2 : 3;
+                    const c = rng();
+                    const col = c < 0.62 ? 0 : c < 0.86 ? 1 : 2;
+                    bk[lvl * 3 + col].push({ rn, th, lvl, col });
+                }
+                starFree(dsSet.buckets);
+                dsSet = { pole: { x: px, y: py }, R: R2, buckets: bk };
             }
 
             function buildMountains() {
@@ -2572,21 +2610,22 @@
             }
             const HALF_PI = Math.PI / 2, TAU = Math.PI * 2;
             // 별 목록을 버킷(등급·색) 순서로 펼친 것. 2D 경로는 버킷 구간 단위로, WebGL 정점 버퍼는 이 순서로 만든다.
-            let starFlat = [], starFlatSrc = null;
-            function starList() {
-                if (starFlatSrc !== buckets) {
-                    starFlatSrc = buckets;
-                    starFlat = [];
-                    for (let k = 0; k < 12; k++) for (const s of buckets[k]) starFlat.push({ s, k });
+            const starFlat = new WeakMap();
+            function starList(bk) {
+                let f = starFlat.get(bk);
+                if (!f) {
+                    f = [];
+                    for (let k = 0; k < 12; k++) for (const s of bk[k]) f.push({ s, k });
+                    starFlat.set(bk, f);
                 }
-                return starFlat;
+                return f;
             }
             // 별 레이어 그리기 코어: list[i0, i1) 중 영역 v(world, pad 포함)와 겹치는 궤적·점만 g에 그린다.
             // 같은 버킷이 연속된 구간마다 궤적 stroke 한 번 + 점 스프라이트를 그린다 (버킷별 순서 유지).
             // g의 transform은 호출자가 world 좌표 기준으로 맞춰 둔다.
-            function drawStarRange(g, list, i0, i1, v, ph, len, a, sprPx) {
+            function drawStarRange(g, list, i0, i1, v, ph, len, a, sprPx, set) {
                 const x0 = v.x0, y0 = v.y0, x1 = v.x1, y1 = v.y1;
-                const px = pole.x, py = pole.y;
+                const px = set.pole.x, py = set.pole.y, R = set.R;
                 // 고리 판정용: 극점에서 영역까지 최근접/최원 거리
                 const nx = clamp(px, x0, x1) - px, ny = clamp(py, y0, y1) - py;
                 const dNear = Math.hypot(nx, ny);
@@ -2697,9 +2736,10 @@ void main() {
   gl_FragColor = vec4(vC * v, v);
 }`;
             const stC = document.createElement('canvas');
-            let stG = null, stU = null, stN = 0, stSrc = null, stBad = false, starBuilds = 0;
+            // 별 세트(buckets)마다 정점 버퍼 하나. 컨텍스트를 새로 만들면 통째로 버린다.
+            let stG = null, stU = null, stA = null, stBufs = new WeakMap(), stBad = false, starBuilds = 0;
             function starInitGL() {
-                stG = null; stSrc = null;
+                stG = null; stBufs = new WeakMap();
                 let g = null;
                 try {
                     g = stC.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
@@ -2721,12 +2761,10 @@ void main() {
                     g.linkProgram(prog);
                     if (!g.getProgramParameter(prog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(prog));
                     g.useProgram(prog);
-                    g.bindBuffer(g.ARRAY_BUFFER, g.createBuffer());
                     const aS = g.getAttribLocation(prog, 'aStar'), aT = g.getAttribLocation(prog, 'aT');
                     g.enableVertexAttribArray(aS);
-                    g.vertexAttribPointer(aS, 4, g.FLOAT, false, 24, 0);
                     g.enableVertexAttribArray(aT);
-                    g.vertexAttribPointer(aT, 2, g.FLOAT, false, 24, 16);
+                    stA = { aS, aT };
                     stU = {};
                     for (const k of ['uPole', 'uOff', 'uRes', 'uR', 'uPh', 'uLen', 'uScale', 'uA']) stU[k] = g.getUniformLocation(prog, k);
                     stU.uLv = g.getUniformLocation(prog, 'uLv[0]');
@@ -2743,11 +2781,23 @@ void main() {
             }
             stC.addEventListener('webglcontextlost', e => { e.preventDefault(); stG = null; });
             stC.addEventListener('webglcontextrestored', () => { stBad = false; starInitGL(); });
-            // 별 목록이 바뀌었으면(buildStars) 정점 버퍼를 다시 올린다. 별마다 STAR_SEG개 사각형 = 6정점.
-            function starUpload() {
-                if (stSrc === buckets) return;
-                stSrc = buckets;
-                const list = starList(), SEG = STAR_SEG;
+            // 교체되는 별 목록의 정점 버퍼 해제 (resize·디버그 재생성마다 새 목록이 생긴다)
+            function starFree(bk) {
+                const b = stBufs.get(bk);
+                if (!b) return;
+                stBufs.delete(bk);
+                if (stG && !stG.isContextLost()) stG.deleteBuffer(b.buf);
+            }
+            // 세트의 정점 버퍼를 바인딩한다. 처음 보는 별 목록(buildStars 직후)이면 새로 올린다. 별마다 STAR_SEG개 사각형 = 6정점.
+            function starUpload(bk) {
+                const g = stG;
+                let b = stBufs.get(bk);
+                if (!b) { b = { buf: g.createBuffer(), n: 0 }; stBufs.set(bk, b); }
+                g.bindBuffer(g.ARRAY_BUFFER, b.buf);
+                g.vertexAttribPointer(stA.aS, 4, g.FLOAT, false, 24, 0);
+                g.vertexAttribPointer(stA.aT, 2, g.FLOAT, false, 24, 16);
+                if (b.n) return b.n;
+                const list = starList(bk), SEG = STAR_SEG;
                 const data = new Float32Array(list.length * SEG * 36);
                 let o = 0;
                 for (const { s } of list) {
@@ -2758,12 +2808,13 @@ void main() {
                         }
                     }
                 }
-                stG.bufferData(stG.ARRAY_BUFFER, data, stG.STATIC_DRAW);
-                stN = list.length * SEG * 6;
+                g.bufferData(g.ARRAY_BUFFER, data, g.STATIC_DRAW);
+                b.n = list.length * SEG * 6;
                 starBuilds++;
+                return b.n;
             }
             // S의 현재 변환(world→버퍼, 축척·이동만)으로 시야 v의 버퍼 행만 그려 S에 합성한다.
-            function drawStarsGL(v, len, a) {
+            function drawStarsGL(v, len, a, ph, set) {
                 if (!stG && !stBad) starInitGL();
                 const g = stG;
                 if (!g || g.isContextLost()) return false;
@@ -2772,21 +2823,22 @@ void main() {
                 const y0 = clamp(Math.floor(v.y0 * m.d + m.f) - 2, 0, bh), y1 = clamp(Math.ceil(v.y1 * m.d + m.f) + 2, 0, bh);
                 if (y1 <= y0) return true;
                 if (stC.width !== bw || stC.height !== bh) { stC.width = bw; stC.height = bh; }
-                starUpload();
+                const n = starUpload(set.buckets);
+                if (!n) return true;
                 g.viewport(0, 0, bw, bh);
                 g.scissor(0, bh - y1, bw, y1 - y0);
                 g.clear(g.COLOR_BUFFER_BIT);
-                g.uniform2f(stU.uPole, pole.x, pole.y);
+                g.uniform2f(stU.uPole, set.pole.x, set.pole.y);
                 g.uniform2f(stU.uOff, m.e, m.f);
                 g.uniform2f(stU.uRes, bw, bh);
-                g.uniform1f(stU.uR, R);
-                g.uniform1f(stU.uPh, phi);
+                g.uniform1f(stU.uR, set.R);
+                g.uniform1f(stU.uPh, ph);
                 g.uniform1f(stU.uLen, len);
                 g.uniform1f(stU.uScale, m.a);
                 g.uniform1f(stU.uA, a);
                 g.uniform2fv(stU.uLv, LV.flatMap(L => [L.d, L.al]));
                 g.uniform3fv(stU.uCol, COLS.flatMap(c => [c[0] / 255, c[1] / 255, c[2] / 255]));
-                g.drawArrays(g.TRIANGLES, 0, stN);
+                g.drawArrays(g.TRIANGLES, 0, n);
                 S.save();
                 S.setTransform(1, 0, 0, 1, 0, 0);
                 S.globalCompositeOperation = 'lighter';
@@ -2795,15 +2847,19 @@ void main() {
                 return true;
             }
             function drawStars() {
-                const a = starAlpha();
-                if (a <= 0.003) return;
                 const len = phiTail === null ? 0 : clamp(phi - phiTail, 0, CFG.TRAIL_LEN);
+                drawStarLayer(nightSet(), phi, len, starAlpha());
+            }
+            // 별 레이어 1장(세트 set, 위상 ph, 궤적 길이 len, 알파 a). 밤 궤적과 공백 별 궤적이 같은 렌더러를 공유하고,
+            // 세트마다 극점·반경·별 목록이 다르다 (공백 = dsSet, DS_POLE_X/Y).
+            function drawStarLayer(set, ph, len, a) {
+                if (a <= 0.003) return;
                 const v = starView();
-                if ((CFG.STAR_GL ?? 1) >= 0.5 && drawStarsGL(v, len, a)) return;
+                if ((CFG.STAR_GL ?? 1) >= 0.5 && drawStarsGL(v, len, a, ph, set)) return;
                 if (ZP.on) ZP.acc.sdir = 1;
                 const pad = 3;
-                const list = starList();
-                drawStarRange(S, list, 0, list.length, { x0: v.x0 - pad, y0: v.y0 - pad, x1: v.x1 + pad, y1: v.y1 + pad }, phi, len, a, dpr * camRK());
+                const list = starList(set.buckets);
+                drawStarRange(S, list, 0, list.length, { x0: v.x0 - pad, y0: v.y0 - pad, x1: v.x1 + pad, y1: v.y1 + pad }, ph, len, a, dpr * camRK(), set);
             }
 
             // ---------- layout ----------
@@ -2961,6 +3017,16 @@ void main() {
                     }
                 }
 
+                // 공백 별 궤적: 켜면 밤과 같은 방식(꼬리는 W_SLOW로 전진, 머리는 TRAIL_LEN까지 성장)으로 자라며 나타나고,
+                // 끄면 길이를 유지한 채 회전하며 페이드아웃. 완전히 사라지면 다음 켜짐을 위해 성장을 되돌린다.
+                if (dsOn || dsA > 0) {
+                    const fd = Math.max(0.05, CFG.DS_FADE);
+                    dsA = dsOn ? Math.min(1, dsA + dt / fd) : Math.max(0, dsA - dt / fd);
+                    if (dsOn) dsK = Math.min(1, dsK + dt / Math.max(0.05, CFG.DS_GROW));
+                    dsTail += CFG.W_SLOW * dt;
+                    if (!dsOn && dsA <= 0) { dsK = 0; dsTail = 0; }
+                }
+
                 if (!RM.matches) {
                     // 낮 구름 (547f49e 시점 그대로)
                     for (const c of clouds) {
@@ -3090,6 +3156,11 @@ void main() {
                 const d2Live = w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, q));
                 const d2lx = W * CFG.DY_LX, d2ly = HZ * CFG.DY_LY;
                 if (d2Live > 0.005) drawDay2Light(d2lx, d2ly, d2Live);
+                // 공백 별 궤적: 하늘·틈 빛 위, 구름 아래에 그려 구름 사이로 드러난 하늘에만 보인다 (수면 반사도 sky 버퍼를 따라간다)
+                if (dsA > 0.003 && d2Live > 0.005) {
+                    const dk = dsK > 0 ? dsLen() : 0;
+                    drawStarLayer(dsSet, dsTail + dk, dk, CFG.DS_A * ss(0, 1, dsA) * d2Live);
+                }
 
                 // sun path (낮/황혼 공통: 정규화 진행도 nk 기준이라 시작 고도가 동일)
                 const nk = sunK();
@@ -4137,6 +4208,7 @@ void main() {
                 if (night !== lastNight) { lastNight = night; elPanel.classList.toggle('is-night', night); }
                 if (active !== lastActive) {
                     lastActive = active;
+                    elPanel.classList.toggle('scene-day', active === 'day');
                     for (const [el, m] of [[elDay, 'day'], [elDusk, 'dusk'], [elNight, 'night'], [elMirror, 'mirror']]) {
                         if (!el) continue;
                         const on = active === m;
@@ -4273,6 +4345,32 @@ void main() {
             if (elDusk) elDusk.addEventListener('click', () => onPick('dusk', elDusk));
             if (elNight) elNight.addEventListener('click', () => onPick('night', elNight));
             if (elMirror) elMirror.addEventListener('click', () => onPick('mirror', elMirror));
+
+            // ---------- 공백 별 궤적 토글 (공백 장면에서만 노출, 기본값 비활성화) ----------
+            // 버튼 노출/숨김은 .panel.scene-day(CSS 애니메이션). 장면을 벗어나도 상태는 유지되고 공백에서만 그려진다.
+            const elStars = document.getElementById('btnStars');
+            function setDayStars(on) {
+                dsOn = !!on;
+                if (elStars) {
+                    elStars.classList.toggle('on', dsOn);
+                    elStars.setAttribute('aria-pressed', dsOn ? 'true' : 'false');
+                }
+            }
+            if (elStars) elStars.addEventListener('click', e => {
+                e.stopPropagation();
+                if (TOUCH_UI && elPanel && !elPanel.classList.contains('expanded')) {
+                    elPanel.classList.add('expanded');
+                    moveThumb();
+                }
+                setDayStars(!dsOn);
+                if (TOUCH_UI && elPanel) {
+                    clearTimeout(collapseTimer);
+                    collapseTimer = setTimeout(() => {
+                        elPanel.classList.remove('expanded');
+                        moveThumb();
+                    }, 900);
+                }
+            });
 
             // ---------- 배경화면 감상 모드 (단독 토글, 기본값 비활성화) ----------
             // 시간대 버튼그룹과 별도. 활성화 시 클릭 인디케이터 및 텍스트(랜드마크 핀)를 숨겨
