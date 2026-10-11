@@ -2,7 +2,7 @@
 title = 공식 체널 
 lead = 공식 체널 목록
 :::
-
+정보사이트만들려다가페기
 :::infobox
 | {bi:youtube} | [공식 유튜브](https://youtube.com/@cho-kaguyahime-pr) |
 | {bi:camera-reels-fill} | [넷플릭스 페이지](https://www.netflix.com/kr/title/81756595?preventIntent=true)  |
