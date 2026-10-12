@@ -132,6 +132,9 @@
                 DY_GLOW_R: 2, DY_GLOW_CORE: 0.47, DY_GLOW_A: 0.93,
                 DY_F0: 0.2, DY_F1: 0.5,
                 DY_BAND_N: 7, DY_SP: 0.0035, DY_SWAY: 0.01,
+                // DY_REF_AR: 큰 덩어리·구름 오버레이(clouds/day-overlay.json)를 맞춘 기준 화면비(너비 / 수평선 높이).
+                // 이보다 넓은 화면에서는 가로로만 (W / HZ) / DY_REF_AR 배 늘려 배치 그대로 화면을 채운다(오른쪽 끝 잘림·하늘 노출 방지)
+                DY_REF_AR: 2.3,
                 DY_COV: 0.6, DY_SCALE: 8.0, DY_ABSORB: 1.9,
                 DY_VLIFT: 0.15, DY_SKYBOT: 0.7, DY_UPK: 0.45,
                 // DY_RIMBOT: 뒷층 림라이트가 0이 되는 높이(수평선 비율). 이 아래 하부 구름층·수평선에는 빛이 닿지 않는다.
@@ -2049,6 +2052,8 @@
             // 형태는 duskRender(→ cloud-live)로 기존 덩어리와 같은 질감으로 굽고, 톤은 위 램프들을 그대로 빌려 쓴다.
             const cloudOv = window.CloudOverlay ? window.CloudOverlay.create({
                 cfg: CFG, cloudLive, assetUrl, rm: RM,
+                // 손으로 그린 레이어도 큰 덩어리와 같은 배율로 가로만 늘린다
+                stretch: () => day2SX(),
                 render: (m, E, o) => duskRender(m, null, Object.assign({}, o, { E })),
                 tones: {
                     back: { lit: DY_LIT_BACK, shade: DY_SHADE_BACK, rimC: [240, 247, 255], rimK: 0.85, absorbD: -0.25, gd: [1.3, 0.5] },
@@ -2071,7 +2076,7 @@
                         const c = day2Clouds.find(c => c.kind === 'mass' && c.spec.id === ref);
                         if (!c || !c.spr) return null;
                         const G = day2Geom(c, 1);
-                        return { dx: G.dx, dy: G.dy, k: G.tw / c.spr.width };
+                        return { dx: G.dx, dy: G.dy, k: G.tw / c.spr.width, ky: G.th / c.spr.height };
                     },
                     items(ref) {
                         return ref === 'band' ? day2Clouds.filter(c => c.kind === 'band') : day2Clouds.filter(c => c.kind === 'mass' && c.spec.id === ref);
@@ -2153,6 +2158,9 @@
             function ensureDay2() {
                 for (const c of day2Clouds) if (!c.spr) buildDay2Sprite(c);
             }
+            // 넓은 화면 가로 늘림 배율: 덩어리 크기는 수평선 높이를, 자리는 화면 너비를 따르므로 기준 화면비보다 넓으면
+            // 덩어리 사이·화면 끝이 벌어져 하늘이 드러난다 → 기준보다 넓은 만큼 가로로만 늘려 기준 화면비의 배치를 유지한다
+            const day2SX = () => HZ > 0 ? Math.max(1, W / HZ / Math.max(0.5, CFG.DY_REF_AR || 2.3)) : 1;
             function day2Geom(c, base) {
                 const sp = c.spr, pad = sp.pad, w0 = sp.w0, h0 = sp.h0;
                 if (c.kind === 'mass') {
@@ -2160,13 +2168,14 @@
                     // 가운데 덩어리는 좁은 화면에서 틈을 다 덮지 않게 너비로도 제한 (양옆 벽은 화면 밖으로 밀어낸다)
                     let k = S.hh * HZ / h0;
                     if (S.al === 0.5) k = Math.min(k, 2 * S.wmax * W / w0);
-                    const cw = w0 * k, ch = h0 * k, pd = pad * k;
+                    const kx = k * day2SX();
+                    const cw = w0 * kx, ch = h0 * k, pdx = pad * kx, pdy = pad * k;
                     const over = Math.max(0, cw - S.wmax * W);
                     // 앞턱은 더 크게 흔들려 시차(parallax)가 생긴다. 뒷벽은 거의 고정.
                     const swayK = S.swayK ?? 1;
                     const sway = RM.matches || (cloudOv && cloudOv.editing) ? 0 : W * (CFG.DY_SWAY ?? 0) * swayK * Math.sin(clock * 0.04 + c.ph);
                     const cx = S.ax * W - S.al * cw + (S.al < 0.5 ? -over : S.al > 0.5 ? over : 0) + sway;
-                    return { px: pd, tw: cw + pd * 2, th: ch + pd * 2, dx: cx - pd, dy: S.ay * HZ - ch - pd };
+                    return { px: pdx, tw: cw + pdx * 2, th: ch + pdy * 2, dx: cx - pdx, dy: S.ay * HZ - ch - pdy };
                 }
                 const k = base * (c.s ?? 1), sx = c.sw ?? 1, sy = c.sh ?? 1;
                 const cw = w0 * k * sx, ch = h0 * k * sy, px = pad * k * sx, py = pad * k * sy;

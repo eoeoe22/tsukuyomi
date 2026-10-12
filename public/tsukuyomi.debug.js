@@ -66,7 +66,7 @@
             ['DY_SEED', 0, 50, 1, 'clouds'], ['DY_BAND_N', 0, 14, 1, 'clouds'], ['DY_SP', 0, 0.02, 0.0005, 'clouds'],
             ['DY_COV', 0.2, 0.8, 0.01, 'clouds'], ['DY_SCALE', 2, 12, 0.1, 'clouds'], ['DY_ABSORB', 0.2, 4, 0.05, 'clouds'],
             ['DY_VLIFT', 0, 0.35, 0.01, 'clouds'], ['DY_SKYBOT', 0.5, 1, 0.01, 'clouds'], ['DY_UPK', 0, 2, 0.05, 'clouds'],
-            ['DY_SWAY', 0, 0.05, 0.001],
+            ['DY_SWAY', 0, 0.05, 0.001], ['DY_REF_AR', 1, 6, 0.05],
             ['DY_LX', 0, 1, 0.005], ['DY_LY', -0.2, 1, 0.005], ['DY_LIGHT', 0, 1.5, 0.01], ['DY_RIMBOT', 0.35, 0.9, 0.01],
             ['DY_GLOW_R', 0.2, 2.5, 0.01], ['DY_GLOW_CORE', 0, 2.5, 0.01], ['DY_GLOW_A', 0, 2, 0.01],
             ['DY_F0', 0, 1, 0.01], ['DY_F1', 0, 1, 0.01],

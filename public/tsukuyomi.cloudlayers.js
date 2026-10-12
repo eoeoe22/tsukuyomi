@@ -227,7 +227,7 @@
     }
     function toTex(L, x, y) {
         const F = ov.frame(L);
-        return { x: (x - F.x0) / F.ppt, y: (y - F.y0) / F.ppt, ppt: F.ppt };
+        return { x: (x - F.x0) / F.ppt, y: (y - F.y0) / F.ppy, ppt: F.ppt };
     }
     function strokeBegin(ev) {
         const b = bridge();
@@ -360,12 +360,12 @@
             if (prevDirty || prevFor !== L) buildPreview(L);
             const F = ov.frame(L);
             CG.imageSmoothingEnabled = true;
-            CG.drawImage(prevC, F.x0, F.y0, CO.MW * F.ppt, CO.MH * F.ppt);
+            CG.drawImage(prevC, F.x0, F.y0, CO.MW * F.ppt, CO.MH * F.ppy);
             // 맵 범위(이 밖은 칠해지지 않는다)
             CG.setLineDash([6, 6]);
             CG.strokeStyle = 'rgba(255,255,255,0.25)';
             CG.lineWidth = 1;
-            CG.strokeRect(F.x0 + 0.5, F.y0 + 0.5, CO.MW * F.ppt - 1, CO.MH * F.ppt - 1);
+            CG.strokeRect(F.x0 + 0.5, F.y0 + 0.5, CO.MW * F.ppt - 1, CO.MH * F.ppy - 1);
             CG.setLineDash([]);
         }
         // 수평선
