@@ -10,6 +10,8 @@
  *
  * 좌표: 수평선 높이(HZ) 단위. v 0 = 화면 위, 1 = 수평선. u = 기준점(왼쪽 끝 / 가운데 / 오른쪽 끝)에서의 가로 거리.
  *   화면 비율이 바뀌어도 형태가 찌그러지지 않고 기준점 쪽에 붙어 남는다(좁은 화면에선 반대쪽이 잘린다).
+ *   기준 화면비(CFG.DY_REF_AR)보다 넓은 화면에서는 host.stretch() 배만큼 가로로만 늘린다(u도 같은 배율). 기본 레이어는
+ *   덩어리 스프라이트가 같은 배율로 늘어나므로 맵도 덩어리를 따라 늘어난다. 문서(JSON)는 그대로 두고 그릴 때만 늘린다.
  * 문서(JSON): 레이어마다 맵 세 장을 PNG 한 장(R 형태, G 빛, B 음영)으로 담는다.
  * 출처 우선순위: 이 브라우저의 작업본(localStorage) → public/clouds/day-overlay.json
  *
@@ -272,7 +274,7 @@
         };
     }
 
-    // host: { cfg, cloudLive, render(m, E, o) → 캔버스(duskRender), tones, assetUrl(rel), rm(MediaQueryList),
+    // host: { cfg, cloudLive, render(m, E, o) → 캔버스(duskRender), tones, assetUrl(rel), rm(MediaQueryList), stretch() → 가로 배율(≥ 1),
     //         base: { list(), geom(ref), place(ref), draw(ref, ctx), rect(ref), setMod(ref, fn), hasMod(ref) } }
     function create(host) {
         const CFG = host.cfg, B = host.base || null;
@@ -301,16 +303,18 @@
             return ov.W * (CFG.DY_SWAY ?? 0) * L.sway * Math.sin(ov.clock * 0.04 + (L.seed % 628) / 100);
         };
         const baseGeom = L => (L.base && B && B.geom(L.base)) || null;
-        // 맵 텍셀 (0, 0)의 월드 좌표(css px)와 텍셀당 px.
+        // 넓은 화면 가로 늘림 배율(host가 큰 덩어리에 쓰는 값과 같다)
+        const stretchX = () => { const v = host.stretch ? +host.stretch() : 1; return Number.isFinite(v) && v > 1 ? v : 1; };
+        // 맵 텍셀 (0, 0)의 월드 좌표(css px)와 텍셀당 px(ppt 가로, ppy 세로. 넓은 화면에선 ppt만 늘어난다).
         // 기존 덩어리 레이어는 덩어리에 붙는다: 맵 가로 가운데 = 덩어리 가운데, 맵 밑변 BASE_BOT 위 = 덩어리 밑변
         function frame(L) {
             const G = baseGeom(L), P = G && B.place(L.base);
             if (P) {
-                const ppt = P.k * G.h0 / (RES * G.hh);
-                return { x0: P.dx + (G.pad + G.w0 / 2) * P.k - MW / 2 * ppt, y0: P.dy + (G.pad + G.h0) * P.k - (MH - BASE_BOT) * ppt, ppt };
+                const ky = P.ky || P.k, ppt = P.k * G.h0 / (RES * G.hh), ppy = ky * G.h0 / (RES * G.hh);
+                return { x0: P.dx + (G.pad + G.w0 / 2) * P.k - MW / 2 * ppt, y0: P.dy + (G.pad + G.h0) * ky - (MH - BASE_BOT) * ppy, ppt, ppy };
             }
-            const ppt = ov.HZ / RES;
-            return { x0: anchorX(L) + U0[L.anchor] * ov.HZ + swayOff(L), y0: V0 * ov.HZ, ppt };
+            const sx = stretchX(), ppy = ov.HZ / RES;
+            return { x0: anchorX(L) + U0[L.anchor] * ov.HZ * sx + swayOff(L), y0: V0 * ov.HZ, ppt: ppy * sx, ppy };
         }
         // 형태 도구를 쓸 수 있는 레이어인가(수평선 띠 묶음은 빛·음영만)
         const canShape = L => !L.base || !!baseGeom(L);
@@ -346,7 +350,7 @@
             // 광원 쪽 밝기 분포(gd) 정규화 거리 ≈ 1.2 HZ가 되도록 w0를 잡는다(ldiag = hypot(w0, h0))
             const w0 = GR * Math.sqrt(1.44 - 1);
             // 광원 = 장면의 구름 틈 빛(DY_LX/DY_LY) → 레이어 격자 좌표
-            const lu = (ov.W * CFG.DY_LX - anchorX(L)) / (ov.HZ || 1), lv = CFG.DY_LY;
+            const lu = (ov.W * CFG.DY_LX - anchorX(L)) / ((ov.HZ || 1) * stretchX()), lv = CFG.DY_LY;
             const lgx = (lu - ub0) * GR;
             let sun = L.sun;
             if (sun === null || sun === undefined || !Number.isFinite(+sun)) {
@@ -421,8 +425,8 @@
         // T(타깃 캔버스)의 이미 그려진 알파 안에서만 mode로 마스크를 섞는다. T의 현재 변환 = 월드 → 장치 px
         function applyMod(T, Tc, mask, mode, F, bb, scr) {
             const M = T.getTransform(), modC = scr.modC, MG = scr.MG;
-            const wx0 = F.x0 + bb.x0 * F.ppt, wy0 = F.y0 + bb.y0 * F.ppt;
-            const wx1 = F.x0 + bb.x1 * F.ppt, wy1 = F.y0 + bb.y1 * F.ppt;
+            const wx0 = F.x0 + bb.x0 * F.ppt, wy0 = F.y0 + bb.y0 * F.ppy;
+            const wx1 = F.x0 + bb.x1 * F.ppt, wy1 = F.y0 + bb.y1 * F.ppy;
             const p0 = M.transformPoint({ x: wx0, y: wy0 }), p1 = M.transformPoint({ x: wx1, y: wy1 });
             const rx = Math.max(0, Math.floor(Math.min(p0.x, p1.x)) - 2), ry = Math.max(0, Math.floor(Math.min(p0.y, p1.y)) - 2);
             const rx1 = Math.min(Tc.width, Math.ceil(Math.max(p0.x, p1.x)) + 2), ry1 = Math.min(Tc.height, Math.ceil(Math.max(p0.y, p1.y)) + 2);
@@ -436,7 +440,7 @@
             MG.globalCompositeOperation = mode;
             MG.setTransform(M);
             MG.imageSmoothingEnabled = true;
-            MG.drawImage(mask, F.x0, F.y0, MW * F.ppt, MH * F.ppt);
+            MG.drawImage(mask, F.x0, F.y0, MW * F.ppt, MH * F.ppy);
             MG.globalCompositeOperation = 'source-over';
             T.save();
             T.setTransform(1, 0, 0, 1, 0, 0);
@@ -496,7 +500,7 @@
                 if (isBase) B.draw(L.base, T);
                 else {
                     if (host.cloudLive) host.cloudLive.touch(L._spr, performance.now());
-                    T.drawImage(L._spr, F.x0, F.y0, MW * F.ppt, MH * F.ppt);
+                    T.drawImage(L._spr, F.x0, F.y0, MW * F.ppt, MH * F.ppy);
                 }
                 T.globalAlpha = 1;
             }
@@ -570,7 +574,7 @@
             }
             if (!u) return null;
             const F = frame(L), m = 8;
-            return { x: F.x0 + (u.x0 - m) * F.ppt, y: F.y0 + (u.y0 - m) * F.ppt, w: (u.x1 - u.x0 + 2 * m) * F.ppt, h: (u.y1 - u.y0 + 2 * m) * F.ppt };
+            return { x: F.x0 + (u.x0 - m) * F.ppt, y: F.y0 + (u.y0 - m) * F.ppy, w: (u.x1 - u.x0 + 2 * m) * F.ppt, h: (u.y1 - u.y0 + 2 * m) * F.ppy };
         }
         // 썸네일: 레이어 하나만(보이기·단·불투명도와 무관하게) 캔버스 c에 맞춰 그린다. 비었으면 false
         function thumb(L, c) {
