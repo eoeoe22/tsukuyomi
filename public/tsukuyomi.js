@@ -144,6 +144,10 @@
                 DS_POLE_X: 0.215, DS_POLE_Y: 0.145,
                 // DS_FADE0/1: 수평선 근처 궤적 감쇠 구간(수평선 높이 비율). FADE0부터 옅어져 FADE1 아래로는 그리지 않는다.
                 DS_FADE0: 0.45, DS_FADE1: 0.7,
+                // 공백 밤(reference-images/day-empty-dark.png): bi-brightness-alt-high-fill 토글 시 공백 장면을 밤으로 어둡힌다.
+                // 하늘은 SKY_DN으로, 구름은 짙은 남색 실루엣(DN_CLOUD = 덮는 세기)으로, 틈 빛은 DN_LIGHT만 남긴다.
+                // DN_FADE: 전환 시간(초), DN_STAR: 공백 밤에서 별 궤적 밝기 배율, DN_WATER: 수면 추가 어둡힘
+                DN_FADE: 1.8, DN_CLOUD: 0.86, DN_LIGHT: 0.08, DN_STAR: 1.35, DN_WATER: 0.35,
                 // DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
                 DY_COLUMN: 0,
                 // 구름 뚫림(ref: 어두운 앞 구름이 불균일하게 찢겨 그 너머 햇빛 받은 흰 구름이 비친다):
@@ -276,6 +280,9 @@
                 [1.00, '#02040c', '#040816', '#060b20', '#0f1a35', '#172848']
             ];
             let SKY_DAY2 = prep(SKY_DAY2_RAW);
+            // 공백 밤 하늘(day-empty-dark): 구름 틈으로 보이는 짙은 코발트 남색 → 수평선 쪽 거의 검은 남색
+            let SKY_DN_RAW = [[0, '#031a3c', '#05214a', '#051c3e', '#04142c', '#03101f']];
+            let SKY_DN = prep(SKY_DN_RAW);
             let MOUNT_RAW = [
                 [0.00, '#93a8bd'], [0.20, '#8d90a8'], [0.32, '#5b4560'],
                 [0.42, '#2a2038'], [0.56, '#0b0d1c'], [1.00, '#04060d']
@@ -535,9 +542,15 @@
             // 낮 분기 안에서 새 낮(DAY_SCENE=1) / 기존 낮(0, 더미) 선택. 가중치는 sunVis에 곱해 쓴다.
             const day2On = () => (CFG.DAY_SCENE >= 0.5 ? 1 : 0);
             const day2W = () => sunVis * day2On();
+            // 공백 밤: dnOn = 토글 상태, dnA = 전환 페이드(0..1). 새 낮 분기에서만 쓰이므로 day2W를 곱한 dnW()로 적용한다.
+            let dnOn = false, dnA = 0;
+            const dnW0 = () => (day2On() ? ss(0, 1, dnA) : 0);
+            const dnW = () => ss(0, 1, dnA) * day2W();
             // 하늘 색: 낮 분기(SKY_DAY2 또는 기존 SKY_DAY)와 황혼 분기(SKY)를 sunVis로 보간. idle에서는 한쪽만 쓰인다.
             const skyAt = q => {
-                const d = keyed(day2On() ? SKY_DAY2 : SKY_DAY, q);
+                let d = keyed(day2On() ? SKY_DAY2 : SKY_DAY, q);
+                const dw = dnW0();
+                if (dw > 0) { const n = keyed(SKY_DN, q); d = d.map((c, i) => mix(c, n[i], dw)); }
                 if (sunVis >= 1) return d;
                 const k = keyed(SKY, q);
                 return sunVis <= 0 ? k : k.map((c, i) => mix(c, d[i], sunVis));
@@ -3036,6 +3049,11 @@ void main() {
                     dsTail += CFG.W_SLOW * dt;
                     if (!dsOn && dsA <= 0) { dsK = 0; dsTail = 0; }
                 }
+                // 공백 밤 전환 페이드
+                if (dnOn ? dnA < 1 : dnA > 0) {
+                    const fd = Math.max(0.05, CFG.DN_FADE);
+                    dnA = dnOn ? Math.min(1, dnA + dt / fd) : Math.max(0, dnA - dt / fd);
+                }
 
                 if (!RM.matches) {
                     // 낮 구름 (547f49e 시점 그대로)
@@ -3116,7 +3134,7 @@ void main() {
             }
             // 새 낮: 수면 반짝임. 반사된 하늘이 밝은 곳(썸네일 휘도)에서만 깜빡인다
             function drawGlints(w, q) {
-                const a0 = CFG.DY_GLINT_A * w * (1 - ss(CFG.DY_F0, CFG.DY_F1, q));
+                const a0 = CFG.DY_GLINT_A * w * (1 - ss(CFG.DY_F0, CFG.DY_F1, q)) * (1 - 0.6 * dnW());
                 if (a0 < 0.01 || !glints.length) return;
                 if (!thumbData || (thumbTick % 15) === 0) {
                     TH.setTransform(1, 0, 0, 1, 0, 0);
@@ -3165,12 +3183,15 @@ void main() {
                 const w2 = day2W();
                 const d2Live = w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, q));
                 const d2lx = W * CFG.DY_LX, d2ly = HZ * CFG.DY_LY;
-                if (d2Live > 0.005) drawDay2Light(d2lx, d2ly, d2Live);
+                // 공백 밤(dn): 틈 빛·림라이트·수평선 발광을 DN_LIGHT만 남기고 끈다
+                const dn = dnW0();
+                const d2Light = d2Live * lerp(1, CFG.DN_LIGHT, dn);
+                if (d2Light > 0.005) drawDay2Light(d2lx, d2ly, d2Light);
                 // 공백 별 궤적: 하늘·틈 빛 위, 구름 아래에 그려 구름 사이로 드러난 하늘에만 보인다 (수면 반사도 sky 버퍼를 따라간다)
                 if (dsA > 0.003 && d2Live > 0.005) {
                     const dk = dsK > 0 ? dsLen() : 0;
                     dsSet.fade = [HZ * CFG.DS_FADE0, HZ * Math.max(CFG.DS_FADE0 + 0.001, CFG.DS_FADE1)];
-                    drawStarLayer(dsSet, dsTail + dk, dk, CFG.DS_A * ss(0, 1, dsA) * d2Live);
+                    drawStarLayer(dsSet, dsTail + dk, dk, CFG.DS_A * ss(0, 1, dsA) * d2Live * lerp(1, CFG.DN_STAR, dn));
                 }
 
                 // sun path (낮/황혼 공통: 정규화 진행도 nk 기준이라 시작 고도가 동일)
@@ -3276,8 +3297,9 @@ void main() {
                             const rr = Math.max(W, HZ) * 0.38 * dpr * _cs;
                             const cx = _cc.x * dpr, cy = (_cc.y + _ce) * dpr;
                             const rg = RL.createRadialGradient(cx, cy, 0, cx, cy, rr);
-                            rg.addColorStop(0, `rgba(240,250,255,${(0.62 * CFG.DY_LIGHT).toFixed(3)})`);
-                            rg.addColorStop(0.45, `rgba(200,228,250,${(0.16 * CFG.DY_LIGHT).toFixed(3)})`);
+                            const rimA = CFG.DY_LIGHT * lerp(1, CFG.DN_LIGHT, dn);
+                            rg.addColorStop(0, `rgba(240,250,255,${(0.62 * rimA).toFixed(3)})`);
+                            rg.addColorStop(0.45, `rgba(200,228,250,${(0.16 * rimA).toFixed(3)})`);
                             rg.addColorStop(1, 'rgba(200,228,250,0)');
                             RL.fillStyle = rg; RL.fillRect(0, 0, rimL.width, rimL.height);
                             const cutY = (camOn() ? Math.max(_cc.y + 2, camHz()) + camExtra : Math.max(d2ly + 2, HZ * (CFG.DY_RIMBOT ?? 0.62))) * dpr;
@@ -3310,6 +3332,18 @@ void main() {
                         CL.fillStyle = bg; CL.fillRect(0, HZ * 0.55, W, HZ * 0.45);
                         CL.globalCompositeOperation = 'source-over';
                         if (ovEnv) cloudOv.draw('top', ovEnv);
+                        // 공백 밤: 구름 전체를 짙은 남색 실루엣으로 덮는다 (위는 하늘빛이 남은 남색, 수평선 쪽은 거의 검정).
+                        // 덮는 세기 DN_CLOUD < 1이라 혹 단위 음영이 희미하게 남는다.
+                        if (dn > 0.003) {
+                            const da = CFG.DN_CLOUD * dn;
+                            CL.globalCompositeOperation = 'source-atop';
+                            const ng = CL.createLinearGradient(0, 0, 0, HZ);
+                            ng.addColorStop(0, `rgba(11,24,46,${da.toFixed(3)})`);
+                            ng.addColorStop(0.55, `rgba(5,16,34,${da.toFixed(3)})`);
+                            ng.addColorStop(1, `rgba(2,11,25,${Math.min(1, da * 1.08).toFixed(3)})`);
+                            CL.fillStyle = ng; CL.fillRect(0, 0, W, HZ);
+                            CL.globalCompositeOperation = 'source-over';
+                        }
                     } else {
                         for (const c of set) {
                             const G = duskGeom(c, base);
@@ -3351,14 +3385,14 @@ void main() {
                 }
 
                 // 새 낮: 틈 아래 수평선 발광 — 낮은 구름 띠 너머로 빛이 고여 밝은 수평 스트릭이 진다 (수면 미러에도 그대로 비침)
-                if (d2Live > 0.01) {
+                if (d2Live * (1 - dn) > 0.01) {
                     S.save();
                     S.translate(d2lx, HZ);
                     S.scale(1, 0.05);
                     const hr = W * 0.22;
                     const hg = S.createRadialGradient(0, 0, 0, 0, 0, hr);
-                    hg.addColorStop(0, rgba(hex('#e8f6ff'), Math.min(1, 0.7 * d2Live)));
-                    hg.addColorStop(0.4, rgba(hex('#9fd3f2'), 0.32 * d2Live));
+                    hg.addColorStop(0, rgba(hex('#e8f6ff'), Math.min(1, 0.7 * d2Live * (1 - dn))));
+                    hg.addColorStop(0.4, rgba(hex('#9fd3f2'), 0.32 * d2Live * (1 - dn)));
                     hg.addColorStop(1, 'rgba(120,180,230,0)');
                     S.fillStyle = hg;
                     S.fillRect(-hr, -hr, hr * 2, hr * 2);
@@ -3385,7 +3419,7 @@ void main() {
                 // horizon haze
                 const hl = mix(hor, [255, 255, 255], CFG.HAZE_MIX);
                 const hg = S.createLinearGradient(0, HZ * 0.86, 0, HZ);
-                hg.addColorStop(0, rgba(hl, 0)); hg.addColorStop(1, rgba(hl, CFG.HAZE_A));
+                hg.addColorStop(0, rgba(hl, 0)); hg.addColorStop(1, rgba(hl, CFG.HAZE_A * (1 - 0.6 * dnW())));
                 S.fillStyle = hg; S.fillRect(0, HZ * 0.86, W, HZ * 0.14);
 
                 // 미러볼 전환 연출 스포트라이트 (수평선에서 발사)
@@ -3829,12 +3863,15 @@ void main() {
                 const w2 = day2W();
                 let [r0, r1] = keyed(REFL, qR);
                 if (w2 > 0) { const [a, b] = keyed(REFL_DAY2, qR); r0 = lerp(r0, a, w2); r1 = lerp(r1, b, w2); }
+                // 공백 밤: 수면이 하늘 반사보다 한층 더 가라앉는다
+                const dnR = dnW();
+                if (dnR > 0) { r0 = lerp(r0, Math.min(1, r0 + CFG.DN_WATER * 0.6), dnR); r1 = lerp(r1, Math.min(1, r1 + CFG.DN_WATER), dnR); }
                 const rg = ctx.createLinearGradient(0, HZ, 0, H);
                 rg.addColorStop(0, `rgba(10,18,32,${r0})`);
                 rg.addColorStop(1, `rgba(10,18,32,${r1})`);
                 ctx.fillStyle = rg; ctx.fillRect(0, HZ, W, H - HZ);
                 // 새 낮: 수면이 하늘보다 짙은 바다빛 청색 (수평선 쪽은 옅게)
-                const wa = (CFG.DY_WATER ?? 0) * w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, qR));
+                const wa = (CFG.DY_WATER ?? 0) * w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, qR)) * (1 - 0.85 * dnR);
                 if (wa > 0.005) {
                     const wg = ctx.createLinearGradient(0, HZ, 0, H);
                     wg.addColorStop(0, `rgba(28,92,156,${(wa * 0.55).toFixed(3)})`);
@@ -3843,7 +3880,7 @@ void main() {
                 }
                 if (w2 > 0.01) drawGlints(w2, qR);
                 // 새 낮: 틈 빛의 수면 기둥 — 수평선에서 아래로 퍼지는 청백색 반사. 수평선에 밝고 아래로 갈수록 옅어진다
-                const colA = (CFG.DY_COLUMN ?? 0) * w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, qR));
+                const colA = (CFG.DY_COLUMN ?? 0) * w2 * (1 - ss(CFG.DY_F0, CFG.DY_F1, qR)) * (1 - dnR);
                 if (colA > 0.01) {
                     const cx = W * CFG.DY_LX, rw = W * 0.055;
                     ctx.save();
@@ -4215,7 +4252,7 @@ void main() {
                     elStatus.textContent = status;
                 }
                 // card switches to its night palette once the sky has gone dark
-                const night = palQ() >= 0.5;
+                const night = palQ() >= 0.5 || dnW() >= 0.5;
                 if (night !== lastNight) { lastNight = night; elPanel.classList.toggle('is-night', night); }
                 if (active !== lastActive) {
                     lastActive = active;
@@ -4374,6 +4411,32 @@ void main() {
                     moveThumb();
                 }
                 setDayStars(!dsOn);
+                if (TOUCH_UI && elPanel) {
+                    clearTimeout(collapseTimer);
+                    collapseTimer = setTimeout(() => {
+                        elPanel.classList.remove('expanded');
+                        moveThumb();
+                    }, 900);
+                }
+            });
+
+            // ---------- 공백 밤 토글 (공백 장면에서만 노출, 기본값 비활성화) ----------
+            // 별 궤적 토글과 같은 방식. 켜면 공백 장면이 DN_FADE초에 걸쳐 밤(day-empty-dark)으로 어두워진다.
+            const elDark = document.getElementById('btnDark');
+            function setDayDark(on) {
+                dnOn = !!on;
+                if (elDark) {
+                    elDark.classList.toggle('on', dnOn);
+                    elDark.setAttribute('aria-pressed', dnOn ? 'true' : 'false');
+                }
+            }
+            if (elDark) elDark.addEventListener('click', e => {
+                e.stopPropagation();
+                if (TOUCH_UI && elPanel && !elPanel.classList.contains('expanded')) {
+                    elPanel.classList.add('expanded');
+                    moveThumb();
+                }
+                setDayDark(!dnOn);
                 if (TOUCH_UI && elPanel) {
                     clearTimeout(collapseTimer);
                     collapseTimer = setTimeout(() => {
