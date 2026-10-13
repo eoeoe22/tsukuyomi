@@ -298,7 +298,7 @@
         }
 
         /* 배경화면 토글 접힘 규칙: 비활성 상태에서만 접고, 활성(.on) 상태는 종료 접근을 위해 항상 표시 */
-        @media (hover: hover) {
+        /* 랜드마크 인디케이터 토글 접힘 규칙: 비활성(감상 모드) 상태에서만 접고, 활성(.on, 인디케이터 표시) 상태는 항상 표시 */
             .panel:not(:hover):not(:focus-within):not(.expanded) .wallpaper-toggle:not(.on) {
                 width: 0;
                 min-width: 0;

@@ -4455,11 +4455,12 @@ void main() {
                 }
             });
 
-            // ---------- 배경화면 감상 모드 (단독 토글, 기본값 비활성화) ----------
-            // 시간대 버튼그룹과 별도. 활성화 시 클릭 인디케이터 및 텍스트(랜드마크 핀)를 숨겨
-            // 순수 배경화면만 감상한다. .on이면 접힘 상태에서도 종료 접근을 위해 표시된다(CSS).
+            // ---------- 배경화면 감상 모드 (단독 토글, 기본값 감상 모드) ----------
+            // 시간대 버튼그룹과 별도. 기본은 감상 모드로 클릭 인디케이터 및 텍스트(랜드마크 핀)를 숨긴다.
+            // 버튼은 반대로 동작: 토글 활성화(.on) 시 감상 모드를 끄고 랜드마크 인디케이터를 보인다.
+            // .on이면 접힘 상태에서도 표시된다(CSS).
             const elWallpaper = document.getElementById('btnWallpaper');
-            let wallpaperMode = false;
+            let wallpaperMode = true;
             function setWallpaper(on) {
                 wallpaperMode = !!on;
                 try {
@@ -4467,10 +4468,11 @@ void main() {
                     else document.body.removeAttribute('data-wallpaper');
                 } catch (e) { /* body 미지원 환경 무시 */ }
                 if (elWallpaper) {
-                    elWallpaper.classList.toggle('on', wallpaperMode);
-                    elWallpaper.setAttribute('aria-pressed', wallpaperMode ? 'true' : 'false');
+                    elWallpaper.classList.toggle('on', !wallpaperMode);
+                    elWallpaper.setAttribute('aria-pressed', wallpaperMode ? 'false' : 'true');
                 }
             }
+            setWallpaper(wallpaperMode);
             // 홀드 경로: 버튼을 길게 누르면 디버그 패널을 토글한다 (감상 모드 토글은 클릭 그대로, 홀드 직후 click은 무시).
             let wallpaperHoldTimer = 0;
             let wallpaperHeld = false;
