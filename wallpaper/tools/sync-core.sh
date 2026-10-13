@@ -4,9 +4,12 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
 mkdir -p wallpaper/vendor/assets/icons
+mkdir -p wallpaper/vendor/clouds
 cp public/tsukuyomi.js wallpaper/vendor/tsukuyomi.js
 cp public/tsukuyomi.css wallpaper/vendor/tsukuyomi.css
 cp public/cloud-live.js wallpaper/vendor/cloud-live.js
+cp public/cloud-overlay.js wallpaper/vendor/cloud-overlay.js
+cp public/clouds/day-overlay.json wallpaper/vendor/clouds/day-overlay.json
 cp public/lantern-front.svg wallpaper/vendor/lantern-front.svg
 cp public/assets/icons/icon.svg wallpaper/vendor/assets/icons/icon.svg
 python3 wallpaper/tools/generate-project-json.py

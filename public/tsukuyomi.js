@@ -4546,6 +4546,9 @@ void main() {
                 },
                 get mode() { return activeOf(); }, set mode(v) { goTo(v); },
                 get wallpaper() { return wallpaperMode; }, set wallpaper(v) { setWallpaper(v); },
+                // 공백 장면 토글 (하단 btnStars/btnDark과 동일, Wallpaper Engine 일반 옵션에서 쓴다)
+                get dayStars() { return dsOn; }, set dayStars(v) { setDayStars(!!v); },
+                get dayDark() { return dnOn; }, set dayDark(v) { setDayDark(!!v); },
                 get moonTarget() { return moonTarget; }, get mbMix() { return mbMix; }, get showT() { return showT; },
                 show: SHOW, showDefaults: SHOW_DEF,
                 get sunK() { return sunK(); },

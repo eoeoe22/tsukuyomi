@@ -18,9 +18,10 @@ wallpaper/
   project.json        WE 프로젝트 정의 (file=wallpaper.html, 장면/연출/고급 속성)
   wallpaper.html      WE 진입점. dock DOM은 유지(코어 참조) + 표시만 숨김. debug 미로드
   wallpaper.css       WE 전용 오버라이드 (하단 시간대 UI·디버그 잔재 숨김)
-  wallpaper.js        WE 브릿지 (scene/intro/cfg_*/snapshot_json → __TSUKUYOMI__ 호출)
+  wallpaper.js        WE 브리지 (scene/intro/daystars/daydark/cfg_*/snapshot_json → __TSUKUYOMI__ 호출)
   vendor/             코어 동결본 (public에서 바이트 복사, 수정 금지)
-    tsukuyomi.js / tsukuyomi.css / cloud-live.js
+    tsukuyomi.js / tsukuyomi.css / cloud-live.js / cloud-overlay.js
+    clouds/day-overlay.json (공백 구름 손그림 레이어 문서)
     lantern-front.svg / assets/icons/icon.svg
   tools/
     generate-project-json.py  project.json 생성기 (vendor CFG + public GROUPS 읽기만)
@@ -30,19 +31,19 @@ wallpaper/
   CORE_VERSION.txt    동결 커밋·날짜·원본 목록
 ```
 
-`wallpaper.html`은 `../public`을 참조하지 않으며, `tsukuyomi.debug.js`·
-`bootstrap-icons`를 로드하지 않는다 (숨겨진 dock 아이콘용 외부 CSS 불필요).
+`wallpaper.html`은 `../public`을 참조하지 않으며, `tsukuyomi.debug.js`·`tsukuyomi.cloudlayers.js`·`tsukuyomi.markup.js`·`tsukuyomi.focus.js`·
+`bootstrap-icons`를 로드하지 않는다 (런타임인 `vendor/cloud-overlay.js`만 로드).
 
 ## 동결 버전
 
-- `CORE_VERSION.txt` 참고 (커밋 `ed18741` + `MOON_SIZE` 1.6, 2026-10-09 UTC 기준).
-- `project.json`의 고급 기본값 176종은 동결 CFG에서 그대로 생성됐다 (기존 176종 + `MOON_SIZE` − 브러시 구름 에디터 `CLOUD_DOC` 1종).
+- `CORE_VERSION.txt` 참조 (커밋 `ed3427f` + bridge dayStars/dayDark, 2026-10-13 UTC 기준).
+- `project.json`의 고급 기본값 189종은 동결 CFG에서 그대로 생성됐다 (공백 장면 DS_*/DN_*/DY_REF_AR 13종 포함).
 - 검증: `python wallpaper/tools/verify-wallpaper.py` (vendor 해시·기본값·참조·git 범위 검사).
 
 ## WE 옵션
 
-기본 4종은 그룹에 속하지 않고 맨 위에 표시된다. 고급 176종은 디버그 패널과 같은
-12개 카테고리 그룹(전환 타이밍·레이아웃·토리이/달·별·산·구름·새 낮·태양·달/안개·
+기본 6종은 그룹에 속하지 않는다 (장면별 노출: intro는 밤/미러볼, 공백 토글 2종은 공백 선택 시).
+12개 카테고리 그룹(전환 타이밍·레이아웃·토리이/달·별·산·구름·공백 장면·태양·달/안개·
 반사·물결·랜턴)으로 접어서 보여준다. 키 앞의 영문+숫자 접두사는 카테고리 순서를 고정하며,
 WE 조건식이 해석할 수 있도록 반드시 문자 시작으로 쓴다 (숫자 시작 키는 조건 평가 실패로 숨겨진다).
 미러볼 본체 파라미터(`tilt`·`step` 등 소문자 MB_*·SHOW_*)는 CFG가 아니라 코어 기본값 그대로 쓴다
@@ -50,25 +51,27 @@ WE 조건식이 해석할 수 있도록 반드시 문자 시작으로 쓴다 (�
 
 | 키 | 종류 | 기본값 | 설명 |
 |---|---|---|---|
-| `a00_scene` | 콤보 (낮 1 / 황혼 2 / 밤 3 / 밤(미러볼) 4) | 밤(3) | 하단 시간대 UI 대신 장면을 선택한다 (웹 4버튼과 동일) |
+| `a00_scene` | 콤보 (공백 1 / 황혼 2 / 밤 3 / 밤(미러볼) 4) | 밤(3) | 하단 시간대 UI 대신 장면을 선택한다 (웹 4버튼과 동일) |
 | `a01_intro` | 체크 (밤 계열일 때만 표시) | 켜짐 | 초기 진입 연출 재생. 밤=황혼→밤, 미러볼=황혼→밤 이후 미러볼 전환까지. 끄면 밤은 즉시 idle, 미러볼은 즉시 밤에서 전환 연출만 재생 |
+| `a01_daystars` | 체크 (공백 선택 시 표시 (고급과 무관)) | 꺼짐 | 공백 장면에 별 꿤적 표시 (웹 btnStars와 동일, 공백에서만 적용) |
+| `a01_daydark` | 체크 (공백 선택 시 표시 (고급과 무관)) | 꺼짐 | 공백 장면을 어둡게 (공백 밤, 웹 btnDark와 동일, 공백에서만 적용) |
 | `a02_show_advanced` | 체크 | 꺼짐 | 켜면 아래 12개 고급 그룹이 표시된다 |
 | `a03_snapshot_json` | 텍스트 | 비움 | 웹 디버그 패널 "내보내기" JSON을 붙여넣는 탈출구 (cfg+palettes 반영, 장면은 WE 옵션이 우선) |
-| `a04_~a15_` + CFG키 176종 | 슬라이더/체크 | 동결값 | 웹 디버그 패널 파라미터를 카테고리별로 위임. 0/1 토글(CL_LIVE·DAY_SCENE·MTN_SHOW·REFL_AUTO·LANTERN_CARD_AVOID)은 체크로 표시 |
+| `a04_~a15_` + CFG키 189종 | 슬라이더/체크 | 동결값 | 웹 디버그 패널 파라미터를 카테고리별로 위임. 0/1 토글(CL_LIVE·DAY_SCENE·MTN_SHOW·REFL_AUTO·LANTERN_CARD_AVOID)은 체크로 표시 |
 
-낮·황혼 선택 시에는 인트로 없이 해당 idle로 바로 진입한다.
+공백·황혼 선택 시에는 인트로 없이 해당 idle로 바로 진입한다.
 실행 중 장면을 바꾸면 전환 애니메이션으로 이동한다 (밤+연출 끄기는 즉시 점프,
 미러볼로 바꾸면 밤 도착 후 스포트라이트 전환 연출이 붙는다).
 
-이번 project.json은 장면 4종(밤(미러볼) 추가) + `MOON_SIZE` 추가로 바뀌었으므로
+이번 project.json은 일반 2종(공백 토글) + 고급 13종(공백 DS_*/DN_*/DY_REF_AR) 추가로 바뀌었으므로
 WE 폴더에 통째로 다시 복사한다.
-`wallpaper.js`는 구 키(`scene`·`cfg_*`·숫자 시작 키)도 계속 받으므로, 순서를 놓쳐도 장면 전환은 동작한다.
+`wallpaper.js`는 신구 키(`scene`·`intro`·`daystars`·`daydark`·`cfg_*`·숫자 시작 키)도 계속 받으므로, 순서를 놓쳐도 장면 전환은 동작한다.
 
 ## 고급 스냅샷 사용법
 
 1. 웹(`tsukuyomi.html`)에서 디버그 패널 → 가져오기/내보내기 → 내보내기 → JSON 복사.
 2. WE 옵션 `show_advanced` 켜기 → `snapshot_json`에 붙여넣기.
-3. cfg+팔레트가 적용된다. 장면(p/state)은 WE의 `scene`·`intro`를 따른다.
+3. cfg+팔레트가 적용된다. 장면(p/state)은 WE의 `scene`·`intro`·`daystars`·`daydark`를 따른다.
 
 ## 로컬 미리보기 (WE 없이)
 
@@ -76,24 +79,24 @@ WE 폴더에 통째로 다시 복사한다.
 # 정적 서빙 후 브라우저로 열기 (WE 리스너가 없어도 코어 기본값=황혼 idle에서 WE 지정 장면으로 진입)
 python -m http.server 8788 --directory wallpaper
 # http://localhost:8788/wallpaper.html
-# 장면 강제: wallpaper.html?scene=day / ?scene=dusk / ?scene=night&intro=0 / ?scene=mirror
+# 장면 강제: wallpaper.html?scene=day&stars=1 / ?scene=day&dark=1 / ?scene=dusk / ?scene=night&intro=0 / ?scene=mirror
 node --check wallpaper/wallpaper.js
 python wallpaper/tools/verify-wallpaper.py
 ```
 
 ## 배포 패키지 (`dist-we/Tsukuyomi-WE.zip`)
 
-필수 10종만 포함. `tools/`·`README.md`·`CORE_VERSION.txt`는 제외.
+필수 12종만 포함. `tools/`·`README.md`·`CORE_VERSION.txt`는 제외.
 
 - `project.json` (`"preview": "preview.jpg"` 포함), `wallpaper.html`,
   `wallpaper.js`, `wallpaper.css`, `preview.jpg`
-- `vendor/` 5종: `tsukuyomi.js`·`tsukuyomi.css`·`cloud-live.js`·
-  `lantern-front.svg`·`assets/icons/icon.svg`
+- `vendor/` 7종: `tsukuyomi.js`·`tsukuyomi.css`·`cloud-live.js`·`cloud-overlay.js`·
+  `clouds/day-overlay.json`·`lantern-front.svg`·`assets/icons/icon.svg`
 - `preview.jpg`는 `thumbnail.png`(원본, 128px)를 300x300 JPEG으로 변환한
   WE용 썸네일이다. WE가 인식하는 썸네일명은 `preview.jpg`/`preview.gif`뿐이므로
   `thumbnail.png`를 직접 지정하면 표시되지 않는다. `thumbnail.png`는 원본 보관용으로
   소스에만 두고 배포 zip에는 넣지 않는다.
-- 재생성은 이 10개를 `Tsukuyomi/` 폴더에 담아 zip으로 묶으면 된다.
+- 재생성은 이 12개를 `Tsukuyomi/` 폴더에 담아 zip으로 묶으면 된다.
 
 ## Workshop 릴리즈 업로드 (폴더째 복사 방식)
 
@@ -111,9 +114,9 @@ python wallpaper/tools/verify-wallpaper.py
    (WE가 예전 `project.json`/썸네일 캐시를 들고 있을 수 있다).
 4. WE 실행 → Installed 탭에서 `Tsukuyomi 月` 선택.
    목록 썸네일이 `preview.jpg`로 뜨고,
-   오른쪽 속성 패널에 `장면 (하단 시간대 UI 대신)`이 보이면 정상이다.
+   오른쪽 속성 패널에 `장면`이 보이면 정상이다.
    (에디터의 Edit 메뉴가 아니라 Installed 탭에서 확인한다.)
-5. 미리보기에서 장면 4종 + 연출 켜짐/꺼짐을 확인.
+5. 미리보기에서 장면 4종 + 연출 켜짐/꺼짐 + 공백 토글 2종을 확인.
 6. Workshop에 별도 릴리즈로 업로드. 웹 배포와 버전이 엮이지 않게 릴리즈 노트에 동결 커밋을 적는다.
    썸네일은 `preview.jpg`가 이미 지정되어 있어 별도 등록이 불필요하며,
    퍼블리시 과정에서 WE가 스냅샷을 새로 만들면 그걸로 교체된다.

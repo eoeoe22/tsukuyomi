@@ -28,6 +28,8 @@ FROZEN_FILES = [
     "tsukuyomi.js",
     "tsukuyomi.css",
     "cloud-live.js",
+    "cloud-overlay.js",
+    "clouds/day-overlay.json",
     "lantern-front.svg",
     "assets/icons/icon.svg",
 ]
@@ -63,6 +65,14 @@ def main() -> int:
         check(f"동결 일치: {rel}", sha256(pub) == sha256(ven),
               f"public와 vendor 해시 불일치 (동결 깨짐)")
 
+    # 1b. 코어 브릿지: 공백 토글 세터가 있어야 WE 일반 옵션이 동작한다
+    try:
+        vendor_js_text = (VENDOR / "tsukuyomi.js").read_text(encoding="utf-8")
+        check("코어 dayStars 브릿지", "setDayStars(!!v)" in vendor_js_text, "bridge dayStars 세터 없음")
+        check("코어 dayDark 브릿지", "setDayDark(!!v)" in vendor_js_text, "bridge dayDark 세터 없음")
+    except Exception as e:
+        check("코어 브릿지 읽기", False, str(e))
+
     # 2. project.json
     pj_path = WP / "project.json"
     try:
@@ -76,16 +86,26 @@ def main() -> int:
         check("project.json file", pj.get("file") == "wallpaper.html", f"file={pj.get('file')}")
         check("project.json type", pj.get("type") == "web", f"type={pj.get('type')}")
         props = (pj.get("general") or {}).get("properties") or {}
-        for k in ("a00_scene", "a01_intro", "a02_show_advanced", "a03_snapshot_json"):
+        for k in ("a00_scene", "a01_intro", "a01_daystars", "a01_daydark",
+                  "a02_show_advanced", "a03_snapshot_json"):
             check(f"project.json 기본 속성: {k}", k in props, "누락")
         sc = props.get("a00_scene", {})
         check("scene 콤보", sc.get("type") == "combo"
               and sorted(o.get("value") for o in sc.get("options", [])) == [1, 2, 3, 4],
-              "options 1/2/3/4 (낮/황혼/밤/밤(미러볼)) 필요")
+              "options 1/2/3/4 (공백/황혼/밤/밤(미러볼)) 필요")
         check("scene 기본값 밤", sc.get("value") == 3, f"value={sc.get('value')}")
+        check("scene 문구 공백", [o.get("label") for o in sc.get("options", [])]
+              == ["공백", "황혼", "밤", "밤 (미러볼)"],
+              f"labels={[o.get('label') for o in sc.get('options', [])]}")
         check("intro 기본값 켜짐", props.get("a01_intro", {}).get("value") is True, "기본값 true 필요")
         check("intro 조건(밤 계열만)", props.get("a01_intro", {}).get("condition") == "a00_scene.value == 3 || a00_scene.value == 4",
               "밤/미러볼 선택 시에만 표시")
+        for k in ("a01_daystars", "a01_daydark"):
+            p = props.get(k, {})
+            check(f"일반 토글 {k} (bool 꺼짐)", p.get("type") == "bool" and p.get("value") is False,
+                  f"{p.get('type')}/{p.get('value')}")
+            check(f"일반 토글 {k} 조건(공백 선택 시)", p.get("condition") == "a00_scene.value == 1",
+                  f"condition={p.get('condition')!r}")
         # WE Installed 탭 썸네일은 preview.jpg/gif 관례만 인식한다 (thumbnail.png 등 별도명 무시됨).
         pv = pj.get("preview")
         check("preview 관례명", isinstance(pv, str) and pv in ("preview.jpg", "preview.gif"),
@@ -249,12 +269,22 @@ def main() -> int:
     # 4. wallpaper.html 참조
     html = (WP / "wallpaper.html").read_text(encoding="utf-8")
     for ref in ("vendor/tsukuyomi.js", "vendor/tsukuyomi.css",
-                "vendor/cloud-live.js",
+                "vendor/cloud-live.js", "vendor/cloud-overlay.js",
                 "wallpaper.js", "wallpaper.css"):
         check(f"html 참조: {ref}", ref in html, "누락")
     for banned in ("../public", "public/tsukuyomi", "tsukuyomi.debug.js",
-                   "tsukuyomi.cloudedit", "tsukuyomi.debug.css", "bootstrap-icons"):
+                   "tsukuyomi.cloudlayers", "tsukuyomi.markup", "tsukuyomi.focus",
+                   "tsukuyomi.debug.css", "bootstrap-icons"):
         check(f"html 금지 참조 없음: {banned}", banned not in html, "포함됨")
+    # 공백 오버레이 문서: 코어가 vendor 기준으로 fetch하므로 패키지에 있어야 한다
+    check("오버레이 문서 존재", (VENDOR / "clouds" / "day-overlay.json").is_file(),
+          "vendor/clouds/day-overlay.json 없음")
+
+    # 4b. wallpaper.js 브릿지: 공백 토글 키 + 코어 세터 위임이 있어야 한다
+    check("wallpaper.js 공백 토글 키", "a01_daystars" in wjs and "a01_daydark" in wjs,
+          "a01_daystars/a01_daydark 처리 없음")
+    check("wallpaper.js 코어 위임", "b.dayStars" in wjs and "b.dayDark" in wjs,
+          "bridge dayStars/dayDark 위임 없음")
 
     # 5. wallpaper.css 숨김
     css = (WP / "wallpaper.css").read_text(encoding="utf-8")

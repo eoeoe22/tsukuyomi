@@ -365,7 +365,8 @@ void main(){
                     holeC: (o.holeC ?? [246, 250, 255]).map(v => v / 255), holeC2: (o.holeC2 ?? [150, 170, 210]).map(v => v / 255),
                 },
             };
-            try { upload(h); render(h, 0); }
+            // a.t0: 첫 장 시각. 같은 스프라이트를 다시 만드는 쪽(구름 오버레이 편집)이 끓음 위상을 이어 가게
+            try { upload(h); render(h, a.t0 || 0); }
             catch (e) { console.warn('CloudLive 스프라이트 실패, CPU 굽기로 돌아감', e); release(h); return null; }
             out.__live = h;
             sprites.push(h);
@@ -377,7 +378,7 @@ void main(){
             const h = c && c.__live;
             if (!h) return;
             h.seen = now;
-            if (h.dead && ok) {
+            if (h.dead && ok && !h.removed) {
                 try { upload(h); h.dead = false; sprites.push(h); } catch (e) { /* 마지막 그림 유지 */ }
             }
         }
@@ -404,7 +405,17 @@ void main(){
             if (done) perFrame = clamp(ms > 4 ? perFrame - 1 : ms < 1.5 ? perFrame + 1 : perFrame, 1, 6);
         }
 
-        return { get ok() { return ok; }, add, touch, tick, get count() { return sprites.length; } };
+        // 더 안 쓸 스프라이트를 바로 놓아준다(다시 굽는 쪽이 10초 유예를 기다리지 않게). 캔버스엔 마지막 그림이 남는다
+        function remove(c) {
+            const h = c && c.__live;
+            if (!h) return;
+            release(h);
+            h.dead = true; h.removed = true;
+            const i = sprites.indexOf(h);
+            if (i >= 0) sprites.splice(i, 1);
+        }
+
+        return { get ok() { return ok; }, add, touch, tick, remove, get count() { return sprites.length; } };
     }
 
     window.CloudLive = { create };

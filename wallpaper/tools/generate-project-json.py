@@ -6,13 +6,14 @@
   - public/tsukuyomi.debug.js     -> GROUPS (디버그 패널 스키마: min/max/step/rebuild)
 
 쓰기:
-  - wallpaper/project.json        -> WE 사용자 속성 (기본 4종 + 그룹 12종 + CFG 전체 위임)
+  - wallpaper/project.json        -> WE 사용자 속성 (기본 6종 + 그룹 12종 + CFG 전체 위임)
   - wallpaper/tools/rebuild-map.json -> wallpaper.js와 GROUPS rebuild 대조용
 
 키 규칙 (WE의 표시 순서와 무관하게 카테고리가 뭉치도록):
   - 모든 키에 문자+2자리 순서 접두사. 알파벳순 렌더·파일순 렌더·order 렌더 모두에서 동일 배치.
   - WE 조건식은 식별자 형태(문자 시작)의 키만 해석하므로 숫자로 시작 금지.
-  - 기본: a00_scene, a01_intro, a02_show_advanced, a03_snapshot_json (그룹에 속하지 않음)
+  - 기본: a00_scene, a01_intro, a01_daystars, a01_daydark, a02_show_advanced,
+    a03_snapshot_json (그룹에 속하지 않음. intro는 밤/미러볼, daystars/daydark는 공백 선택 시 노출)
   - 그룹 헤더: a04 ~ a15 (값 없음, type=group, 그 뒤 속성이 소속)
   - 멤버: <헤더코드>_<CFG키> (예: a04_T_NIGHT)
 
@@ -118,21 +119,35 @@ def main() -> None:
 
     # 그룹에 속하지 않는 속성은 첫 그룹보다 앞에 둔다 (WE 그룹 규칙).
     add("a00_scene", {
-        "text": "장면 (하단 시간대 UI 대신)",
+        "text": "장면",
         "type": "combo",
         "value": 3,
         "options": [
-            {"label": "낮", "value": 1},
+            {"label": "공백", "value": 1},
             {"label": "황혼", "value": 2},
             {"label": "밤", "value": 3},
             {"label": "밤 (미러볼)", "value": 4},
         ],
     })
     add("a01_intro", {
-        "text": "밤 계열 선택 시 초기 연출 재생 (밤: 황혼→밤 / 미러볼: 이후 전환까지)",
+        "text": "밤 / 미러볼 장면 초기 연출 재생",
         "type": "bool",
         "value": True,
         "condition": "a00_scene.value == 3 || a00_scene.value == 4",
+    })
+    # 공백 장면 토글 2종: 그룹 미소속(고급 표시와 무관). 공백 선택 시에만 노출된다.
+    # 공백 장면에서만 그려지고 다른 장면에서는 값을 유지한 채 효과가 없다 (웹 하단 btnStars/btnDark와 동일).
+    add("a01_daystars", {
+        "text": "별 궤적 표시",
+        "type": "bool",
+        "value": False,
+        "condition": "a00_scene.value == 1",
+    })
+    add("a01_daydark", {
+        "text": "밤",
+        "type": "bool",
+        "value": False,
+        "condition": "a00_scene.value == 1",
     })
     add("a02_show_advanced", {
         "text": "고급 옵션 표시",
@@ -201,7 +216,7 @@ def main() -> None:
         # thumbnail.png 등 별도명은 무시되므로 반드시 preview.jpg를 지정한다.
         "preview": "preview.jpg",
         "title": "Tsukuyomi 月",
-        "description": "낮·황혼·밤·밤(미러볼)이 이어지는 고요한 수면. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출을 켜거나 끌 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 고급 옵션을 켜면 웹 디버그 패널의 파라미터를 그대로 조절할 수 있다.",
+        "description": "공백·황혼·밤·밤(미러볼)이 이어지는 고요한 수면. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출을 켜거나 끌 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 공백 장면의 별 궤적·공백 밤 토글은 공백 선택 시 보이며(고급과 무관), 공백에서만 적용된다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터를 그대로 조절할 수 있다.",
         "type": "web",
         "general": {"properties": props},
     }

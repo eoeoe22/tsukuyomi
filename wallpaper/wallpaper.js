@@ -2,9 +2,12 @@
  *
  * 역할:
  *  - 하단 시간대 UI 숨김 -> WE 옵션 `a00_scene` 콤보로 장면 선택 (기본값: 밤)
- *    (낮 1 / 황혼 2 / 밤 3 / 밤(미러볼) 4 — 웹 하단 UI 4버튼과 동일)
+ *    (공백 1 / 황혼 2 / 밤 3 / 밤(미러볼) 4 — 웹 하단 UI 4버튼과 동일)
  *  - 디버그 패널 미포함 -> WE 고급 옵션(12개 그룹 + `aNN_*` 슬라이더/체크)이
  *    window.__TSUKUYOMI__ 브릿지로 위임
+ *  - 공백 장면 토글 2종은 일반 옵션으로 공백 선택 시 노출 (고급 표시와 무관):
+ *    `a01_daystars` (별 궤적, 웹 btnStars와 동일), `a01_daydark` (공백 밤, 웹 btnDark와 동일).
+ *    둘 다 공백 장면에서만 그려지고, 다른 장면에서는 값을 유지한 채 효과가 없다 (웹과 동일).
  *  - 초기 진입 연출 2종 (밤 계열 선택 시에만, `a01_intro` 체크로 켜고 끈다, 기본값 켜짐):
  *    1) 밤: 황혼→밤 전환 (기존 그대로)
  *    2) 밤(미러볼): 황혼→밤 전환 이후, 미러볼 달 전환 연출(스포트라이트)까지 이어서 재생.
@@ -39,15 +42,19 @@
         return null;
     }
     // project.json 키 규칙 (tools/generate-project-json.py):
-    //   a00_scene, a01_intro, a02_show_advanced, a03_snapshot_json (그룹 미소속)
+    //   a00_scene, a01_intro, a01_daystars, a01_daydark, a02_show_advanced,
+    //   a03_snapshot_json (그룹 미소속, 고급 토글과 무관(공백 선택 시 노출))
     //   a04~a15 그룹 헤더(type=group, 값 없음), 멤버 aNN_<CFG키> (예: a04_T_NIGHT)
     // 키는 반드시 식별자 형태(문자 시작) — WE 조건식이 숫자 시작 키를 해석하지 못한다.
     // 구 규칙(scene/intro/cfg_<CFG키>/snapshot_json, 00_scene 등 숫자 시작)도 계속 받는다.
     const KEY_SCENE = 'a00_scene';
     const KEY_INTRO = 'a01_intro';
+    const KEY_DAYSTARS = 'a01_daystars';
+    const KEY_DAYDARK = 'a01_daydark';
     const KEY_SNAPSHOT = 'a03_snapshot_json';
     const MEMBER_RE = /^(?:[A-Za-z]\d\d_|\d\d_|cfg_)(.+)$/;
-    const desired = { scene: 'night', intro: true };
+    const GENERAL_SKIP = new Set([KEY_DAYSTARS, KEY_DAYDARK, 'daystars', 'daydark']);
+    const desired = { scene: 'night', intro: true, dayStars: false, dayDark: false };
     const pendingCfg = new Map(); // CFG키 -> 마지막 값 (브릿지 대기분)
     let pendingSnapshot = null;   // snapshot_json 원문 (브릿지 대기분)
     let initialized = false;      // 첫 장면 적용 여부
@@ -82,6 +89,7 @@
         DY_GLINT_N: 'clouds',
         DY_HOLE: 'clouds', DY_HOLE_S: 'clouds', DY_HOLE_N: 'clouds',
         DY_HOLE_EDGE: 'clouds', DY_HOLE_RIM: 'clouds', DY_HOLE_SKY: 'clouds',
+        DS_POLE_X: 'stars', DS_POLE_Y: 'stars',
         LANTERN_N: 'lanterns', LANTERN_SEED: 'lanterns',
         LANTERN_GX: 'lanterns', LANTERN_TX: 'lanterns',
         LANTERN_SN0: 'lanterns', LANTERN_SN1: 'lanterns', LANTERN_H: 'lanterns',
@@ -237,6 +245,11 @@
             pendingSnapshot = null;
             applySnapshot(b, s);
         }
+        // 공백 토글은 CFG가 아니라 코어 상태(dsOn/dnOn)다. 세터가 없으면(구 코어) 무시.
+        try {
+            if ('dayStars' in b) b.dayStars = desired.dayStars;
+            if ('dayDark' in b) b.dayDark = desired.dayDark;
+        } catch (e) { /* 브릿지 경합 시 현상 유지 */ }
         applyScene(b, first);
     }
 
@@ -251,7 +264,16 @@
         if (it && it.value !== undefined) {
             desired.intro = !!it.value;
         }
+        const st = properties[KEY_DAYSTARS] || properties.daystars;
+        if (st && st.value !== undefined) {
+            desired.dayStars = !!st.value;
+        }
+        const dk = properties[KEY_DAYDARK] || properties.daydark;
+        if (dk && dk.value !== undefined) {
+            desired.dayDark = !!dk.value;
+        }
         for (const name of Object.keys(properties)) {
+            if (GENERAL_SKIP.has(name)) continue;
             const m = MEMBER_RE.exec(name);
             if (!m) continue;
             const entry = properties[name];
@@ -291,8 +313,8 @@
         }, 50);
     }
 
-    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=day&dusk&night&mirror&intro=0
-    // 예: wallpaper.html?scene=mirror , wallpaper.html?scene=night&intro=0
+    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=day&dusk&night&mirror&intro=0&stars=1&dark=1
+    // 예: wallpaper.html?scene=day&stars=1 , wallpaper.html?scene=day&dark=1 , wallpaper.html?scene=night&intro=0
     function applyQueryOverride() {
         try {
             const q = new URLSearchParams(location.search);
@@ -301,6 +323,12 @@
             const intro = q.get('intro');
             if (intro === '0' || intro === 'false' || intro === 'off') desired.intro = false;
             if (intro === '1' || intro === 'true' || intro === 'on') desired.intro = true;
+            const stars = q.get('stars');
+            if (stars === '0' || stars === 'false' || stars === 'off') desired.dayStars = false;
+            if (stars === '1' || stars === 'true' || stars === 'on') desired.dayStars = true;
+            const dark = q.get('dark');
+            if (dark === '0' || dark === 'false' || dark === 'off') desired.dayDark = false;
+            if (dark === '1' || dark === 'true' || dark === 'on') desired.dayDark = true;
         } catch (e) { /* file:// 등 파서 미지원 시 무시 */ }
     }
 
@@ -315,6 +343,8 @@
     window.__WALLPAPER__ = {
         get scene() { return desired.scene; },
         get intro() { return desired.intro; },
+        get dayStars() { return desired.dayStars; },
+        get dayDark() { return desired.dayDark; },
         get fps() { return weFps; },
         get ready() { return !!bridge(); },
     };

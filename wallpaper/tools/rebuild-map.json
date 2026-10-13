@@ -36,6 +36,8 @@
   "DC_Y0": "clouds",
   "DC_YR": "clouds",
   "DPR_MAX": "resize",
+  "DS_POLE_X": "stars",
+  "DS_POLE_Y": "stars",
   "DY_ABSORB": "clouds",
   "DY_BAND_N": "clouds",
   "DY_COV": "clouds",
