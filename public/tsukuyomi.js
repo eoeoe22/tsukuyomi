@@ -1982,14 +1982,14 @@
                             const f = it.f;
                             const hAbove = f.spawnY - f.y;
                             if (hAbove < -20 || hAbove > reflH * 1.45) continue;
-                            const fadeH = (1 - clamp(hAbove / (reflH * 1.35), 0, 1)) * 0.72 * it.alpha;
+                            const fadeH = (1 - clamp(hAbove / (reflH * 1.35), 0, 1)) * 0.9 * it.alpha;
                             if (fadeH <= 0.02) continue;
                             const ryAvg = f.spawnY + hAbove * 0.68;
                             const d = Math.max(0, ryAvg - HZ), kk = d / Math.max(1, reflH);
                             const amp = CFG.REFL_AMP0 + CFG.REFL_AMP1 * kk * kk;
                             const dx = RM.matches ? 0 : amp * (0.7 * Math.sin(d * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(d * CFG.SL_F2 - clock * CFG.SL_F3));
                             const rPts = it.out.map(pt => [pt[0] + dx, f.spawnY + (f.spawnY - pt[1]) * 0.68]);
-                            fsDrawSilhouette(fsGloG, rPts, fsMixW(it.col, 0.25), fadeH);
+                            fsDrawSilhouette(fsGloG, rPts, fsMixW(it.col, 0.38), fadeH);
                             hasRefl = true;
                         }
                         if (hasRefl) {
@@ -2000,8 +2000,8 @@
                             ctx.clip();
                             ctx.setTransform(1, 0, 0, 1, 0, 0);
                             ctx.globalCompositeOperation = 'lighter';
-                            ctx.globalAlpha = Math.min(1, o.refl * 0.65 * sceneAlpha);
-                            if (FILTER_OK) ctx.filter = `blur(${(3.5 * dpr).toFixed(1)}px)`;
+                            ctx.globalAlpha = Math.min(1, o.refl * 0.9 * sceneAlpha);
+                            if (FILTER_OK) ctx.filter = `blur(${(1.8 * dpr).toFixed(1)}px)`;
                             ctx.drawImage(fsGloC, 0, 0, cv.width, cv.height);
                             ctx.filter = 'none';
                             ctx.restore();
@@ -2098,6 +2098,313 @@
                 if (orbs.length) {
                     FG.globalCompositeOperation = 'lighter';
                     for (const ob of orbs) fsDrawOrbOrStar(FG, ob, layerAlpha);
+                }
+                FG.restore();
+            }
+
+            // ---------- 물고기 군집 배치 옵션 (물고기 이펙트 초안 Argon.html sphere 모드 이식) ----------
+            // 밤 장면(일반 달 밤 / 미러볼 밤)에서 노출되는 3옵션: 숨김(bi-ban, 기본값) / 커서 추적(bi-cursor-fill) / 달 배치(bi-globe2).
+            // 군집 중심을 축으로 삼아 구체 군집이 회전 소용돌이(sphere) 형태로 따라다닌다. 상태는 유지되고 밤에서만 그려진다.
+            // 커서 추적 시 커서가 화면을 벗어나면 페이드아웃, 다시 들어오면 페이드인한다.
+            const CURSOR = {
+                motif: 0, size: 24, aspect: 1.0, wag: 0.085, patA: 0.88, winD: 0.58, fillA: 0.72,
+                nMid: 48, nNear: 6, nFar: 8,
+                spd: 1.15, swR: 0.06, tilt: -24, swirl: 1.25, trail: 2, trailA: 0.22,
+                glow: 0.85, glowR: 9, spark: 12, seed: 11, fade: 0.45, refl: 0.55
+            };
+            const CURSOR_DEFAULTS = JSON.parse(JSON.stringify(CURSOR));
+            let cursorMode = 0, cursorA = 0, cursorT = 0;   // 0=숨김, 1=커서 추적, 2=달 배치
+            let cursorFish = [], cursorOrbs = [];
+            let cursorSX = 0, cursorSY = 0, cursorWX = 0, cursorWY = 0, cursorInit = false;
+            let cursorInside = false;
+
+            // 밤 계열 장면 판정 (fish와 동일: 공백·황혼 비활성)
+            const isCursorNightScene = () => clamp(structW, 0, 1) > 0.5 && palQ() >= 0.5 && (targetOf(state) === 'night' || debugHold);
+
+            // 구체 회전 좌표계 변환 (Argon.html spherePointAndVel 이식)
+            function fsSpherePoint(lat, lon, tiltDeg, rollDeg) {
+                const cl = Math.cos(lat), sl = Math.sin(lat);
+                const co = Math.cos(lon), so = Math.sin(lon);
+                let x = cl * so, y = sl, z = cl * co;
+                let tx = cl * co, ty = 0, tz = -cl * so;
+                const T = tiltDeg * Math.PI / 180, ct = Math.cos(T), st = Math.sin(T);
+                const y1 = y * ct - z * st, z1 = y * st + z * ct;
+                const ty1 = ty * ct - tz * st, tz1 = ty * st + tz * ct;
+                const Rr = rollDeg * Math.PI / 180, cr = Math.cos(Rr), sr = Math.sin(Rr);
+                const x2 = x * cr - y1 * sr, y2 = x * sr + y1 * cr;
+                const tx2 = tx * cr - ty1 * sr, ty2 = tx * sr + ty1 * cr;
+                return { x: x2, y: y2, z: z1, tx: tx2, ty: ty2, tz: tz1 };
+            }
+
+            function cursorBuild() {
+                const o = CURSOR;
+                const r = mulberry32((o.seed ^ 0x51ab3c21) >>> 0);
+                cursorFish = [];
+                cursorOrbs = [];
+                const makeFish = (layer, idx, total) => {
+                    const u = (idx + 0.5) / Math.max(1, total);
+                    let lat0 = Math.asin(clamp(2 * u - 1 + (r() - 0.5) * 0.1, -0.97, 0.97));
+                    if (r() < 0.24) lat0 = 0.48 + r() * 0.46;
+                    const lon0 = (idx * 2.3999632 + r() * 0.45) % (Math.PI * 2);
+                    const isOutlier = layer === 1 && r() < 0.11;
+                    const sphShell = isOutlier ? (1.04 + r() * 0.22) : (0.78 + r() * 0.22);
+                    return {
+                        L: layer,
+                        motif: fsPickMotif(r, o.motif),
+                        ci: Math.floor(r() * 6),
+                        lat0, lon0, sphShell, isOutlier,
+                        ph: r() * 6.283,
+                        sm: 0.78 + r() * 0.48,
+                        sk: 0.75 + r() * 0.48,
+                        aspectMul: 0.92 + r() * 0.18,
+                        x: cursorWX, y: cursorWY,
+                        hd: -0.4, bend: 0,
+                        scaleMul: 0.4, foreshorten: 1,
+                        zDepth: 0, alphaMul: 0,
+                        hist: []
+                    };
+                };
+                const nFar = clamp(Math.round(o.nFar) || 0, 0, 120);
+                const nMid = clamp(Math.round(o.nMid) || 0, 0, 160);
+                const nNear = clamp(Math.round(o.nNear) || 0, 0, 40);
+                for (let k = 0; k < nFar; k++) cursorFish.push(makeFish(0, k, nFar));
+                for (let k = 0; k < nMid; k++) cursorFish.push(makeFish(1, k, nMid));
+                for (let k = 0; k < nNear; k++) cursorFish.push(makeFish(2, k, nNear));
+                const nOrbs = clamp(Math.round(o.spark) || 0, 0, 40);
+                for (let k = 0; k < nOrbs; k++) {
+                    cursorOrbs.push({
+                        ang: r() * Math.PI * 2,
+                        rad: 0.05 + r() * 0.95,
+                        sz: 1.4 + r() * 3.0,
+                        ci: Math.floor(r() * 6),
+                        ph: r() * 6.283,
+                        sp: 0.5 + r() * 1.1,
+                        isStar: r() < 0.42,
+                        x: cursorWX, y: cursorWY, rNow: 2, a: 0
+                    });
+                }
+                if (!cursorInit && W > 0 && H > 0) {
+                    cursorWX = W * 0.5; cursorWY = H * 0.4;
+                    cursorInit = true;
+                }
+            }
+
+            function setCursorMode(m) {
+                cursorMode = clamp(Math.round(Number(m) || 0), 0, 2);
+                const on = cursorMode !== 0;
+                if (on && !cursorFish.length && !cursorOrbs.length) cursorBuild();
+                if (on && !cursorInit && W > 0 && H > 0) {
+                    cursorWX = W * 0.5; cursorWY = H * 0.4;
+                    cursorInit = true;
+                }
+                const defs = [['btnCursorOff', 0], ['btnCursorTrack', 1], ['btnCursorMoon', 2]];
+                for (const [id, mm] of defs) {
+                    const el = document.getElementById(id);
+                    if (!el) continue;
+                    const active = cursorMode === mm;
+                    el.classList.toggle('on', active);
+                    el.setAttribute('aria-pressed', active ? 'true' : 'false');
+                }
+            }
+
+            function updateCursor(dt) {
+                const nightNow = isCursorNightScene();
+                // 모드 2(달 배치): 현재 보이는 달(미러볼/일반 달 중 moonTarget 우선, 전환 중엔 보이는 쪽 폴백)을 추적.
+                // mbMX/pmMX는 월드 좌표라 카메라 줌 변환 없이 그대로 쓴다. 달이 안 보이면 페이드아웃.
+                let mwx = 0, mwy = 0, moonVis = false;
+                if (cursorMode === 2) {
+                    const mbOk = mbMV > 0.05 && mbMR >= 2;
+                    const pmOk = pmMV > 0.05 && pmMR >= 2;
+                    const useMb = moonTarget === 'mirror' ? (mbOk || !pmOk) : (mbOk && !pmOk);
+                    if (useMb && mbOk) { mwx = mbMX; mwy = mbMY; moonVis = true; }
+                    else if (!useMb && pmOk) { mwx = pmMX; mwy = pmMY; moonVis = true; }
+                }
+                const want = (cursorMode !== 0 && nightNow && !RM.matches && (cursorMode === 2 ? moonVis : cursorInside)) ? 1 : 0;
+                const fd = Math.max(0.05, CURSOR.fade);
+                cursorA = want > cursorA
+                    ? Math.min(want, cursorA + dt / fd)
+                    : Math.max(want, cursorA - dt / fd);
+                if (!cursorFish.length && !cursorOrbs.length) return;
+                if (RM.matches) return;
+                cursorT += dt * Math.max(0.1, CURSOR.spd);
+                // 군집 중심 목표: 모드 1 = 저장된 화면 커서좌표 → 월드, 모드 2 = 달 월드좌표.
+                // 평활 추적으로 미끄러지듯 따라간다.
+                let twx = cursorWX, twy = cursorWY;
+                if (cursorMode === 2) {
+                    if (moonVis) { twx = mwx; twy = mwy; }
+                } else {
+                    try {
+                        const tw = camS2W(cursorSX, cursorSY);
+                        if (isFinite(tw.x) && isFinite(tw.y)) { twx = tw.x; twy = tw.y; }
+                    } catch (e) { /* 변환 실패 시 현상 유지 */ }
+                }
+                if (!cursorInit && W > 0 && H > 0) {
+                    cursorWX = twx; cursorWY = twy; cursorInit = true;
+                } else {
+                    const k = 1 - Math.exp(-10 * Math.max(0, dt));
+                    cursorWX += (twx - cursorWX) * k;
+                    cursorWY += (twy - cursorWY) * k;
+                }
+                const o = CURSOR;
+                const Rs = Math.max(20, H * o.swR);
+                const histLen = Math.max(0, Math.round(o.trail)) * 2 + 1;
+                const dirS = o.swirl >= 0 ? 1 : -1;
+                for (const f of cursorFish) {
+                    f.ph += dt * (7.5 + o.spd * 4.5) * f.sm;
+                    const spinRate = (1.65 + 0.55 * f.sm) * o.spd * dirS;
+                    const lon = f.lon0 + cursorT * spinRate;
+                    const lat = f.lat0 + Math.sin(cursorT * 1.4 + f.lon0 * 2) * 0.07;
+                    const sp = fsSpherePoint(lat, lon, o.tilt, -18);
+                    const rShell = Rs * (f.L === 0 ? 0.82 * f.sphShell : f.sphShell * (f.L === 2 ? 1.04 : 0.98));
+                    f.x = cursorWX + sp.x * rShell;
+                    f.y = cursorWY - sp.y * rShell;
+                    const shd = Math.atan2(-sp.ty, sp.tx);
+                    f.hd = shd;
+                    f.bend = clamp(-sp.y * 0.26, -0.34, 0.34);
+                    f.foreshorten = clamp(Math.hypot(sp.tx, sp.ty), 0.36, 1.0);
+                    f.zDepth = sp.z;
+                    const sphScale = (f.isOutlier ? 0.26 : f.L === 2 ? 0.50 : f.L === 1 ? 0.42 : 0.35) * (0.78 + 0.28 * (sp.z + 1) * 0.5);
+                    f.scaleMul = sphScale * f.sk;
+                    f.alphaMul = sp.z < 0 ? lerp(0.38, 0.68, sp.z + 1) : lerp(0.84, 1.0, sp.z);
+                    if (f.L > 0 && histLen > 1 && cursorA > 0.01) {
+                        f.hist.push({
+                            x: f.x, y: f.y, hd: f.hd,
+                            sz: o.size * f.scaleMul,
+                            ph: f.ph, bend: f.bend,
+                            aspectMul: f.aspectMul,
+                            foreshorten: f.foreshorten
+                        });
+                        if (f.hist.length > histLen) f.hist.splice(0, f.hist.length - histLen);
+                    } else if (f.hist.length) {
+                        f.hist.shift();
+                    }
+                }
+                for (const ob of cursorOrbs) {
+                    ob.ph += dt * (2.2 + ob.sp) * o.spd;
+                    ob.ang += dt * 0.9 * o.spd * ob.sp;
+                    const rr = Rs * (0.94 + 0.30 * ob.rad);
+                    ob.x = cursorWX + Math.cos(ob.ang) * rr;
+                    ob.y = cursorWY + Math.sin(ob.ang) * rr * 0.95;
+                    const pulse = 0.55 + 0.45 * Math.sin(ob.ph);
+                    ob.rNow = ob.sz * 0.52 * (0.75 + 0.35 * pulse);
+                    ob.a = (0.45 + 0.5 * pulse);
+                }
+            }
+
+            function drawCursorPass(sceneAlpha) {
+                const o = CURSOR;
+                if (!cursorFish.length && !cursorOrbs.length) return;
+                if (sceneAlpha <= 0.01) return;
+                const pal = fsPal();
+                const items = [];
+                const nTrail = Math.max(0, Math.round(o.trail));
+                for (const f of cursorFish) {
+                    if (f.alphaMul <= 0.02) continue;
+                    if (f.x < -160 || f.x > W + 160 || f.y < -160 || f.y > H + 160) continue;
+                    const st = {
+                        x: f.x, y: f.y, hd: f.hd,
+                        sz: o.size * (f.scaleMul || 0.4),
+                        ph: f.ph, bend: f.bend || 0,
+                        aspectMul: f.aspectMul,
+                        foreshorten: f.foreshorten || 1
+                    };
+                    const inst = fsBakeInstance(f, st, o, pal);
+                    inst.alpha = f.alphaMul;
+                    inst.z = f.zDepth || 0;
+                    inst.ghosts = [];
+                    if (f.L > 0 && nTrail > 0 && o.trailA > 0 && f.hist.length > 2) {
+                        const M = FS_MOTIFS[f.motif] || FS_MOTIFS[1];
+                        for (let k = 1; k <= nTrail; k++) {
+                            const hi = f.hist.length - 1 - k * 2;
+                            if (hi < 0) break;
+                            const hst = f.hist[hi];
+                            if (Math.hypot(hst.x - f.x, hst.y - f.y) > 140) break;
+                            inst.ghosts.push({
+                                out: M.outline.map(([u, y]) => fsMapPoint(u, y, hst, o)),
+                                a: o.trailA * (1 - (k - 1) / nTrail) * f.alphaMul
+                            });
+                        }
+                    }
+                    items.push(inst);
+                }
+                items.sort((a, b) => a.z - b.z);
+                const orbItems = [];
+                const nOb = Math.min(cursorOrbs.length, Math.max(0, Math.round(o.spark)));
+                for (let i = 0; i < nOb; i++) {
+                    const ob = cursorOrbs[i];
+                    if (ob.a <= 0.02) continue;
+                    orbItems.push({
+                        x: ob.x, y: ob.y, rNow: ob.rNow,
+                        col: pal[ob.ci % pal.length],
+                        a: ob.a, isStar: ob.isStar
+                    });
+                }
+
+                // 1) 커서 바로 아래 반사 (수면에만: 수평선 아래로 클리핑)
+                // 수평선 기준 미러 대신, 군집 중심(cursorWY) 아래에 뒤집힌 고스트를 깔아
+                // 커서를 따라다니는 그림자/반사 느낌을 만든다. 수평선 위(하늘) 부분은 잘라 수면에서만 비친다.
+                if (o.refl > 0.01 && items.length && camFlatOn() && H - HZ > 6) {
+                    const Rs = Math.max(20, H * o.swR);
+                    const axisY = cursorWY + Rs * 1.05;
+                    const span = Math.max(1, Rs * 1.6);
+                    fsPrepBuf(fsGloC, fsGloG);
+                    fsGloG.globalCompositeOperation = 'lighter';
+                    let hasGhost = false;
+                    for (const it of items) {
+                        const pts = new Array(it.out.length);
+                        let vis = 0;
+                        for (let j = 0; j < it.out.length; j++) {
+                            const pt = it.out[j];
+                            const my = axisY + (axisY - pt[1]) * 0.6;
+                            pts[j] = [pt[0], my];
+                            vis += clamp(1 - (my - axisY) / span, 0, 1);
+                        }
+                        const fadeG = (vis / pts.length) * 0.75 * it.alpha * o.refl;
+                        if (fadeG <= 0.02) continue;
+                        fsDrawSilhouette(fsGloG, pts, fsMixW(it.col, 0.38), fadeG);
+                        hasGhost = true;
+                    }
+                    if (hasGhost) {
+                        FG.save();
+                        camSet(FG);
+                        FG.beginPath();
+                        FG.rect(0, HZ, W, H - HZ);
+                        FG.clip();
+                        FG.setTransform(1, 0, 0, 1, 0, 0);
+                        FG.globalCompositeOperation = 'lighter';
+                        FG.globalAlpha = sceneAlpha;
+                        if (FILTER_OK) FG.filter = `blur(${(1.5 * dpr * camSS()).toFixed(1)}px)`;
+                        FG.drawImage(fsGloC, 0, 0, fg.width, fg.height);
+                        FG.restore();
+                    }
+                }
+
+                FG.save();
+                // 글로우 블룸
+                if (items.length && o.glow > 0.01) {
+                    fsPrepBuf(fsGloC, fsGloG);
+                    fsGloG.globalCompositeOperation = 'lighter';
+                    for (const it of items) {
+                        fsDrawSilhouette(fsGloG, it.out, it.col, 0.72 * it.alpha);
+                        for (const gh of it.ghosts) fsDrawSilhouette(fsGloG, gh.out, it.col, gh.a * 0.65);
+                    }
+                    FG.setTransform(1, 0, 0, 1, 0, 0);
+                    FG.globalCompositeOperation = 'lighter';
+                    FG.globalAlpha = Math.min(1, o.glow) * sceneAlpha;
+                    if (FILTER_OK && o.glowR > 0) {
+                        FG.filter = `blur(${(o.glowR * dpr * camSS() * 0.65).toFixed(1)}px)`;
+                    }
+                    FG.drawImage(fsGloC, 0, 0, fg.width, fg.height);
+                    FG.filter = 'none';
+                }
+                camSet(FG);
+                FG.filter = 'none';
+                FG.globalAlpha = 1;
+                FG.globalCompositeOperation = 'source-over';
+                for (const it of items) fsDrawDetailedFish(FG, it, o, sceneAlpha);
+                if (orbItems.length) {
+                    FG.globalCompositeOperation = 'lighter';
+                    for (const ob of orbItems) fsDrawOrbOrStar(FG, ob, sceneAlpha);
                 }
                 FG.restore();
             }
@@ -3899,6 +4206,7 @@ void main() {
                 }
                 updateMoonMode(dt);
                 updateFish(dt);
+                updateCursor(dt);
             }
 
             // ---------- render ----------
@@ -4735,6 +5043,10 @@ void main() {
                     drawTorii(r0, r1, 1);
                     drawLanterns(r0, r1, structA, 'front');
                     if (fishScene) drawFishPass('front', fishScene, fishNightA);
+                    // 물고기 군집 배치: 밤 페이드와 모드 페이드(cursorA)를 함께 적용해 최전경에 그린다
+                    if (cursorMode !== 0 && cursorA > 0.01 && (cursorFish.length || cursorOrbs.length)) {
+                        drawCursorPass(fishNightA * cursorA);
+                    }
                 }
                 FG.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -4952,6 +5264,22 @@ void main() {
                 }
             });
 
+            // 커서 추적 구체 군집용 포인터 위치 추적.
+            // 화면 안에 있으면 페이드인, 벗어나면 페이드아웃한다.
+            window.addEventListener('pointermove', e => {
+                if (e.clientX === undefined || e.clientY === undefined) return;
+                cursorSX = e.clientX;
+                cursorSY = e.clientY;
+                cursorInside = true;
+            }, { passive: true });
+            document.documentElement.addEventListener('pointerleave', () => { cursorInside = false; });
+            document.addEventListener('mouseleave', () => { cursorInside = false; });
+            document.addEventListener('mouseenter', () => { cursorInside = true; });
+            window.addEventListener('blur', () => { cursorInside = false; });
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) cursorInside = false;
+            });
+
             function stepRipples(dt) {
                 if (debugPaused) return;
                 for (let i = ripples.length - 1; i >= 0; i--) {
@@ -5089,6 +5417,7 @@ void main() {
                 if (active !== lastActive) {
                     lastActive = active;
                     elPanel.classList.toggle('scene-day', active === 'day');
+                    elPanel.classList.toggle('scene-night', active === 'night' || active === 'mirror');
                     for (const [el, m] of [[elDay, 'day'], [elDusk, 'dusk'], [elNight, 'night'], [elMirror, 'mirror']]) {
                         if (!el) continue;
                         const on = active === m;
@@ -5278,6 +5607,29 @@ void main() {
                 }
             });
 
+            // ---------- 밤 물고기 군집 배치 옵션 (밤 장면에서만 노출, 기본값 숨김) ----------
+            // 공백 토글과 같은 방식. 장면을 벗어나도 상태는 유지되고 밤에서만 그려진다.
+            function cursorPick(m) {
+                if (TOUCH_UI && elPanel && !elPanel.classList.contains('expanded')) {
+                    elPanel.classList.add('expanded');
+                    moveThumb();
+                }
+                setCursorMode(m);
+                if (TOUCH_UI && elPanel) {
+                    clearTimeout(collapseTimer);
+                    collapseTimer = setTimeout(() => {
+                        elPanel.classList.remove('expanded');
+                        moveThumb();
+                    }, 900);
+                }
+            }
+            const elCursorOff = document.getElementById('btnCursorOff');
+            const elCursorTrack = document.getElementById('btnCursorTrack');
+            const elCursorMoon = document.getElementById('btnCursorMoon');
+            if (elCursorOff) elCursorOff.addEventListener('click', e => { e.stopPropagation(); cursorPick(0); });
+            if (elCursorTrack) elCursorTrack.addEventListener('click', e => { e.stopPropagation(); cursorPick(1); });
+            if (elCursorMoon) elCursorMoon.addEventListener('click', e => { e.stopPropagation(); cursorPick(2); });
+
             // ---------- 배경화면 감상 모드 (단독 토글, 기본값 감상 모드) ----------
             // 시간대 버튼그룹과 별도. 기본은 감상 모드로 클릭 인디케이터 및 텍스트(랜드마크 핀)를 숨긴다.
             // 버튼은 반대로 동작: 토글 활성화(.on) 시 감상 모드를 끄고 랜드마크 인디케이터를 보인다.
@@ -5374,6 +5726,9 @@ void main() {
                 // 공백 장면 토글 (하단 btnStars/btnDark과 동일, Wallpaper Engine 일반 옵션에서 쓴다)
                 get dayStars() { return dsOn; }, set dayStars(v) { setDayStars(!!v); },
                 get dayDark() { return dnOn; }, set dayDark(v) { setDayDark(!!v); },
+                // 밤 물고기 군집 배치 옵션 (하단 btnCursorOff/Track/Moon과 동일)
+                get cursor() { return cursorMode !== 0; }, set cursor(v) { setCursorMode(v ? 1 : 0); },
+                get cursorMode() { return cursorMode; }, set cursorMode(v) { setCursorMode(v); },
                 get moonTarget() { return moonTarget; }, get mbMix() { return mbMix; }, get showT() { return showT; },
                 show: SHOW, showDefaults: SHOW_DEF,
                 get sunK() { return sunK(); },
@@ -5436,6 +5791,10 @@ void main() {
                 get fishDefaults() { return FISH_DEFAULTS; },
                 get fishActive() { return fishActive; },
                 get fishCount() { return fishList.length; },
+                get cursorFx() { return CURSOR; },
+                get cursorDefaults() { return CURSOR_DEFAULTS; },
+                get cursorActive() { return cursorMode !== 0 && cursorA > 0.01; },
+                get cursorCount() { return cursorFish.length; },
                 get omega() { return omega; }, set omega(v) { omega = Number(v) || 0; },
                 get clock() { return clock; },
                 get tState() { return tState; }, set tState(v) { tState = Number(v) || 0; },
@@ -5507,11 +5866,13 @@ void main() {
                         // 인트로 리플레이: 전환 UI를 다시 숨겼다가 완료 시점에 올린다
                         introDone = false;
                         if (elPanel) { elPanel.classList.remove('intro-enter'); elPanel.classList.add('intro-hidden'); }
-                        buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); Object.assign(MB, JSON.parse(JSON.stringify(MB_DEFAULTS))); mbSpin = true; mbBuildAll(); mbRot = 0; Object.assign(FISH, JSON.parse(JSON.stringify(FISH_DEFAULTS))); fishClear(); resize();
+                        buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); Object.assign(MB, JSON.parse(JSON.stringify(MB_DEFAULTS))); mbSpin = true; mbBuildAll(); mbRot = 0; Object.assign(FISH, JSON.parse(JSON.stringify(FISH_DEFAULTS))); fishClear(); Object.assign(CURSOR, JSON.parse(JSON.stringify(CURSOR_DEFAULTS))); cursorFish = []; cursorOrbs = []; cursorA = 0; setCursorMode(0); resize();
                     },
                     mirrorburst() { mbFire(); },
                     fishRise() { return fishFire(true); },
                     fishClear() { fishClear(); },
+                    cursorToggle(v) { setCursorMode(v === undefined ? (cursorMode !== 0 ? 0 : 1) : (v ? 1 : 0)); },
+                    cursorPlace(m) { setCursorMode(m); },
                     // 미러볼 전환 연출 재생: 밤이면 일반 달에서 즉시 다시 시작, 아니면 밤 도착 후 실행
                     mirrorShow() {
                         if (state === 'night') { moonTarget = 'mirror'; mbMix = 0; startShow(); }
