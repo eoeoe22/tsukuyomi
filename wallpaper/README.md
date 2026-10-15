@@ -36,7 +36,7 @@ wallpaper/
 
 ## 동결 버전
 
-- `CORE_VERSION.txt` 참조 (커밋 `d9b597c` + bridge dayStars/dayDark/cursorMode, 2026-10-15 UTC 기준).
+- `CORE_VERSION.txt` 참조 (커밋 `615d74c` + 별 바다 물고기 군집·고해상도 축소 해결, 2026-10-15 UTC 기준).
 - `project.json`의 고급 기본값 189종은 동결 CFG에서 그대로 생성됐다 (공백 장면 DS_*/DN_*/DY_REF_AR 13종 포함).
 - 검증: `python wallpaper/tools/verify-wallpaper.py` (vendor 해시·기본값·참조·git 범위 검사).
 
