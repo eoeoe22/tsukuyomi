@@ -1088,7 +1088,16 @@
         return '\nzoom[' + z.label + '] ' + z.frames + 'f ' + z.fps + 'fps  dt p50=' + z.dtP50 +
             ' p95=' + z.dtP95 + ' max=' + z.dtMax + '  js=' + z.jsAvg + '  long=' + z.long.length +
             '  starDirect=' + Math.round((z.avg.sdir || 0) * 100) + '%  ' + z.W + 'x' + z.H + '@' + z.dpr +
+            fishLine(z) +
             (ev ? '\n  ev ' + ev : '');
+    }
+
+    // 물고기/군집 하위 구간 (avg/max ms). 계측 중 개체가 없었으면 생략.
+    function fishLine(z) {
+        const keys = ['fishUpd', 'fishScene', 'fishBack', 'fishFront', 'curUpd', 'curDraw'];
+        if (!(z.max.nFish > 0 || z.max.nCur > 0)) return '';
+        return '\n  fish ' + keys.map(k => k + '=' + (z.avg[k] || 0) + '/' + (z.max[k] || 0)).join(' ') +
+            '  n=' + (z.avg.nFish || 0) + '/' + (z.max.nFish || 0) + ' cur=' + (z.avg.nCur || 0) + '/' + (z.max.nCur || 0);
     }
 
     // ---------- 감지 ----------
