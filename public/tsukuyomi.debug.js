@@ -152,6 +152,7 @@
         '<div class="tsd-status" id="tsdStatus">bridge 대기 중…</div>' +
         '<details open><summary>장면 상태 (수동 스크럽)</summary><div class="tsd-sec" id="tsdScene"></div></details>' +
         '<details><summary>미러볼 (달)</summary><div class="tsd-sec" id="tsdMirror"></div></details>' +
+        '<details><summary>물고기 (토리이 수면 상승)</summary><div class="tsd-sec" id="tsdFish"></div></details>' +
         '<details><summary>카드 미리보기 (cards/*.wiki)</summary><div class="tsd-sec" id="tsdCard"></div></details>' +
         '<div id="tsdGroups"></div>' +
         '<details><summary>팔레트 (색/레벨 JSON)</summary><div class="tsd-sec" id="tsdPal"></div></details>' +
@@ -411,6 +412,7 @@
         }
         syncSceneUI();
         refreshMirror(b);
+        refreshFish(b);
         buildPaletteEditors(b, true);
     }
 
@@ -691,6 +693,143 @@
         if (host._spinChk) host._spinChk.checked = !!b.mbSpin;
     }
 
+    // ---------- 물고기 (토리이 수면 상승, Argon.html 이식) ----------
+    const FISH_GROUPS = [
+        { title: '무늬 · 물고기 형태', keys: [
+            ['motif', 0, 5, 1], ['size', 20, 120, 1], ['aspect', 0.6, 1.6, 0.02],
+            ['wag', 0, 0.24, 0.005], ['patA', 0, 1.2, 0.02], ['winD', 0, 0.9, 0.02], ['fillA', 0.15, 1, 0.01],
+        ]},
+        { title: '개체 · 깊이 구성', keys: [
+            ['nMid', 10, 260, 2], ['nNear', 0, 80, 1], ['nFar', 0, 240, 2],
+            ['farBlur', 0, 18, 0.5], ['farA', 0, 1, 0.02],
+        ]},
+        { title: '상승 · 빛 · 반사', keys: [
+            ['spd', 0.2, 2.5, 0.05], ['swirl', -2.0, 2.0, 0.05], ['trail', 0, 8, 1], ['trailA', 0, 0.8, 0.02],
+            ['glow', 0, 1.6, 0.02], ['glowR', 2, 28, 0.5], ['spark', 0, 80, 1],
+            ['aurora', 0, 1, 0.02], ['refl', 0, 1, 0.02],
+        ]},
+    ];
+    const FISH_COLORS = [
+        ['c0', '분홍'], ['c1', '청록'], ['c2', '노랑'], ['c3', '살구'], ['c4', '하늘'], ['c5', '연두'],
+    ];
+    const fishRowRefs = [];
+    function buildFish(b) {
+        if (!b.fish) return;
+        const host = document.getElementById('tsdFish');
+        if (!host) return;
+        host.innerHTML = '';
+        fishRowRefs.length = 0;
+        const brow = document.createElement('div');
+        brow.className = 'tsd-btnrow';
+        const mkBtn = (label, fn) => {
+            const btn = document.createElement('button');
+            btn.type = 'button'; btn.textContent = label;
+            btn.addEventListener('click', fn);
+            brow.appendChild(btn);
+        };
+        mkBtn('수면 상승 발사', () => b.actions.fishRise && b.actions.fishRise());
+        mkBtn('이펙트 지우기', () => b.actions.fishClear && b.actions.fishClear());
+        mkBtn('물고기 리셋', () => {
+            Object.assign(b.fish, JSON.parse(JSON.stringify(b.fishDefaults)));
+            refreshFish(b);
+        });
+        host.appendChild(brow);
+        for (const g of FISH_GROUPS) {
+            const sub = document.createElement('div');
+            sub.className = 'tsd-sub';
+            sub.textContent = g.title;
+            host.appendChild(sub);
+            for (const [key, min, max, step] of g.keys) {
+                const row = document.createElement('div');
+                row.className = 'tsd-row';
+                const lab = document.createElement('label');
+                lab.textContent = key;
+                lab.title = '기본값 ' + fmt(b.fishDefaults[key]);
+                const range = document.createElement('input');
+                range.type = 'range';
+                range.min = String(min); range.max = String(max); range.step = String(step);
+                range.value = String(b.fish[key]);
+                const num = document.createElement('input');
+                num.type = 'number';
+                num.min = String(min); num.max = String(max); num.step = String(step);
+                num.value = String(b.fish[key]);
+                const apply = (v, from) => {
+                    const n = Number(v);
+                    if (!isFinite(n)) return;
+                    b.fish[key] = n;
+                    if (from !== range) range.value = String(Math.min(max, Math.max(min, n)));
+                    if (from !== num) num.value = String(n);
+                };
+                range.addEventListener('input', () => apply(range.value, range));
+                num.addEventListener('change', () => apply(num.value, num));
+                row.appendChild(lab); row.appendChild(range); row.appendChild(num);
+                host.appendChild(row);
+                fishRowRefs.push({ key, range, num, kind: 'num' });
+            }
+        }
+        const csub = document.createElement('div');
+        csub.className = 'tsd-sub';
+        csub.textContent = '색상 · 시드';
+        host.appendChild(csub);
+        for (const [key, label] of FISH_COLORS) {
+            const row = document.createElement('div');
+            row.className = 'tsd-row';
+            const lab = document.createElement('label');
+            lab.textContent = label + ' (' + key + ')';
+            lab.title = '기본값 ' + b.fishDefaults[key];
+            const col = document.createElement('input');
+            col.type = 'color';
+            col.value = b.fish[key];
+            const hex = document.createElement('input');
+            hex.type = 'text';
+            hex.value = b.fish[key];
+            hex.spellcheck = false;
+            col.addEventListener('input', () => { b.fish[key] = col.value; hex.value = col.value; });
+            hex.addEventListener('change', () => {
+                let v = hex.value.trim();
+                if (/^#[0-9a-fA-F]{6}$/.test(v)) { b.fish[key] = v.toLowerCase(); col.value = b.fish[key]; }
+                else hex.value = b.fish[key];
+            });
+            row.appendChild(lab); row.appendChild(col); row.appendChild(hex);
+            host.appendChild(row);
+            fishRowRefs.push({ key, range: col, num: hex, kind: 'color' });
+        }
+        const srow = document.createElement('div');
+        srow.className = 'tsd-row';
+        const slab = document.createElement('label');
+        slab.textContent = 'seed';
+        slab.title = '기본값 ' + fmt(b.fishDefaults.seed);
+        const snum = document.createElement('input');
+        snum.type = 'number';
+        snum.min = '0'; snum.max = '999999'; snum.step = '1';
+        snum.value = String(b.fish.seed);
+        const reroll = document.createElement('button');
+        reroll.type = 'button'; reroll.textContent = '시드 변경';
+        const applySeed = v => {
+            const n = Math.max(0, Math.round(Number(v) || 0));
+            b.fish.seed = n; snum.value = String(n);
+        };
+        snum.addEventListener('change', () => applySeed(snum.value));
+        reroll.addEventListener('click', () => applySeed(Math.floor(Math.random() * 100000)));
+        srow.appendChild(slab); srow.appendChild(snum); srow.appendChild(reroll);
+        host.appendChild(srow);
+        fishRowRefs.push({ key: 'seed', range: snum, num: snum, kind: 'seed' });
+    }
+    function refreshFish(b) {
+        if (!b.fish) return;
+        const host = document.getElementById('tsdFish');
+        if (!host || !host.firstChild) return;
+        for (const r of fishRowRefs) {
+            if (r.kind === 'color') {
+                if (document.activeElement !== r.num) r.num.value = b.fish[r.key];
+                if (document.activeElement !== r.range) r.range.value = b.fish[r.key];
+                continue;
+            }
+            if (document.activeElement !== r.range) r.range.value = String(b.fish[r.key]);
+            if (r.num !== r.range && document.activeElement !== r.num) r.num.value = String(b.fish[r.key]);
+        }
+    }
+
     // ---------- 팔레트 ----------
     let palDefaults = null;
     function buildPaletteEditors(b, refreshOnly) {
@@ -762,6 +901,7 @@
             const snap = {
                 cfg: b.cfg,
                 mb: b.mb ? JSON.parse(JSON.stringify(b.mb)) : undefined,
+                fish: b.fish ? JSON.parse(JSON.stringify(b.fish)) : undefined,
                 palettes: b.palettes,
                 scene: { state: b.state, mode: b.mode, p: b.p, phi: b.phi, hold: b.hold, paused: b.paused, nk: b.sunK },
             };
@@ -790,6 +930,9 @@
                 if (snap.mb && b.mb) {
                     Object.assign(b.mb, snap.mb);
                     b.actions.mbBuild();
+                }
+                if (snap.fish && b.fish) {
+                    Object.assign(b.fish, snap.fish);
                 }
                 if (snap.scene) {
                     // p/nk를 state보다 먼저 복원: 전이 상태 세터가 transFrom/nkFrom을 올바르게 캡처한다.
@@ -934,6 +1077,7 @@
             '\nreflStep=' + b.reflStep + '  reflCost=' + fmt(b.reflCost) + 'ms' +
             '  tor=' + b.torBuilds + '  band=' + b.bandBuilds + '  star=' + b.starBuilds +
             (b.mb ? '\nmbRot=' + fmt(b.mbRot) + '  streaks=' + b.mbStreaks : '') +
+            (b.fish ? '  fish=' + (b.fishCount || 0) : '') +
             zprofLine(b.zoomProf && b.zoomProf.last);
     }
 
@@ -1056,6 +1200,7 @@
             buildScene(b);
             buildGroups(b);
             buildMirror(b);
+            buildFish(b);
             buildPaletteEditors(b, false);
             buildIO(b);
             renderSrc();

@@ -1300,6 +1300,808 @@
                 else mbMix = want > mbMix ? Math.min(want, mbMix + dt / 0.8) : Math.max(want, mbMix - dt / 0.8);
             }
 
+            // ---------- 토리이 수면 상승 물고기 이펙트 (물고기 이펙트 초안 Argon.html 이식) ----------
+            // 밤 계열 장면(일반 달 밤 / 미러볼 밤)에서 토리이 클릭 시 수면 상승(rise) 이펙트를 1회 트리거.
+            // 토리이 중심(torCx, torBase)을 둘러싸고 수면에서 솟아오르며, 토리이 기준 뒤 레이어(back)는
+            // drawTorii 전에, 앞 레이어(front)는 drawTorii 후에 그려 전후 차폐가 명확히 구분된다.
+            const FISH = {
+                motif: 1, size: 46, aspect: 0.95, wag: 0.11, patA: 0.9, winD: 0.6, fillA: 0.7,
+                nMid: 37, nNear: 12, nFar: 24, farBlur: 6.0, farA: 0.38,
+                spd: 1.0, swirl: 0.8, trail: 3, trailA: 0.25,
+                glow: 0.75, glowR: 9, spark: 23, aurora: 0.25, refl: 0.65,
+                seed: 17,
+                c0: '#ff6ad5', c1: '#52f2ff', c2: '#f4f255', c3: '#ffaa5c', c4: '#6aaeff', c5: '#6bf5a8'
+            };
+            const FISH_DEFAULTS = JSON.parse(JSON.stringify(FISH));
+            const fsMixW = (c, k) => [c[0] + (255 - c[0]) * k, c[1] + (255 - c[1]) * k, c[2] + (255 - c[2]) * k];
+            const fsScaleRGB = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+            const fsRgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${clamp(a, 0, 1).toFixed(3)})`;
+            const fsPal = () => [FISH.c0, FISH.c1, FISH.c2, FISH.c3, FISH.c4, FISH.c5].map(hex);
+
+            const FS_SIL_STD = [
+                [0.00, 0.22], [0.10, 0.44], [0.28, 0.82], [0.48, 0.98],
+                [0.66, 0.92], [0.82, 0.66], [0.93, 0.34], [1.00, 0.00]
+            ];
+            const FS_SIL_WIDE = [
+                [0.00, 0.24], [0.10, 0.56], [0.28, 0.96], [0.50, 1.08],
+                [0.70, 0.96], [0.85, 0.68], [0.95, 0.34], [1.00, 0.00]
+            ];
+            function fsEvalProfile(prof, u) {
+                if (u <= 0) return prof[0][1];
+                if (u >= 1) return 0;
+                for (let k = 1; k < prof.length; k++) {
+                    if (u <= prof[k][0]) {
+                        const [u0, h0] = prof[k - 1], [u1, h1] = prof[k];
+                        const t = (u - u0) / (u1 - u0);
+                        return h0 + (h1 - h0) * (t * t * (3 - 2 * t));
+                    }
+                }
+                return 0;
+            }
+            function fsCreateMotif(type) {
+                const isWide = type === 3;
+                const isSlender = type === 1;
+                const baseAspect = isWide ? 0.44 : isSlender ? 0.22 : 0.26;
+                const prof = isWide ? FS_SIL_WIDE : FS_SIL_STD;
+                const hAt = u => baseAspect * 0.5 * fsEvalProfile(prof, u);
+
+                const outline = [];
+                const usFwd = [1.0, 0.95, 0.88, 0.78, 0.68, 0.58, 0.50, 0.44, 0.36, 0.26, 0.14, 0.0];
+                for (const u of usFwd) {
+                    let y = hAt(u) * 0.96;
+                    if (u === 0.50) y += baseAspect * (isWide ? 0.22 : 0.26);
+                    else if (u === 0.44) y += baseAspect * (isWide ? 0.16 : 0.18);
+                    outline.push([u, y]);
+                }
+                const tailLen = isWide ? 0.27 : 0.30;
+                const tailH = baseAspect * (isWide ? 0.62 : 0.72);
+                outline.push(
+                    [-tailLen * 0.52, tailH * 0.60],
+                    [-tailLen, tailH],
+                    [-tailLen * 0.66, 0],
+                    [-tailLen, -tailH],
+                    [-tailLen * 0.52, -tailH * 0.60]
+                );
+                const usBack = [0.0, 0.14, 0.26, 0.34, 0.40, 0.50, 0.62, 0.74, 0.86, 0.95];
+                for (const u of usBack) {
+                    let y = -hAt(u) * 1.04;
+                    if (u === 0.34) y -= baseAspect * (isWide ? 0.20 : 0.22);
+                    else if (u === 0.40) y -= baseAspect * (isWide ? 0.12 : 0.13);
+                    outline.push([u, y]);
+                }
+
+                const windows = [], loops = [], lines = [], dots = [];
+                const tTri = [
+                    [-0.02, 0],
+                    [-tailLen * 0.80, tailH * 0.64],
+                    [-tailLen * 0.54, 0],
+                    [-tailLen * 0.80, -tailH * 0.64]
+                ];
+                windows.push(tTri);
+                loops.push(tTri);
+
+                if (type === 1) {
+                    const u0 = 0.46, um = 0.64, u1 = 0.82;
+                    const hm = hAt(um) * 0.66;
+                    const dia = [[u0, 0], [um, hm], [u1, 0], [um, -hm]];
+                    windows.push(dia);
+                    loops.push(dia);
+                    dots.push(
+                        { u: 0.34, y: 0, r: 0.022, yellow: false },
+                        { u: 0.21, y: 0, r: 0.019, yellow: false },
+                        { u: 0.10, y: 0, r: 0.015, yellow: false },
+                        { u: 0.89, y: hAt(0.89) * 0.22, r: 0.014, yellow: true }
+                    );
+                } else if (type === 2) {
+                    const segs = [[0.10, 0.31], [0.32, 0.55], [0.56, 0.80]];
+                    for (const [ua, ub] of segs) {
+                        const um = (ua + ub) * 0.5;
+                        const hm = hAt(um) * 0.68;
+                        const dia = [[ua, 0], [um, hm], [ub, 0], [um, -hm]];
+                        windows.push(dia);
+                        loops.push(dia);
+                        lines.push([[um, hm * 0.92], [um, -hm * 0.92]]);
+                    }
+                    lines.push([[0.315, hAt(0.315) * 0.72], [0.315, -hAt(0.315) * 0.72]]);
+                    lines.push([[0.555, hAt(0.555) * 0.75], [0.555, -hAt(0.555) * 0.75]]);
+                    dots.push({ u: 0.88, y: hAt(0.88) * 0.22, r: 0.015, yellow: false });
+                } else if (type === 3) {
+                    const u0 = 0.27, um = 0.53, u1 = 0.77;
+                    const hm = hAt(um) * 0.68;
+                    const bigDia = [[u0, 0], [um, hm], [u1, 0], [um, -hm]];
+                    const inDia = [[u0 + 0.05, 0], [um, hm * 0.76], [u1 - 0.05, 0], [um, -hm * 0.76]];
+                    windows.push(bigDia);
+                    loops.push(bigDia, inDia);
+                    dots.push(
+                        { u: 0.69, y: 0, r: 0.028, yellow: true },
+                        { u: 0.84, y: hAt(0.84) * 0.48, r: 0.025, yellow: true },
+                        { u: 0.84, y: -hAt(0.84) * 0.48, r: 0.025, yellow: true },
+                        { u: 0.14, y: 0, r: 0.019, yellow: false }
+                    );
+                } else if (type === 4) {
+                    const boxes = [[0.11, 0.29], [0.33, 0.53], [0.57, 0.77]];
+                    for (const [ua, ub] of boxes) {
+                        const ha = hAt(ua) * 0.54, hb = hAt(ub) * 0.54;
+                        const bx = [[ua, ha], [ub, hb], [ub, -hb], [ua, -ha]];
+                        windows.push(bx);
+                        loops.push(bx);
+                        lines.push([[ua + 0.02, -ha * 0.75], [ub - 0.02, hb * 0.75]]);
+                    }
+                    dots.push({ u: 0.87, y: hAt(0.87) * 0.20, r: 0.016, yellow: true });
+                } else {
+                    const gillU = 0.76, gh = hAt(gillU) * 0.82;
+                    lines.push([[gillU, gh], [gillU - 0.04, 0], [gillU, -gh]]);
+                    lines.push([[0.04, 0], [gillU - 0.04, 0]]);
+                    const chevU = [0.16, 0.30, 0.44, 0.58];
+                    for (const cu of chevU) {
+                        const ch = hAt(cu) * 0.76;
+                        lines.push([[cu - 0.06, ch], [cu + 0.05, 0], [cu - 0.06, -ch]]);
+                    }
+                    const hdDia = [[0.78, 0], [0.85, hAt(0.85) * 0.48], [0.93, 0], [0.85, -hAt(0.85) * 0.48]];
+                    windows.push(hdDia);
+                    loops.push(hdDia);
+                    dots.push({ u: 0.86, y: hAt(0.86) * 0.22, r: 0.015, yellow: false });
+                }
+                return { type, baseAspect, outline, windows, loops, lines, dots };
+            }
+            const FS_MOTIFS = [null, 1, 2, 3, 4, 5].map(t => t ? fsCreateMotif(t) : null);
+
+            function fsPickMotif(r, motifOpt) {
+                const m = Math.round(motifOpt);
+                if (m >= 1 && m <= 5) return m;
+                const u = r();
+                return u < 0.30 ? 1 : u < 0.56 ? 2 : u < 0.72 ? 3 : u < 0.86 ? 4 : 5;
+            }
+            function fsMapPoint(u, yLocal, st, o) {
+                const s = (u - 0.45) * st.foreshorten;
+                const w = clamp(1.12 - u, 0.08, 1.42);
+                const wagOff = o.wag * Math.sin(st.ph - u * 5.2) * w * w;
+                const bendOff = st.bend * s * s;
+                const yc = wagOff + bendOff;
+                const slope = (-5.2 * o.wag * Math.cos(st.ph - u * 5.2) * w * w + 2 * st.bend * s) * 0.55;
+                const inv = 1 / Math.hypot(1, slope);
+                const tx = inv, ty = slope * inv;
+                const nx = -ty, ny = tx;
+
+                const yy = yLocal * o.aspect * st.aspectMul;
+                const lx = (s + yy * nx) * st.sz;
+                const ly = (yc + yy * ny) * st.sz;
+
+                const c = Math.cos(st.hd), sn = Math.sin(st.hd);
+                return [st.x + lx * c - ly * sn, st.y + lx * sn + ly * c];
+            }
+            function fsBakeInstance(f, st, o, pal) {
+                const M = FS_MOTIFS[f.motif] || FS_MOTIFS[1];
+                const mapPoly = pts => pts.map(([u, y]) => fsMapPoint(u, y, st, o));
+                return {
+                    f, st,
+                    col: pal[f.ci % pal.length],
+                    out: mapPoly(M.outline),
+                    windows: M.windows.map(mapPoly),
+                    loops: M.loops.map(mapPoly),
+                    lines: M.lines.map(mapPoly),
+                    dots: M.dots.map(d => ({
+                        pt: fsMapPoint(d.u, d.y, st, o),
+                        r: Math.max(1.0, d.r * st.sz * Math.sqrt(Math.max(0.2, o.aspect))),
+                        yellow: d.yellow
+                    }))
+                };
+            }
+
+            const fsFarC = document.createElement('canvas'), fsFarG = fsFarC.getContext('2d');
+            const fsGloC = document.createElement('canvas'), fsGloG = fsGloC.getContext('2d');
+            const FS_BUF_SCALE = 0.5;
+            let fishList = [], fishOrbs = [], fishRipples = [];
+            let fishActive = false, fishClock = 0, fishWaveCount = 0, fishLastFire = -10;
+
+            // 밤 계열 장면(일반 달 밤 / 미러볼 밤) 판정: 공백·황혼에서는 비활성
+            const isFishNightScene = () => clamp(structW, 0, 1) > 0.5 && palQ() >= 0.5 && (targetOf(state) === 'night' || debugHold);
+
+            function fishClear() {
+                fishList = []; fishOrbs = []; fishRipples = [];
+                fishActive = false; fishClock = 0;
+            }
+            function fishClearHist() {
+                for (const f of fishList) if (f.hist) f.hist.length = 0;
+            }
+
+            // 토리이 클릭 시 1회 수면 상승(rise) 시퀀스 트리거
+            function fishFire(force = false) {
+                if (RM.matches) return false;
+                if (!force && !isFishNightScene()) return false;
+                const nowSec = performance.now() / 1000;
+                if (!force && nowSec - fishLastFire < 0.35 && fishActive) return false;
+                if (fishList.length > 260) return false;
+                fishLastFire = nowSec;
+
+                const o = FISH;
+                const seed = ((o.seed | 0) + (fishWaveCount++ * 131)) ^ 0x27d4eb2f;
+                const r = mulberry32(seed >>> 0);
+                const torCx = torX + torW * 0.5;
+                const nFar = clamp(Math.round(o.nFar) || 0, 0, 240);
+                const nMid = clamp(Math.round(o.nMid) || 0, 0, 260);
+                const nNear = clamp(Math.round(o.nNear) || 0, 0, 80);
+
+                // 토리이 중심(torCx, torBase)을 둘러싸는 3D 원통·나선 분포:
+                // - L=0 (원경 보케): 토리이 뒤쪽(back)에 넓게 퍼져 배경 깊이감 형성
+                // - L=1 (중경 군집), L=2 (근경 대형): 360° 원통 고리로 토리이를 고르게 둘러싸며,
+                //   절반은 토리이 뒤(sin < 0), 절반은 토리이 앞(sin >= 0)에서 수면 위로 솟아오른다.
+                const makeFish = (layer, idx, total) => {
+                    const uIdx = (idx + 0.5) / Math.max(1, total);
+                    const radNorm = clamp(((idx * 0.61803398875) % 1) * 0.82 + r() * 0.22, 0.12, 1.05);
+                    let theta0;
+                    if (layer === 0) {
+                        // 원경 보케는 항상 토리이 뒤편 반구(-π..0)에 분포
+                        theta0 = -Math.PI * (0.06 + 0.88 * uIdx + (r() - 0.5) * 0.06);
+                    } else {
+                        // 중경·근경은 토리이 둘레 360° 전체에 균등 층화 배치 (홀수/짝수로 앞·뒤 균형 보장)
+                        const isFront0 = layer === 2 ? (idx % 3 !== 0) : (idx % 2 === 1);
+                        const uHalf = ((idx >> 1) + 0.5 + (r() - 0.5) * 0.45) / Math.max(1, Math.ceil(total * 0.5));
+                        // 반구 전체(0.08π ~ 0.92π)에 고르게 퍼져 cos(theta)가 [-0.96, +0.96] 전 구간을 덮는다
+                        const semi = Math.PI * (0.08 + 0.84 * clamp(uHalf, 0.02, 0.98));
+                        theta0 = isFront0 ? semi : -semi;
+                    }
+                    const isFront = layer === 0 ? false : Math.sin(theta0) >= 0;
+                    const layerSpd = layer === 0 ? 0.78 : layer === 1 ? 0.96 : 1.14;
+                    const sm = 0.82 + r() * 0.40;
+                    const sk = 0.76 + r() * 0.44;
+                    const uDel = ((idx * 0.381966) % 1) * 0.80 + r() * 0.20;
+                    const delay = (idx < 5 ? r() * 0.08 : Math.pow(clamp(uDel, 0, 1), 0.95) * 1.95) / Math.max(0.25, o.spd);
+                    const dur = (3.7 + r() * 0.85) / (Math.max(0.25, o.spd) * layerSpd * (0.68 + 0.32 * sm));
+
+                    return {
+                        L: layer,
+                        motif: fsPickMotif(r, o.motif),
+                        ci: Math.floor(r() * 6),
+                        theta0,
+                        radNorm,
+                        spinDir: o.swirl >= 0 ? 1 : -1,
+                        isFront,
+                        zDepth: isFront ? 0.5 : -0.5,
+                        delay,
+                        age: -delay,
+                        dur,
+                        spawned: false,
+                        done: false,
+                        x: torCx,
+                        y: torBase,
+                        spawnX: torCx,
+                        spawnY: torBase,
+                        hRatio: 0,
+                        hd: -Math.PI * 0.5,
+                        bend: 0,
+                        ph: r() * 6.283,
+                        lon0: r() * 6.283,
+                        sm,
+                        sk,
+                        aspectMul: 0.92 + r() * 0.18,
+                        scaleMul: 0.7,
+                        foreshorten: 0.92,
+                        alphaMul: 0,
+                        hist: []
+                    };
+                };
+
+                for (let k = 0; k < nFar; k++) fishList.push(makeFish(0, k, nFar));
+                for (let k = 0; k < nMid; k++) fishList.push(makeFish(1, k, nMid));
+                for (let k = 0; k < nNear; k++) fishList.push(makeFish(2, k, nNear));
+
+                // 수면에서 함께 솟아오르는 빛방울(orbs) & 십자 반짝이
+                const nOrbs = clamp(Math.round(o.spark) || 0, 0, 80);
+                for (let k = 0; k < nOrbs; k++) {
+                    const theta0 = ((k + 0.5) / Math.max(1, nOrbs)) * Math.PI * 2 + (r() - 0.5) * 0.3;
+                    const sp = 0.65 + r() * 0.85;
+                    const delay = Math.pow(r(), 0.9) * 1.7 / Math.max(0.25, o.spd);
+                    fishOrbs.push({
+                        theta0,
+                        radNorm: 0.12 + r() * 0.98,
+                        delay,
+                        age: -delay,
+                        dur: (3.9 + r() * 1.1) / (Math.max(0.25, o.spd) * (0.65 + 0.35 * sp)),
+                        done: false,
+                        x: torCx,
+                        y: torBase,
+                        z: Math.sin(theta0),
+                        sz: 1.8 + r() * 3.8,
+                        ci: Math.floor(r() * 6),
+                        ph: r() * 6.283,
+                        sp,
+                        a: 0,
+                        rNow: 2,
+                        isStar: r() < 0.42
+                    });
+                }
+
+                // 토리이 발밑 초기 동심원 파문 + 수면 WebGL 파문
+                const pal = fsPal();
+                fishRipples.push(
+                    { x: torCx, y: torBase, r: 6, maxR: Math.max(70, torW * 0.95), a: 0.9, a0: 0.9, col: fsMixW(pal[1], 0.55) },
+                    { x: torCx, y: torBase + 4, r: 2, maxR: Math.max(52, torW * 0.68), a: 0.72, a0: 0.72, col: fsMixW(pal[0], 0.55) }
+                );
+                if (!camOn() && torBase > HZ + 6) {
+                    spawnRipple(torCx, torBase);
+                }
+
+                fishActive = true;
+                return true;
+            }
+
+            function updateFish(dt) {
+                if (!fishActive) return;
+                const o = FISH;
+                fishClock += dt;
+                const torCx = torX + torW * 0.5;
+                // 토리이 발밑(torBase) 주변 수면 타원 반경: 원근 압축을 반영해 발밑을 타이트하게 감싼다
+                const ryBack = Math.min(Math.max(6, (torBase - HZ) * 0.46), Math.max(12, torH * 0.22));
+                const ryFront = Math.min(Math.max(6, (H - torBase) * 0.16), Math.max(12, torH * 0.20));
+                const sizeScale = Math.max(0.38, torH / 116);
+                // 상승 정점: 토리이 위로 달 근처 높이까지 솟아오르며 서서히 소멸
+                const topY = Math.max(16, Math.min(torY - torH * 2.35, HZ * (CFG.MOON_Y + 0.08)));
+                const histLen = Math.max(0, Math.round(o.trail)) * 2 + 1;
+                const pal = fsPal();
+
+                for (let i = fishList.length - 1; i >= 0; i--) {
+                    const f = fishList[i];
+                    const prevAge = f.age;
+                    f.age += dt;
+                    f.ph += dt * (7.5 + o.spd * 4.5) * f.sm;
+                    if (f.age < 0) {
+                        f.alphaMul = 0;
+                        continue;
+                    }
+                    const u = f.age / f.dur;
+                    if (u >= 1) {
+                        f.done = true;
+                        fishList.splice(i, 1);
+                        continue;
+                    }
+                    f.hRatio = u;
+
+                    // 토리이 중심 3D 원통·나선 궤적:
+                    // L=0(보케)은 토리이 뒤편에서 흔들리며 오르고, L=1,2는 토리이 둘레를 감싸며 회전 상승한다.
+                    // 앞/뒤 전환점(sin(theta) ≈ 0, 즉 좌우 양 끝)에서는 반경이 최소 0.58*torW 이상이 되어
+                    // 항상 토리이 좌우 기둥·보 바깥쪽을 돌아서만 앞↔뒤 레이어가 전환된다(중간 레이어 팝 현상 방지).
+                    const theta = f.L === 0
+                        ? (f.theta0 + Math.sin(f.age * 1.4 + f.lon0) * 0.12)
+                        : (f.theta0 + o.swirl * 0.72 * u * f.spinDir);
+                    const sin0 = Math.sin(f.theta0);
+                    const sinT = Math.sin(theta);
+                    const cosT = Math.cos(theta);
+
+                    const rxBase = torW * (0.28 + 0.72 * f.radNorm) * (f.L === 0 ? 1.15 : 1.0);
+                    const edgePush = Math.pow(1 - sinT * sinT, 2);
+                    const rx = f.L === 0 ? rxBase : Math.max(rxBase, torW * 0.58 * edgePush);
+
+                    f.spawnX = torCx + Math.cos(f.theta0) * rxBase;
+                    f.spawnY = torBase + (sin0 < 0 ? sin0 * ryBack : sin0 * ryFront);
+
+                    // 수면 돌파 시점: 토리이 발밑 주변 수면 파문 생성
+                    if (!f.spawned && prevAge <= 0 && f.age >= 0) {
+                        f.spawned = true;
+                        if (fishRipples.length < 18 && Math.random() < 0.36) {
+                            fishRipples.push({
+                                x: f.spawnX,
+                                y: Math.max(HZ + 3, f.spawnY),
+                                r: 2.5,
+                                maxR: (30 + Math.random() * 38) * sizeScale,
+                                a: 0.72,
+                                a0: 0.72,
+                                col: fsMixW(pal[f.ci % pal.length], 0.45)
+                            });
+                        }
+                    }
+
+                    // 수면에서 부드럽게 솟아올라(ease-in) 토리이를 감싸며 하늘로 상승
+                    const uY = Math.pow(u, 1.18);
+                    f.y = lerp(f.spawnY, topY, uY);
+                    const rExpand = 1 + 0.22 * u * u;
+                    const wavePhase = f.age * 2.4 * o.spd + (f.spawnY - f.y) / Math.max(1, sizeScale) * 0.018 + f.lon0;
+                    const sway = Math.sin(wavePhase) * 0.36;
+                    const swayX = Math.sin(wavePhase) * torW * 0.065 * f.sm * (0.35 + 0.65 * sinT * sinT);
+                    f.x = torCx + cosT * rx * rExpand + swayX;
+
+                    const spiralTilt = f.L === 0 ? 0 : (-sinT * o.swirl * 0.22 * f.spinDir);
+                    f.hd = -Math.PI * 0.5 + sway + spiralTilt;
+                    f.bend = Math.cos(wavePhase) * 0.25;
+
+                    // 토리이 기준 앞(front: sinT >= 0) / 뒤(back: sinT < 0) 레이어 판정
+                    if (f.L === 0) {
+                        f.isFront = false;
+                        f.zDepth = -1.1 + 0.25 * sinT;
+                    } else {
+                        f.isFront = sinT >= 0;
+                        f.zDepth = sinT * (f.L === 2 ? 1.15 : 0.85);
+                    }
+
+                    const depthScale = f.L === 0 ? 0.90 : (0.88 + 0.16 * clamp(f.zDepth, -1, 1));
+                    f.scaleMul = (f.L === 0 ? 0.42 : f.L === 1 ? 0.68 : 0.95) * f.sk * (0.65 + 0.45 * Math.sin(u * Math.PI)) * depthScale;
+                    f.foreshorten = 0.92;
+                    const depthAlpha = f.zDepth < 0 ? lerp(0.74, 0.92, clamp(f.zDepth + 1, 0, 1)) : 1.0;
+                    f.alphaMul = ss(0, 0.08, u) * (1 - ss(0.84, 1.0, u)) * depthAlpha;
+
+                    if (f.L > 0 && histLen > 1) {
+                        f.hist.push({
+                            x: f.x, y: f.y, hd: f.hd,
+                            sz: o.size * sizeScale * f.scaleMul,
+                            ph: f.ph, bend: f.bend,
+                            aspectMul: f.aspectMul,
+                            foreshorten: f.foreshorten
+                        });
+                        if (f.hist.length > histLen) f.hist.splice(0, f.hist.length - histLen);
+                    }
+                }
+
+                for (let i = fishOrbs.length - 1; i >= 0; i--) {
+                    const ob = fishOrbs[i];
+                    ob.age += dt;
+                    ob.ph += dt * (2.2 + ob.sp) * o.spd;
+                    if (ob.age < 0) { ob.a = 0; continue; }
+                    const u = ob.age / ob.dur;
+                    if (u >= 1) {
+                        ob.done = true;
+                        fishOrbs.splice(i, 1);
+                        continue;
+                    }
+                    const theta = ob.theta0 + o.swirl * 0.60 * u;
+                    const sin0 = Math.sin(ob.theta0);
+                    const spawnY = torBase + (sin0 < 0 ? sin0 * ryBack : sin0 * ryFront);
+                    const rx = torW * (0.20 + 0.85 * ob.radNorm) * (1 + 0.20 * u * u);
+                    ob.x = torCx + Math.cos(theta) * rx + Math.sin(ob.ph) * 6 * sizeScale;
+                    ob.y = lerp(spawnY, topY, Math.pow(u, 1.18));
+                    ob.z = Math.sin(theta);
+                    const pulse = 0.55 + 0.45 * Math.sin(ob.ph);
+                    const env = ss(0, 0.08, u) * (1 - ss(0.84, 1.0, u));
+                    ob.rNow = ob.sz * sizeScale * (0.75 + 0.35 * pulse);
+                    ob.a = (0.45 + 0.5 * pulse) * env;
+                }
+
+                for (let i = fishRipples.length - 1; i >= 0; i--) {
+                    const rp = fishRipples[i];
+                    rp.r += dt * 46 * o.spd * sizeScale;
+                    rp.a = Math.max(0, 1 - rp.r / rp.maxR) * (rp.a0 || 0.72);
+                    if (rp.r >= rp.maxR || rp.a <= 0.005) fishRipples.splice(i, 1);
+                }
+
+                if (!fishList.length && !fishOrbs.length && !fishRipples.length) {
+                    fishActive = false;
+                }
+            }
+
+            function fsTracePoly(g, pts) {
+                if (!pts.length) return;
+                g.moveTo(pts[0][0], pts[0][1]);
+                for (let k = 1; k < pts.length; k++) g.lineTo(pts[k][0], pts[k][1]);
+                g.closePath();
+            }
+            function fsTraceOpen(g, pts) {
+                if (!pts.length) return;
+                g.moveTo(pts[0][0], pts[0][1]);
+                for (let k = 1; k < pts.length; k++) g.lineTo(pts[k][0], pts[k][1]);
+            }
+            function fsDrawSilhouette(g, pts, col, a) {
+                if (a <= 0.01 || !pts.length) return;
+                g.beginPath();
+                fsTracePoly(g, pts);
+                g.fillStyle = fsRgba(col, a);
+                g.fill();
+            }
+
+            // 개별 물고기 상세 렌더 (Argon.html drawDetailedFish 그대로 이식)
+            function fsDrawDetailedFish(g, inst, o, layerAlpha) {
+                const a = inst.alpha * layerAlpha;
+                if (a <= 0.02) return;
+                const col = inst.col;
+                const bodyCol = fsMixW(col, 0.42);
+                const winCol = mix(bodyCol, fsScaleRGB(col, 0.78), o.winD * 0.85);
+                const glowLineCol = fsMixW(col, 0.55);
+                const lineCol = fsMixW(col, 0.92);
+                const rimCol = fsMixW(col, 0.68);
+                const yellowCol = [255, 244, 118];
+
+                for (const gh of inst.ghosts) {
+                    fsDrawSilhouette(g, gh.out, fsMixW(col, 0.2), gh.a * 0.45 * layerAlpha);
+                }
+
+                // 1) 몸통 실루엣 채움
+                g.beginPath();
+                fsTracePoly(g, inst.out);
+                g.fillStyle = fsRgba(bodyCol, o.fillA * a);
+                g.fill();
+
+                // 2) 기하 무늬 속창
+                if (o.winD > 0.02 && inst.windows.length) {
+                    g.beginPath();
+                    for (const wPoly of inst.windows) fsTracePoly(g, wPoly);
+                    g.fillStyle = fsRgba(winCol, Math.min(0.92, (o.fillA + 0.12) * a));
+                    g.fill();
+                }
+
+                // 3) 외곽 네온 테두리
+                const lw = clamp(inst.st.sz * 0.022, 0.7, 2.1);
+                g.beginPath();
+                fsTracePoly(g, inst.out);
+                g.strokeStyle = fsRgba(rimCol, 0.92 * a);
+                g.lineWidth = lw;
+                g.lineJoin = 'round';
+                g.stroke();
+
+                // 4) 내부 기하·골격 네온 선 (2패스)
+                if (o.patA > 0.02) {
+                    const pa = Math.min(1, o.patA * a);
+                    g.beginPath();
+                    for (const lp of inst.loops) fsTracePoly(g, lp);
+                    for (const ln of inst.lines) fsTraceOpen(g, ln);
+                    g.lineCap = 'round';
+                    g.lineJoin = 'round';
+                    g.strokeStyle = fsRgba(glowLineCol, pa * 0.48);
+                    g.lineWidth = lw * 2.2;
+                    g.stroke();
+                    g.strokeStyle = fsRgba(lineCol, pa);
+                    g.lineWidth = lw * 1.05;
+                    g.stroke();
+
+                    // 5) 내부 점열 및 노란 눈점
+                    for (const d of inst.dots) {
+                        const dc = d.yellow ? yellowCol : lineCol;
+                        g.beginPath();
+                        g.arc(d.pt[0], d.pt[1], d.r * 1.45, 0, Math.PI * 2);
+                        g.fillStyle = fsRgba(dc, pa * 0.48);
+                        g.fill();
+                        g.beginPath();
+                        g.arc(d.pt[0], d.pt[1], d.r * 0.82, 0, Math.PI * 2);
+                        g.fillStyle = fsRgba(fsMixW(dc, 0.75), pa);
+                        g.fill();
+                    }
+                }
+            }
+
+            function fsDrawOrbOrStar(g, ob, layerAlpha) {
+                const a = ob.a * layerAlpha;
+                if (a <= 0.02) return;
+                const hi = fsMixW(ob.col, 0.75);
+                if (ob.isStar) {
+                    const s = ob.rNow * 1.65, x = ob.x, y = ob.y;
+                    g.fillStyle = fsRgba(hi, a);
+                    g.beginPath();
+                    g.moveTo(x, y - s); g.lineTo(x + s * 0.18, y); g.lineTo(x, y + s); g.lineTo(x - s * 0.18, y); g.closePath();
+                    g.moveTo(x - s, y); g.lineTo(x, y + s * 0.18); g.lineTo(x + s, y); g.lineTo(x, y - s * 0.18); g.closePath();
+                    g.fill();
+                } else {
+                    const rg = g.createRadialGradient(ob.x, ob.y, 0, ob.x, ob.y, ob.rNow * 2.2);
+                    rg.addColorStop(0, fsRgba([255, 255, 255], a));
+                    rg.addColorStop(0.4, fsRgba(hi, a * 0.85));
+                    rg.addColorStop(1, fsRgba(ob.col, 0));
+                    g.fillStyle = rg;
+                    g.beginPath();
+                    g.arc(ob.x, ob.y, ob.rNow * 2.2, 0, Math.PI * 2);
+                    g.fill();
+                }
+            }
+
+            function fishBuildScene() {
+                const o = FISH;
+                const pal = fsPal();
+                const sizeScale = Math.max(0.38, torH / 116);
+                const farList = [], backList = [], frontList = [];
+                const nTrail = Math.max(0, Math.round(o.trail));
+                let activeSum = 0;
+
+                for (const f of fishList) {
+                    if (f.age < 0 || f.done || f.alphaMul <= 0.02) continue;
+                    const st = {
+                        x: f.x, y: f.y, hd: f.hd,
+                        sz: o.size * sizeScale * (f.scaleMul || 0.7),
+                        ph: f.ph, bend: f.bend || 0,
+                        aspectMul: f.aspectMul,
+                        foreshorten: f.foreshorten || 0.92
+                    };
+                    const inst = fsBakeInstance(f, st, o, pal);
+                    inst.alpha = f.alphaMul;
+                    inst.z = f.zDepth || 0;
+                    inst.ghosts = [];
+                    if (f.L > 0 && nTrail > 0 && o.trailA > 0 && f.hist.length > 2) {
+                        const M = FS_MOTIFS[f.motif] || FS_MOTIFS[1];
+                        for (let k = 1; k <= nTrail; k++) {
+                            const hi = f.hist.length - 1 - k * 2;
+                            if (hi < 0) break;
+                            const hst = f.hist[hi];
+                            if (Math.hypot(hst.x - f.x, hst.y - f.y) > 160 * sizeScale) break;
+                            inst.ghosts.push({
+                                out: M.outline.map(([u, y]) => fsMapPoint(u, y, hst, o)),
+                                a: o.trailA * (1 - (k - 1) / nTrail) * f.alphaMul
+                            });
+                        }
+                    }
+                    activeSum += f.alphaMul;
+                    if (f.L === 0) farList.push(inst);
+                    else if (!f.isFront) backList.push(inst);
+                    else frontList.push(inst);
+                }
+                backList.sort((a, b) => a.z - b.z);
+                frontList.sort((a, b) => a.z - b.z);
+
+                const backOrbs = [], frontOrbs = [];
+                for (const ob of fishOrbs) {
+                    if (ob.age < 0 || ob.done || ob.a <= 0.02) continue;
+                    ob.col = pal[ob.ci % pal.length];
+                    if (ob.z < 0) backOrbs.push(ob);
+                    else frontOrbs.push(ob);
+                }
+
+                const backRipples = [], frontRipples = [];
+                for (const rp of fishRipples) {
+                    if (rp.a <= 0.01) continue;
+                    if (rp.y <= torBase) backRipples.push(rp);
+                    else frontRipples.push(rp);
+                }
+
+                const auroraEnv = clamp(activeSum / 28, 0, 1);
+                return { farList, backList, frontList, backOrbs, frontOrbs, backRipples, frontRipples, auroraEnv, sizeScale };
+            }
+
+            function fsPrepBuf(c, g) {
+                const bw = Math.max(1, Math.round(W * FS_BUF_SCALE));
+                const bh = Math.max(1, Math.round(H * FS_BUF_SCALE));
+                fitCanvas(c, bw, bh);
+                g.setTransform(1, 0, 0, 1, 0, 0);
+                g.globalCompositeOperation = 'source-over';
+                g.globalAlpha = 1;
+                g.filter = 'none';
+                g.clearRect(0, 0, bw, bh);
+                if (!camOn()) {
+                    g.setTransform(FS_BUF_SCALE, 0, 0, FS_BUF_SCALE, 0, 0);
+                } else {
+                    g.setTransform(
+                        FS_BUF_SCALE * CAM.s, 0, 0, FS_BUF_SCALE * CAM.s,
+                        FS_BUF_SCALE * (CAM.mx - CAM.s * CAM.fx),
+                        FS_BUF_SCALE * (CAM.my - CAM.s * CAM.fy)
+                    );
+                }
+            }
+
+            // 수면 반사 및 동심원 파문(ctx) + 본체·보케·글로우·빛방울(FG)
+            // pass === 'back' : 토리이(drawTorii) 이전에 호출 → 토리이 뒤 레이어
+            // pass === 'front': 토리이(drawTorii) 이후에 호출 → 토리이 앞 레이어
+            function drawFishPass(pass, S, sceneAlpha) {
+                if (!S || sceneAlpha <= 0.01) return;
+                const o = FISH;
+                const isBack = pass === 'back';
+                const list = isBack ? S.backList : S.frontList;
+                const orbs = isBack ? S.backOrbs : S.frontOrbs;
+                const rips = isBack ? S.backRipples : S.frontRipples;
+
+                // 1) 수면 반사 & 수면 파문 (#scene ctx, 수평선 아래 클리핑)
+                if (o.refl > 0.01 && camFlatOn() && H - HZ > 6) {
+                    const reflH = H - HZ;
+                    const reflItems = isBack ? [...S.farList, ...list] : list;
+                    if (reflItems.length) {
+                        fsPrepBuf(fsGloC, fsGloG);
+                        fsGloG.globalCompositeOperation = 'lighter';
+                        let hasRefl = false;
+                        for (const it of reflItems) {
+                            const f = it.f;
+                            const hAbove = f.spawnY - f.y;
+                            if (hAbove < -20 || hAbove > reflH * 1.45) continue;
+                            const fadeH = (1 - clamp(hAbove / (reflH * 1.35), 0, 1)) * 0.72 * it.alpha;
+                            if (fadeH <= 0.02) continue;
+                            const ryAvg = f.spawnY + hAbove * 0.68;
+                            const d = Math.max(0, ryAvg - HZ), kk = d / Math.max(1, reflH);
+                            const amp = CFG.REFL_AMP0 + CFG.REFL_AMP1 * kk * kk;
+                            const dx = RM.matches ? 0 : amp * (0.7 * Math.sin(d * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(d * CFG.SL_F2 - clock * CFG.SL_F3));
+                            const rPts = it.out.map(pt => [pt[0] + dx, f.spawnY + (f.spawnY - pt[1]) * 0.68]);
+                            fsDrawSilhouette(fsGloG, rPts, fsMixW(it.col, 0.25), fadeH);
+                            hasRefl = true;
+                        }
+                        if (hasRefl) {
+                            ctx.save();
+                            camSet(ctx);
+                            ctx.beginPath();
+                            ctx.rect(0, HZ, W, reflH);
+                            ctx.clip();
+                            ctx.setTransform(1, 0, 0, 1, 0, 0);
+                            ctx.globalCompositeOperation = 'lighter';
+                            ctx.globalAlpha = Math.min(1, o.refl * 0.65 * sceneAlpha);
+                            if (FILTER_OK) ctx.filter = `blur(${(3.5 * dpr).toFixed(1)}px)`;
+                            ctx.drawImage(fsGloC, 0, 0, cv.width, cv.height);
+                            ctx.filter = 'none';
+                            ctx.restore();
+                        }
+                    }
+                    if (rips.length) {
+                        ctx.save();
+                        camSet(ctx);
+                        ctx.beginPath();
+                        ctx.rect(0, HZ, W, reflH);
+                        ctx.clip();
+                        ctx.globalCompositeOperation = 'lighter';
+                        for (const rp of rips) {
+                            if (rp.y < HZ) continue;
+                            const perspY = clamp((rp.y - HZ) / reflH * 0.42 + 0.14, 0.14, 0.5);
+                            ctx.strokeStyle = fsRgba(rp.col || [150, 235, 255], rp.a * o.refl * sceneAlpha);
+                            ctx.lineWidth = 1.25;
+                            ctx.beginPath();
+                            ctx.ellipse(rp.x, rp.y, rp.r, rp.r * perspY, 0, 0, Math.PI * 2);
+                            ctx.stroke();
+                        }
+                        ctx.restore();
+                    }
+                }
+
+                // 2) 공중 물고기 본체·보케·글로우·빛방울 (#fg FG)
+                FG.save();
+                const cs = camSS();
+
+                // 2-a) 토리이 뒤 수직 오로라 빛기둥 (back 패스에서만)
+                if (isBack && o.aurora > 0.01 && S.auroraEnv > 0.01) {
+                    camSet(FG);
+                    FG.globalCompositeOperation = 'lighter';
+                    const torCx = torX + torW * 0.5;
+                    const aurA = o.aurora * 0.24 * S.auroraEnv * sceneAlpha;
+                    const pillars = [
+                        [torCx - torW * 0.38, torW * 0.36, [75, 235, 195]],
+                        [torCx, torW * 0.52, [85, 220, 250]],
+                        [torCx + torW * 0.38, torW * 0.36, [110, 240, 185]]
+                    ];
+                    for (const [px, pw, pc] of pillars) {
+                        const pg = FG.createRadialGradient(px, torY, 2, px, torY * 0.75, pw * 1.85);
+                        pg.addColorStop(0, fsRgba(pc, aurA));
+                        pg.addColorStop(0.5, fsRgba(pc, aurA * 0.4));
+                        pg.addColorStop(1, fsRgba(pc, 0));
+                        FG.fillStyle = pg;
+                        FG.fillRect(px - pw * 2, 0, pw * 4, torBase);
+                    }
+                }
+
+                // 2-b) 원경 보케 레이어 (back 패스에서만, 토리이 뒤에 위치)
+                if (isBack && S.farList.length && o.farA > 0.01) {
+                    fsPrepBuf(fsFarC, fsFarG);
+                    fsFarG.globalCompositeOperation = 'lighter';
+                    for (const it of S.farList) {
+                        fsDrawSilhouette(fsFarG, it.out, fsMixW(it.col, 0.18), 0.85 * it.alpha);
+                    }
+                    FG.setTransform(1, 0, 0, 1, 0, 0);
+                    FG.globalCompositeOperation = 'lighter';
+                    FG.globalAlpha = o.farA * sceneAlpha;
+                    if (FILTER_OK && o.farBlur > 0) {
+                        FG.filter = `blur(${(o.farBlur * S.sizeScale * dpr * cs * 0.65).toFixed(1)}px)`;
+                    }
+                    FG.drawImage(fsFarC, 0, 0, fg.width, fg.height);
+                    FG.filter = 'none';
+                }
+
+                // 2-c) 현재 레이어(back 또는 front) 네온 글로우 블룸
+                if (list.length && o.glow > 0.01) {
+                    fsPrepBuf(fsGloC, fsGloG);
+                    fsGloG.globalCompositeOperation = 'lighter';
+                    const gMul = isBack ? 0.76 : 0.94;
+                    for (const it of list) {
+                        fsDrawSilhouette(fsGloG, it.out, it.col, gMul * it.alpha);
+                        for (const gh of it.ghosts) fsDrawSilhouette(fsGloG, gh.out, it.col, gh.a * 0.65);
+                    }
+                    FG.setTransform(1, 0, 0, 1, 0, 0);
+                    FG.globalCompositeOperation = 'lighter';
+                    FG.globalAlpha = Math.min(1, o.glow) * sceneAlpha;
+                    if (FILTER_OK && o.glowR > 0) {
+                        FG.filter = `blur(${(o.glowR * S.sizeScale * dpr * cs * 0.65).toFixed(1)}px)`;
+                    }
+                    FG.drawImage(fsGloC, 0, 0, fg.width, fg.height);
+                    FG.filter = 'none';
+                }
+
+                // 2-d) 상세 물고기 본체 + 기하 무늬 + 빛방울/반짝이
+                camSet(FG);
+                FG.filter = 'none';
+                FG.globalAlpha = 1;
+                FG.globalCompositeOperation = 'source-over';
+                const layerAlpha = (isBack ? 0.90 : 1.0) * sceneAlpha;
+                for (const it of list) fsDrawDetailedFish(FG, it, o, layerAlpha);
+                if (orbs.length) {
+                    FG.globalCompositeOperation = 'lighter';
+                    for (const ob of orbs) fsDrawOrbOrStar(FG, ob, layerAlpha);
+                }
+                FG.restore();
+            }
+
             const starAlpha = () => ss(CFG.STAR_A0, CFG.STAR_A1, palQ());
 
             // ---------- scene construction ----------
@@ -2950,6 +3752,7 @@ void main() {
                 // 무조건 대입하면 토리이 형상과 무관한 resize(MOON_SIZE 등) 때
                 // 캐시 키가 그대로라 스프라이트가 다시 그려지지 않고 토리이가 사라진다.
                 fg.width = cv.width; fg.height = cv.height;
+                fishClearHist();
                 resizeRipple();
                 buildStars();
                 projectLanterns();
@@ -3003,6 +3806,7 @@ void main() {
                         phi = 0; phiTail = null; omega = 0;
                         // 낮/황혼 도착: 달이 졌으므로 다음 밤은 일반 달로 시작
                         moonTarget = 'plain'; mbMix = 0; mbPending = false;
+                        fishClear();
                     }
                 } else {
                     // 'day'(낮 idle) / 'dusk'(황혼 idle) 모두 정지 상태
@@ -3094,6 +3898,7 @@ void main() {
                     mbUpdateStreaks();
                 }
                 updateMoonMode(dt);
+                updateFish(dt);
             }
 
             // ---------- render ----------
@@ -3921,11 +4726,15 @@ void main() {
                 // 단 토리이는 항상 불투명으로: 반투명 상태에서 뒤 랜턴이 비치지 않게 structA 대신 1을 넘긴다.
                 const structA = clamp(structW, 0, 1);
                 if (structA > 0.01) {
-                    // 깊이 순서: 수평선 경량 랜턴 → 토리이 뒤 랜턴 → 토리이 → 토리이 앞 랜턴
+                    const fishNightA = ss(0.45, 0.70, qR) * structA;
+                    const fishScene = (fishActive && fishNightA > 0.01) ? fishBuildScene() : null;
+                    // 깊이 순서: 수평선 경량 랜턴 → 토리이 뒤 랜턴 → 토리이 뒤 물고기 → 토리이 → 토리이 앞 랜턴 → 토리이 앞 물고기
                     drawFarLanterns(structA, lanGlowW());
                     drawLanterns(r0, r1, structA, 'back');
+                    if (fishScene) drawFishPass('back', fishScene, fishNightA);
                     drawTorii(r0, r1, 1);
                     drawLanterns(r0, r1, structA, 'front');
+                    if (fishScene) drawFishPass('front', fishScene, fishNightA);
                 }
                 FG.setTransform(dpr, 0, 0, dpr, 0, 0);
 
@@ -4127,6 +4936,20 @@ void main() {
                 const wp = camS2W(e.clientX, e.clientY);
                 const dx = wp.x - mbMX, dy = wp.y - mbMY, rr = mbMR * 1.5;
                 if (dx * dx + dy * dy <= rr * rr) mbFire();
+            });
+
+            // 토리이 클릭 (밤 계열 장면) → 수면 상승 물고기 이펙트 1회 트리거.
+            // 카메라 줌 중에도 화면 클릭을 월드로 되돌려 토리이 본체 영역으로 판정한다.
+            window.addEventListener('pointerdown', e => {
+                if (e.button > 0 || RM.matches) return;
+                if (overUI(e.target)) return;
+                if (!isFishNightScene() || torW < 2 || torH < 2) return;
+                const wp = camS2W(e.clientX, e.clientY);
+                const padX = Math.max(10, torW * 0.12), padY = Math.max(10, torH * 0.12);
+                if (wp.x >= torX - padX && wp.x <= torX + torW + padX &&
+                    wp.y >= torY - padY && wp.y <= torBase + padY) {
+                    fishFire();
+                }
             });
 
             function stepRipples(dt) {
@@ -4528,8 +5351,8 @@ void main() {
                 get state() { return state; },
                 set state(v) {
                     state = v;
-                    if (v === 'day') { p = CFG.P_DAY; transFrom = p; transTo = p; transTarget = 'day'; duskW = 0; duskFrom = 0; duskTo = 0; nk = 0; nkFrom = 0; nkTo = 0; sunVis = svFrom = svTo = 1; phi = 0; phiTail = null; omega = 0; }
-                    else if (v === 'dusk') { p = CFG.P_DUSK; transFrom = p; transTo = p; transTarget = 'dusk'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 0; nkFrom = 0; nkTo = 0; sunVis = svFrom = svTo = 0; phi = 0; phiTail = null; omega = 0; }
+                    if (v === 'day') { p = CFG.P_DAY; transFrom = p; transTo = p; transTarget = 'day'; duskW = 0; duskFrom = 0; duskTo = 0; nk = 0; nkFrom = 0; nkTo = 0; sunVis = svFrom = svTo = 1; phi = 0; phiTail = null; omega = 0; fishClear(); }
+                    else if (v === 'dusk') { p = CFG.P_DUSK; transFrom = p; transTo = p; transTarget = 'dusk'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 0; nkFrom = 0; nkTo = 0; sunVis = svFrom = svTo = 0; phi = 0; phiTail = null; omega = 0; fishClear(); }
                     else if (v === 'night') { p = 1; transFrom = 1; transTo = 1; transTarget = 'night'; duskW = 1; duskFrom = 1; duskTo = 1; nk = 1; nkFrom = 1; nkTo = 1; }
                     else if (v === 'toNight') {
                         if (!(p < 1)) p = CFG.P_DUSK;
@@ -4609,6 +5432,10 @@ void main() {
                 get mb() { return MB; },
                 get mbDefaults() { return MB_DEFAULTS; },
                 get mbStreaks() { return mbStreaks.length; },
+                get fish() { return FISH; },
+                get fishDefaults() { return FISH_DEFAULTS; },
+                get fishActive() { return fishActive; },
+                get fishCount() { return fishList.length; },
                 get omega() { return omega; }, set omega(v) { omega = Number(v) || 0; },
                 get clock() { return clock; },
                 get tState() { return tState; }, set tState(v) { tState = Number(v) || 0; },
@@ -4680,9 +5507,11 @@ void main() {
                         // 인트로 리플레이: 전환 UI를 다시 숨겼다가 완료 시점에 올린다
                         introDone = false;
                         if (elPanel) { elPanel.classList.remove('intro-enter'); elPanel.classList.add('intro-hidden'); }
-                        buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); Object.assign(MB, JSON.parse(JSON.stringify(MB_DEFAULTS))); mbSpin = true; mbBuildAll(); mbRot = 0; resize();
+                        buildMountains(); buildClouds(); buildDuskClouds(); buildDay2Clouds(); buildDay2Extras(); buildLanterns(); Object.assign(MB, JSON.parse(JSON.stringify(MB_DEFAULTS))); mbSpin = true; mbBuildAll(); mbRot = 0; Object.assign(FISH, JSON.parse(JSON.stringify(FISH_DEFAULTS))); fishClear(); resize();
                     },
                     mirrorburst() { mbFire(); },
+                    fishRise() { return fishFire(true); },
+                    fishClear() { fishClear(); },
                     // 미러볼 전환 연출 재생: 밤이면 일반 달에서 즉시 다시 시작, 아니면 밤 도착 후 실행
                     mirrorShow() {
                         if (state === 'night') { moonTarget = 'mirror'; mbMix = 0; startShow(); }
