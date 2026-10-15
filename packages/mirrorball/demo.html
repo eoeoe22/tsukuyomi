@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>mirrorball demo (로컬 dist)</title>
+<style>body{margin:20px;font-family:system-ui,sans-serif}#ball{width:min(440px,90vw)}</style>
+</head>
+<body>
+<div id="ball"></div>
+<button id="fire">빛줄기 발사</button>
+<button id="svg">SVG 복사</button>
+<script src="./dist/mirrorball.umd.js"></script>
+<script>
+  const ball = MirrorBall.mount('#ball', { seed: 11, tilt: -32 });
+  document.getElementById('fire').onclick = () => ball.fire();
+  document.getElementById('svg').onclick = async () => {
+    const svg = ball.toSVG();
+    try { await navigator.clipboard.writeText(svg); alert('복사됨'); }
+    catch { console.log(svg); }
+  };
+</script>
+</body>
+</html>
