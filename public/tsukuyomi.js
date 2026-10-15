@@ -2309,7 +2309,96 @@
                 return { x: mx, y: my, r: discR, a };
             }
 
-            function drawCursorPass(sceneAlpha) {
+            // 달 배치 모드 반사용 하늘 측 버퍼: 군집(달 가림 포함)을 화면 크기 버퍼에 한 번 그려 두고
+            // 하늘 상은 그대로 합성, 수면 상은 수평선 기준으로 뒤집어 씬 반사와 같은 행 물결로 붙인다.
+            const cursorSkyC = document.createElement('canvas'), cursorSkyG = cursorSkyC.getContext('2d');
+            const cursorReflC = document.createElement('canvas'), cursorReflG = cursorReflC.getContext('2d');
+            let cursorSkyReady = false;
+
+            // 달 배치 모드: 하늘 측 군집을 버퍼에 렌더하고, 수평선 미러 반사를 FG에 그린다.
+            // 토리이/랜턴보다 먼저 호출해 반사 상이 달 반사처럼 구조물 뒤에 놓이게 한다.
+            // 하늘 측 상은 이후 cursorBlitSky()로 최전경에 합성한다.
+            function cursorPrepMoon(sceneAlpha, r0, r1) {
+                cursorSkyReady = false;
+                if (cursorMode !== 2 || sceneAlpha <= 0.01) return;
+                if (!cursorFish.length && !cursorOrbs.length) return;
+                fitCanvas(cursorSkyC, fg.width, fg.height);
+                const T = cursorSkyG;
+                T.setTransform(1, 0, 0, 1, 0, 0);
+                T.globalCompositeOperation = 'source-over';
+                T.globalAlpha = 1;
+                T.filter = 'none';
+                T.clearRect(0, 0, cursorSkyC.width, cursorSkyC.height);
+                drawCursorPass(sceneAlpha, T, cursorSkyC);
+                cursorSkyReady = true;
+                if (CURSOR.refl > 0.01 && camFlatOn()) cursorMirrorRefl(r0, r1);
+            }
+            function cursorBlitSky() {
+                if (!cursorSkyReady) return;
+                FG.save();
+                FG.setTransform(1, 0, 0, 1, 0, 0);
+                FG.globalCompositeOperation = 'source-over';
+                FG.globalAlpha = 1;
+                FG.filter = 'none';
+                FG.drawImage(cursorSkyC, 0, 0, fg.width, fg.height);
+                FG.restore();
+                cursorSkyReady = false;
+            }
+            // 씬 수면 반사(하늘 버퍼 row-slice 미러)와 같은 규칙으로 군집 버퍼를 뒤집어 붙인다:
+            // 화면 수평선 기준 동일 행 대응 + 동일 수평 물결(dx) + 동일 수면 어둡힘(r0→r1).
+            // 수평선 위(하늘) 행만 원천으로 쓰므로 수면 아래로 내려온 군집 부분은 반사되지 않는다.
+            function cursorMirrorRefl(r0, r1) {
+                const hzS = camHz();
+                const flatS = H - hzS;
+                if (!(flatS > 2) || hzS <= 0) return;
+                const reflH = H - HZ;
+                const cs = camOn() ? CAM.s : 1;
+                const reflBufC = cursorReflC, RG = cursorReflG;
+                fitCanvas(reflBufC, fg.width, fg.height);
+                RG.setTransform(1, 0, 0, 1, 0, 0);
+                RG.globalCompositeOperation = 'source-over';
+                RG.globalAlpha = 1;
+                RG.filter = 'none';
+                RG.clearRect(0, 0, reflBufC.width, reflBufC.height);
+                const srcW = cursorSkyC.width;
+                if (RM.matches) {
+                    const hdraw = Math.min(hzS, flatS);
+                    RG.setTransform(dpr, 0, 0, -dpr, 0, hzS * 2 * dpr);
+                    RG.drawImage(cursorSkyC, 0, (hzS - hdraw) * dpr, srcW, hdraw * dpr, 0, hzS - hdraw, W, hdraw);
+                } else {
+                    const step = Math.max(1, effReflStep(flatS));
+                    for (let dS = 0; dS < flatS; dS += step) {
+                        const shS = Math.min(step, flatS - dS);
+                        const srcS = hzS - dS - shS;
+                        if (srcS < 0) break;
+                        // 씬 반사와 동일: 물결 위상은 월드 깊이, 진폭만 화면 스케일
+                        const dW = dS / cs, kW = dW / Math.max(1, reflH);
+                        const ampW = CFG.REFL_AMP0 + CFG.REFL_AMP1 * kW * kW;
+                        const dxW = ampW * (0.7 * Math.sin(dW * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(dW * CFG.SL_F2 - clock * CFG.SL_F3));
+                        const dxS = dxW * cs;
+                        RG.setTransform(dpr, 0, 0, -dpr, dxS * dpr, (hzS + dS + shS) * dpr);
+                        RG.drawImage(cursorSkyC, 0, srcS * dpr, srcW, shS * dpr, 0, -0.5, W, shS + 0.5);
+                    }
+                }
+                // 수면 어둡힘: 씬은 rgba(10,18,32,r) 덮개로 가라앉으므로 반사 상도 같은 비율(1-r)로 줄인다
+                camSet(RG);
+                RG.globalCompositeOperation = 'destination-in';
+                const mg = RG.createLinearGradient(0, HZ, 0, H);
+                mg.addColorStop(0, `rgba(0,0,0,${clamp(1 - r0, 0, 1).toFixed(3)})`);
+                mg.addColorStop(1, `rgba(0,0,0,${clamp(1 - r1, 0, 1).toFixed(3)})`);
+                RG.fillStyle = mg;
+                RG.fillRect(-W * 8, HZ, W * 17, H * 16);
+                RG.globalCompositeOperation = 'source-over';
+                FG.save();
+                FG.setTransform(1, 0, 0, 1, 0, 0);
+                FG.globalCompositeOperation = 'source-over';
+                FG.globalAlpha = 1;
+                FG.filter = 'none';
+                FG.drawImage(reflBufC, 0, 0, fg.width, fg.height);
+                FG.restore();
+            }
+
+            function drawCursorPass(sceneAlpha, T = FG, tC = fg) {
                 const o = CURSOR;
                 if (!cursorFish.length && !cursorOrbs.length) return;
                 if (sceneAlpha <= 0.01) return;
@@ -2358,10 +2447,11 @@
                     });
                 }
 
-                // 1) 커서 바로 아래 반사 (수면에만: 수평선 아래로 클리핑)
+                // 1) 커서 바로 아래 반사 (수면에만: 수평선 아래로 클리핑) — 커서 추적 모드 전용
                 // 수평선 기준 미러 대신, 군집 중심(cursorWY) 아래에 뒤집힌 고스트를 깔아
                 // 커서를 따라다니는 그림자/반사 느낌을 만든다. 수평선 위(하늘) 부분은 잘라 수면에서만 비친다.
-                if (o.refl > 0.01 && items.length && camFlatOn() && H - HZ > 6) {
+                // (달 배치 모드는 cursorMirrorRefl이 수평선 기준 미러 반사를 따로 그린다)
+                if (cursorMode !== 2 && o.refl > 0.01 && items.length && camFlatOn() && H - HZ > 6) {
                     const Rs = Math.max(20, H * o.swR);
                     const axisY = cursorWY + Rs * 1.05;
                     const span = Math.max(1, Rs * 1.6);
@@ -2426,7 +2516,7 @@
                     g.filter = 'none';
                 };
                 if (backItems && backItems.length) {
-                    fitCanvas(cursorBackC, fg.width, fg.height);
+                    fitCanvas(cursorBackC, tC.width, tC.height);
                     const BG = cursorBackG;
                     BG.setTransform(1, 0, 0, 1, 0, 0);
                     BG.globalCompositeOperation = 'source-over';
@@ -2451,28 +2541,28 @@
                     BG.globalAlpha = 1;
                 }
 
-                FG.save();
+                T.save();
                 if (backItems && backItems.length) {
-                    FG.setTransform(1, 0, 0, 1, 0, 0);
-                    FG.globalCompositeOperation = 'source-over';
-                    FG.globalAlpha = 1;
-                    FG.filter = 'none';
-                    FG.drawImage(cursorBackC, 0, 0, fg.width, fg.height);
+                    T.setTransform(1, 0, 0, 1, 0, 0);
+                    T.globalCompositeOperation = 'source-over';
+                    T.globalAlpha = 1;
+                    T.filter = 'none';
+                    T.drawImage(cursorBackC, 0, 0, tC.width, tC.height);
                 }
                 // 글로우 블룸
                 if (frontItems.length && o.glow > 0.01) {
-                    drawCursorGlow(FG, frontItems, fg.width, fg.height);
+                    drawCursorGlow(T, frontItems, tC.width, tC.height);
                 }
-                camSet(FG);
-                FG.filter = 'none';
-                FG.globalAlpha = 1;
-                FG.globalCompositeOperation = 'source-over';
-                for (const it of frontItems) fsDrawDetailedFish(FG, it, o, sceneAlpha);
+                camSet(T);
+                T.filter = 'none';
+                T.globalAlpha = 1;
+                T.globalCompositeOperation = 'source-over';
+                for (const it of frontItems) fsDrawDetailedFish(T, it, o, sceneAlpha);
                 if (orbItems.length) {
-                    FG.globalCompositeOperation = 'lighter';
-                    for (const ob of orbItems) fsDrawOrbOrStar(FG, ob, sceneAlpha);
+                    T.globalCompositeOperation = 'lighter';
+                    for (const ob of orbItems) fsDrawOrbOrStar(T, ob, sceneAlpha);
                 }
-                FG.restore();
+                T.restore();
             }
 
             const starAlpha = () => ss(CFG.STAR_A0, CFG.STAR_A1, palQ());
@@ -5103,6 +5193,9 @@ void main() {
                     const fishNightA = ss(0.45, 0.70, qR) * structA;
                     const fishScene = (fishActive && fishNightA > 0.01) ? fishBuildScene() : null;
                     // 깊이 순서: 수평선 경량 랜턴 → 토리이 뒤 랜턴 → 토리이 뒤 물고기 → 토리이 → 토리이 앞 랜턴 → 토리이 앞 물고기
+                    // 달 배치 군집의 수면 반사는 달 반사처럼 모든 구조물 뒤(가장 먼저)에 깐다
+                    if (cursorMode === 2 && cursorA > 0.01) cursorPrepMoon(fishNightA * cursorA, r0, r1);
+                    else cursorSkyReady = false;
                     drawFarLanterns(structA, lanGlowW());
                     drawLanterns(r0, r1, structA, 'back');
                     if (fishScene) drawFishPass('back', fishScene, fishNightA);
@@ -5110,7 +5203,10 @@ void main() {
                     drawLanterns(r0, r1, structA, 'front');
                     if (fishScene) drawFishPass('front', fishScene, fishNightA);
                     // 물고기 군집 배치: 밤 페이드와 모드 페이드(cursorA)를 함께 적용해 최전경에 그린다
-                    if (cursorMode !== 0 && cursorA > 0.01 && (cursorFish.length || cursorOrbs.length)) {
+                    // 달 배치 모드는 하늘 측 군집 버퍼 + 수평선 미러 반사로 그린다 (cursorPrepMoon/cursorBlitSky)
+                    if (cursorMode === 2) {
+                        if (cursorSkyReady) cursorBlitSky();
+                    } else if (cursorMode !== 0 && cursorA > 0.01 && (cursorFish.length || cursorOrbs.length)) {
                         drawCursorPass(fishNightA * cursorA);
                     }
                 }
