@@ -80,7 +80,7 @@
                 BAND_PAD: 12, BLUR_PX: 3, BAND_H: 0.3, BAND_EVERY: 3,
                 POLE_X: 0.25, POLE_Y: 0.27,
                 SUN_F: 0.03, SUN_MIN: 14, SUN_MAX: 34,
-                MOON_F: 0.026, MOON_MIN: 12, MOON_MAX: 28,
+                MOON_F: 0.026, MOON_MIN: 12, MOON_MAX: 56,
                 // MOON_SIZE: 달(미러볼) 크기 배율. moonR 계산 마지막에 곱한다.
                 MOON_SIZE: 1.6,
                 TORII_SCALE: 0.7, TORII_X: 0.76, TORII_BASE: 0.75,
@@ -2124,6 +2124,10 @@
                 glow: 0.85, glowR: 9, spark: 12, seed: 11, fade: 0.45, refl: 0.55
             };
             const CURSOR_DEFAULTS = JSON.parse(JSON.stringify(CURSOR));
+            // 군집 물고기 화면비례 계수: 토리이 상승 물고기(sizeScale=torH/116)와 같은 축.
+            // 작은 화면(torH<116, 16:9 기준 H≲976)에서는 기존 튜닝 그대로(하한 1),
+            // 대화면에서만 비례 확대. 궤적 길이·오브·글로우에도 동일 계수 적용.
+            const cursorSizeScale = () => Math.max(1, torH / 116);
             let cursorMode = 0, cursorA = 0, cursorT = 0;   // 0=숨김, 1=커서 추적, 2=달 배치
             let cursorFish = [], cursorOrbs = [];
             let cursorSX = 0, cursorSY = 0, cursorWX = 0, cursorWY = 0, cursorInit = false;
@@ -2257,6 +2261,7 @@
                     cursorWY += (twy - cursorWY) * k;
                 }
                 const o = CURSOR;
+                const cs = cursorSizeScale();
                 const Rs = Math.max(20, H * o.swR);
                 const histLen = Math.max(0, Math.round(o.trail)) * 2 + 1;
                 const dirS = o.swirl >= 0 ? 1 : -1;
@@ -2280,7 +2285,7 @@
                     if (f.L > 0 && histLen > 1 && cursorA > 0.01) {
                         f.hist.push({
                             x: f.x, y: f.y, hd: f.hd,
-                            sz: o.size * f.scaleMul,
+                            sz: o.size * f.scaleMul * cs,
                             ph: f.ph, bend: f.bend,
                             aspectMul: f.aspectMul,
                             foreshorten: f.foreshorten
@@ -2297,7 +2302,7 @@
                     ob.x = cursorWX + Math.cos(ob.ang) * rr;
                     ob.y = cursorWY + Math.sin(ob.ang) * rr * 0.95;
                     const pulse = 0.55 + 0.45 * Math.sin(ob.ph);
-                    ob.rNow = ob.sz * 0.52 * (0.75 + 0.35 * pulse);
+                    ob.rNow = ob.sz * cs * 0.52 * (0.75 + 0.35 * pulse);
                     ob.a = (0.45 + 0.5 * pulse);
                 }
             }
@@ -2431,6 +2436,7 @@
                 const o = CURSOR;
                 if (!cursorFish.length && !cursorOrbs.length) return;
                 if (sceneAlpha <= 0.01) return;
+                const cs = cursorSizeScale();
                 const pal = fsPal();
                 const items = [];
                 const nTrail = Math.max(0, Math.round(o.trail));
@@ -2439,7 +2445,7 @@
                     if (f.x < -160 || f.x > W + 160 || f.y < -160 || f.y > H + 160) continue;
                     const st = {
                         x: f.x, y: f.y, hd: f.hd,
-                        sz: o.size * (f.scaleMul || 0.4),
+                        sz: o.size * (f.scaleMul || 0.4) * cs,
                         ph: f.ph, bend: f.bend || 0,
                         aspectMul: f.aspectMul,
                         foreshorten: f.foreshorten || 1
@@ -2454,7 +2460,7 @@
                             const hi = f.hist.length - 1 - k * 2;
                             if (hi < 0) break;
                             const hst = f.hist[hi];
-                            if (Math.hypot(hst.x - f.x, hst.y - f.y) > 140) break;
+                            if (Math.hypot(hst.x - f.x, hst.y - f.y) > 140 * cs) break;
                             inst.ghosts.push({
                                 out: M.outline.map(([u, y]) => fsMapPoint(u, y, hst, o)),
                                 a: o.trailA * (1 - (k - 1) / nTrail) * f.alphaMul
@@ -2499,7 +2505,7 @@
                     g.globalCompositeOperation = 'lighter';
                     g.globalAlpha = Math.min(1, o.glow) * sceneAlpha;
                     if (FILTER_OK && o.glowR > 0) {
-                        g.filter = `blur(${(o.glowR * dpr * camSS() * 0.65).toFixed(1)}px)`;
+                        g.filter = `blur(${(o.glowR * cs * dpr * camSS() * 0.65).toFixed(1)}px)`;
                     }
                     g.drawImage(fsGloC, 0, 0, bw, bh);
                     g.filter = 'none';

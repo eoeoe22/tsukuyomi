@@ -1,4 +1,4 @@
-d9b597c17b7da102d87111f4f9d854a6d5b0068b + bridge dayStars/dayDark/cursorMode
+e12f6ac5579959fa787408a1ed214f02c17ab845 + MOON_MAX 28->56, 군집물고기 화면비례(cursorSizeScale)
 2026-10-15 (UTC)
 frozen source: public/tsukuyomi.js, public/tsukuyomi.css,
   public/cloud-live.js, public/cloud-overlay.js, public/clouds/day-overlay.json,

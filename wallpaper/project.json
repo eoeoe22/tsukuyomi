@@ -361,7 +361,7 @@
         "text": "MOON_MAX",
         "condition": "a02_show_advanced.value == true",
         "type": "slider",
-        "value": 28,
+        "value": 56,
         "min": 10,
         "max": 60,
         "step": 1,
