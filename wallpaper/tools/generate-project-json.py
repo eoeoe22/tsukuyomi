@@ -6,14 +6,15 @@
   - public/tsukuyomi.debug.js     -> GROUPS (디버그 패널 스키마: min/max/step/rebuild)
 
 쓰기:
-  - wallpaper/project.json        -> WE 사용자 속성 (기본 6종 + 그룹 12종 + CFG 전체 위임)
+  - wallpaper/project.json        -> WE 사용자 속성 (기본 7종 + 그룹 12종 + CFG 전체 위임)
   - wallpaper/tools/rebuild-map.json -> wallpaper.js와 GROUPS rebuild 대조용
 
 키 규칙 (WE의 표시 순서와 무관하게 카테고리가 뭉치도록):
   - 모든 키에 문자+2자리 순서 접두사. 알파벳순 렌더·파일순 렌더·order 렌더 모두에서 동일 배치.
   - WE 조건식은 식별자 형태(문자 시작)의 키만 해석하므로 숫자로 시작 금지.
-  - 기본: a00_scene, a01_intro, a01_daystars, a01_daydark, a02_show_advanced,
-    a03_snapshot_json (그룹에 속하지 않음. intro는 밤/미러볼, daystars/daydark는 공백 선택 시 노출)
+  - 기본: a00_scene, a01_intro, a01_fish(밤 계열 노출 콤보), a01_daystars, a01_daydark,
+    a02_show_advanced, a03_snapshot_json (그룹에 속하지 않음. intro/fish는 밤/미러볼,
+    daystars/daydark는 공백 선택 시 노출)
   - 그룹 헤더: a04 ~ a15 (값 없음, type=group, 그 뒤 속성이 소속)
   - 멤버: <헤더코드>_<CFG키> (예: a04_T_NIGHT)
 
@@ -135,6 +136,20 @@ def main() -> None:
         "value": True,
         "condition": "a00_scene.value == 3 || a00_scene.value == 4",
     })
+    # 물고기 군집: 밤 계열 선택 시 노출되는 일반 옵션 드롭다운 (고급과 무관).
+    # 밤에서만 그려지고 다른 장면에서는 값을 유지한 채 효과가 없다 (웹 하단 군집 3버튼과 동일).
+    # 기존 UI 텍스트 관행대로 이름만 노출한다 (끔 / 커서 따라가기 / 달에 배치).
+    add("a01_fish", {
+        "text": "물고기 군집",
+        "type": "combo",
+        "value": 0,
+        "options": [
+            {"label": "끔", "value": 0},
+            {"label": "커서 따라가기", "value": 1},
+            {"label": "달에 배치", "value": 2},
+        ],
+        "condition": "a00_scene.value == 3 || a00_scene.value == 4",
+    })
     # 공백 장면 토글 2종: 그룹 미소속(고급 표시와 무관). 공백 선택 시에만 노출된다.
     # 공백 장면에서만 그려지고 다른 장면에서는 값을 유지한 채 효과가 없다 (웹 하단 btnStars/btnDark와 동일).
     add("a01_daystars", {
@@ -216,7 +231,7 @@ def main() -> None:
         # thumbnail.png 등 별도명은 무시되므로 반드시 preview.jpg를 지정한다.
         "preview": "preview.jpg",
         "title": "Tsukuyomi 月",
-        "description": "공백·황혼·밤·밤(미러볼)이 이어지는 고요한 수면. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출을 켜거나 끌 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 공백 장면의 별 궤적·공백 밤 토글은 공백 선택 시 보이며(고급과 무관), 공백에서만 적용된다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터를 그대로 조절할 수 있다.",
+        "description": "공백·황혼·밤·밤(미러볼)이 이어지는 고요한 수면. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출과 물고기 군집을 고를 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 공백 장면의 별 궤적·공백 밤 토글은 공백 선택 시 보이며(고급과 무관), 공백에서만 적용된다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터를 그대로 조절할 수 있다.",
         "type": "web",
         "general": {"properties": props},
     }

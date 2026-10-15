@@ -8,6 +8,10 @@
  *  - 공백 장면 토글 2종은 일반 옵션으로 공백 선택 시 노출 (고급 표시와 무관):
  *    `a01_daystars` (별 궤적, 웹 btnStars와 동일), `a01_daydark` (공백 밤, 웹 btnDark와 동일).
  *    둘 다 공백 장면에서만 그려지고, 다른 장면에서는 값을 유지한 채 효과가 없다 (웹과 동일).
+ *  - 밤 계열 2종은 일반 옵션으로 밤/미러볼 선택 시 노출 (고급 표시와 무관):
+ *    `a01_intro` (초기 연출 켜고 끄기, 기본값 켜짐),
+ *    `a01_fish` (물고기 군집 콤보: 끔 0 / 커서 따라가기 1 / 달에 배치 2, 기본값 끔,
+ *    웹 하단 군집 3버튼과 동일. 밤에서만 그려지고, 다른 장면에서는 값을 유지한 채 효과가 없다).
  *  - 초기 진입 연출 2종 (밤 계열 선택 시에만, `a01_intro` 체크로 켜고 끈다, 기본값 켜짐):
  *    1) 밤: 황혼→밤 전환 (기존 그대로)
  *    2) 밤(미러볼): 황혼→밤 전환 이후, 미러볼 달 전환 연출(스포트라이트)까지 이어서 재생.
@@ -42,19 +46,20 @@
         return null;
     }
     // project.json 키 규칙 (tools/generate-project-json.py):
-    //   a00_scene, a01_intro, a01_daystars, a01_daydark, a02_show_advanced,
-    //   a03_snapshot_json (그룹 미소속, 고급 토글과 무관(공백 선택 시 노출))
+    //   a00_scene, a01_intro, a01_fish(밤 계열 노출 콤보), a01_daystars, a01_daydark,
+    //   a02_show_advanced, a03_snapshot_json (그룹 미소속, 고급 토글과 무관(공백 선택 시 노출))
     //   a04~a15 그룹 헤더(type=group, 값 없음), 멤버 aNN_<CFG키> (예: a04_T_NIGHT)
     // 키는 반드시 식별자 형태(문자 시작) — WE 조건식이 숫자 시작 키를 해석하지 못한다.
     // 구 규칙(scene/intro/cfg_<CFG키>/snapshot_json, 00_scene 등 숫자 시작)도 계속 받는다.
     const KEY_SCENE = 'a00_scene';
     const KEY_INTRO = 'a01_intro';
+    const KEY_FISH = 'a01_fish';
     const KEY_DAYSTARS = 'a01_daystars';
     const KEY_DAYDARK = 'a01_daydark';
     const KEY_SNAPSHOT = 'a03_snapshot_json';
     const MEMBER_RE = /^(?:[A-Za-z]\d\d_|\d\d_|cfg_)(.+)$/;
-    const GENERAL_SKIP = new Set([KEY_DAYSTARS, KEY_DAYDARK, 'daystars', 'daydark']);
-    const desired = { scene: 'night', intro: true, dayStars: false, dayDark: false };
+    const GENERAL_SKIP = new Set([KEY_FISH, KEY_DAYSTARS, KEY_DAYDARK, 'fish', 'cursor', 'cursorMode', 'cursormode', 'daystars', 'daydark']);
+    const desired = { scene: 'night', intro: true, fish: 0, dayStars: false, dayDark: false };
     const pendingCfg = new Map(); // CFG키 -> 마지막 값 (브릿지 대기분)
     let pendingSnapshot = null;   // snapshot_json 원문 (브릿지 대기분)
     let initialized = false;      // 첫 장면 적용 여부
@@ -237,6 +242,26 @@
         }
     }
 
+    function fishOf(v) {
+        // WE 콤보값은 정수(0/1/2). 문자열("1" 등)이나 웹 키 이름("off"/"track"/"moon")도 받는다.
+        if (v === 0 || v === '0' || v === 'off') return 0;
+        if (v === 1 || v === '1' || v === 'track') return 1;
+        if (v === 2 || v === '2' || v === 'moon') return 2;
+        if (typeof v === 'string') {
+            const s = v.trim().toLowerCase();
+            if (s === 'off' || s === '끔') return 0;
+            if (s === 'track' || s === '커서 따라가기') return 1;
+            if (s === 'moon' || s === '달에 배치') return 2;
+            const n = Number(s);
+            if (n === 0 || n === 1 || n === 2) return n;
+        }
+        if (typeof v === 'number' && isFinite(v)) {
+            const n = Math.round(v);
+            if (n >= 0 && n <= 2) return n;
+        }
+        return null;
+    }
+
     function applyPending(b, first) {
         for (const [key, value] of pendingCfg) applyCfgValue(b, key, value);
         pendingCfg.clear();
@@ -249,6 +274,12 @@
         try {
             if ('dayStars' in b) b.dayStars = desired.dayStars;
             if ('dayDark' in b) b.dayDark = desired.dayDark;
+        } catch (e) { /* 브릿지 경합 시 현상 유지 */ }
+        // 물고기 군집은 CFG가 아니라 코어 상태(cursorMode)다. 밤에서만 그려진다.
+        // 세터가 없으면(구 코어) 무시.
+        try {
+            if ('cursorMode' in b) b.cursorMode = desired.fish;
+            else if (b.actions && typeof b.actions.cursorPlace === 'function') b.actions.cursorPlace(desired.fish);
         } catch (e) { /* 브릿지 경합 시 현상 유지 */ }
         applyScene(b, first);
     }
@@ -263,6 +294,11 @@
         const it = properties[KEY_INTRO] || properties.intro;
         if (it && it.value !== undefined) {
             desired.intro = !!it.value;
+        }
+        const fh = properties[KEY_FISH] || properties.fish || properties.cursor || properties.cursorMode || properties.cursormode;
+        if (fh && fh.value !== undefined && fh.value !== '') {
+            const f = fishOf(fh.value);
+            if (f !== null) desired.fish = f;
         }
         const st = properties[KEY_DAYSTARS] || properties.daystars;
         if (st && st.value !== undefined) {
@@ -313,8 +349,8 @@
         }, 50);
     }
 
-    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=day&dusk&night&mirror&intro=0&stars=1&dark=1
-    // 예: wallpaper.html?scene=day&stars=1 , wallpaper.html?scene=day&dark=1 , wallpaper.html?scene=night&intro=0
+    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=day&dusk&night&mirror&intro=0&fish=0/1/2&stars=1&dark=1
+    // 예: wallpaper.html?scene=day&stars=1 , wallpaper.html?scene=day&dark=1 , wallpaper.html?scene=night&intro=0 , wallpaper.html?scene=night&fish=1 , wallpaper.html?scene=mirror&fish=2
     function applyQueryOverride() {
         try {
             const q = new URLSearchParams(location.search);
@@ -323,6 +359,11 @@
             const intro = q.get('intro');
             if (intro === '0' || intro === 'false' || intro === 'off') desired.intro = false;
             if (intro === '1' || intro === 'true' || intro === 'on') desired.intro = true;
+            const fish = q.get('fish') ?? q.get('cursor');
+            if (fish !== null && fish !== undefined) {
+                const f = fishOf(fish);
+                if (f !== null) desired.fish = f;
+            }
             const stars = q.get('stars');
             if (stars === '0' || stars === 'false' || stars === 'off') desired.dayStars = false;
             if (stars === '1' || stars === 'true' || stars === 'on') desired.dayStars = true;
@@ -343,6 +384,7 @@
     window.__WALLPAPER__ = {
         get scene() { return desired.scene; },
         get intro() { return desired.intro; },
+        get fish() { return desired.fish; },
         get dayStars() { return desired.dayStars; },
         get dayDark() { return desired.dayDark; },
         get fps() { return weFps; },

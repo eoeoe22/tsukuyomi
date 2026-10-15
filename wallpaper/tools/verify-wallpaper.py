@@ -3,7 +3,7 @@
 
 검사:
   1. vendor 동결본 == public 현행본 (sha256, 5개 파일)
-  2. project.json 유효성 (file/type/기본 4종/전 GROUPS 커버/기본값 일치/타입·조건)
+  2. project.json 유효성 (file/type/기본 5종/전 GROUPS 커버/기본값 일치/타입·조건)
   3. wallpaper.js 내 REBUILD 맵 == tools/rebuild-map.json (GROUPS rebuild와 1:1)
   4. wallpaper.html 참조 무결성 (vendor만 참조, public/debug/cloudedit/bootstrap 금지)
   5. wallpaper.css 숨김 규칙 존재
@@ -65,11 +65,12 @@ def main() -> int:
         check(f"동결 일치: {rel}", sha256(pub) == sha256(ven),
               f"public와 vendor 해시 불일치 (동결 깨짐)")
 
-    # 1b. 코어 브릿지: 공백 토글 세터가 있어야 WE 일반 옵션이 동작한다
+    # 1b. 코어 브릿지: 공백 토글·물고기 군집 세터가 있어야 WE 일반 옵션이 동작한다
     try:
         vendor_js_text = (VENDOR / "tsukuyomi.js").read_text(encoding="utf-8")
         check("코어 dayStars 브릿지", "setDayStars(!!v)" in vendor_js_text, "bridge dayStars 세터 없음")
         check("코어 dayDark 브릿지", "setDayDark(!!v)" in vendor_js_text, "bridge dayDark 세터 없음")
+        check("코어 cursorMode 브릿지", "setCursorMode(" in vendor_js_text, "bridge cursorMode 세터 없음")
     except Exception as e:
         check("코어 브릿지 읽기", False, str(e))
 
@@ -86,7 +87,7 @@ def main() -> int:
         check("project.json file", pj.get("file") == "wallpaper.html", f"file={pj.get('file')}")
         check("project.json type", pj.get("type") == "web", f"type={pj.get('type')}")
         props = (pj.get("general") or {}).get("properties") or {}
-        for k in ("a00_scene", "a01_intro", "a01_daystars", "a01_daydark",
+        for k in ("a00_scene", "a01_intro", "a01_fish", "a01_daystars", "a01_daydark",
                   "a02_show_advanced", "a03_snapshot_json"):
             check(f"project.json 기본 속성: {k}", k in props, "누락")
         sc = props.get("a00_scene", {})
@@ -99,6 +100,16 @@ def main() -> int:
               f"labels={[o.get('label') for o in sc.get('options', [])]}")
         check("intro 기본값 켜짐", props.get("a01_intro", {}).get("value") is True, "기본값 true 필요")
         check("intro 조건(밤 계열만)", props.get("a01_intro", {}).get("condition") == "a00_scene.value == 3 || a00_scene.value == 4",
+              "밤/미러볼 선택 시에만 표시")
+        fh = props.get("a01_fish", {})
+        check("fish 콤보", fh.get("type") == "combo"
+              and sorted(o.get("value") for o in fh.get("options", [])) == [0, 1, 2],
+              "options 0/1/2 (끔/커서 따라가기/달에 배치) 필요")
+        check("fish 기본값 끔", fh.get("value") == 0, f"value={fh.get('value')}")
+        check("fish 문구(이름만)", [o.get("label") for o in fh.get("options", [])]
+              == ["끔", "커서 따라가기", "달에 배치"],
+              f"labels={[o.get('label') for o in fh.get('options', [])]}")
+        check("fish 조건(밤 계열만)", fh.get("condition") == "a00_scene.value == 3 || a00_scene.value == 4",
               "밤/미러볼 선택 시에만 표시")
         for k in ("a01_daystars", "a01_daydark"):
             p = props.get(k, {})
@@ -280,11 +291,15 @@ def main() -> int:
     check("오버레이 문서 존재", (VENDOR / "clouds" / "day-overlay.json").is_file(),
           "vendor/clouds/day-overlay.json 없음")
 
-    # 4b. wallpaper.js 브릿지: 공백 토글 키 + 코어 세터 위임이 있어야 한다
+    # 4b. wallpaper.js 브릿지: 공백 토글·물고기 군집 키 + 코어 세터 위임이 있어야 한다
     check("wallpaper.js 공백 토글 키", "a01_daystars" in wjs and "a01_daydark" in wjs,
           "a01_daystars/a01_daydark 처리 없음")
     check("wallpaper.js 코어 위임", "b.dayStars" in wjs and "b.dayDark" in wjs,
           "bridge dayStars/dayDark 위임 없음")
+    check("wallpaper.js 물고기 군집 키", "a01_fish" in wjs,
+          "a01_fish 처리 없음")
+    check("wallpaper.js 군집 코어 위임", "cursorMode" in wjs and "cursorPlace" in wjs,
+          "bridge cursorMode/cursorPlace 위임 없음")
 
     # 5. wallpaper.css 숨김
     css = (WP / "wallpaper.css").read_text(encoding="utf-8")

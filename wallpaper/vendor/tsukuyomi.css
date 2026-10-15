@@ -298,7 +298,7 @@
         }
 
         /* 배경화면 토글 접힘 규칙: 비활성 상태에서만 접고, 활성(.on) 상태는 종료 접근을 위해 항상 표시 */
-        @media (hover: hover) {
+        /* 랜드마크 인디케이터 토글 접힘 규칙: 비활성(감상 모드) 상태에서만 접고, 활성(.on, 인디케이터 표시) 상태는 항상 표시 */
             .panel:not(:hover):not(:focus-within):not(.expanded) .wallpaper-toggle:not(.on) {
                 width: 0;
                 min-width: 0;
@@ -340,6 +340,100 @@
             pointer-events: none;
             visibility: hidden;
             transition: background-color 0.25s, color 0.25s, transform 0.25s, width 0.35s ease, min-width 0.35s ease, margin-left 0.35s ease, opacity 0.3s ease, box-shadow 1.25s ease, visibility 0s 0.35s;
+        }
+
+        /* 물고기 군집 배치 그룹: 밤 장면(.scene-night)에서만 노출되는 3연속 세그먼트.
+           밤 시간대 버튼과 감상 모드 버튼 사이에 하나의 필로 나타난다. */
+        .cursor-group {
+            display: flex;
+            align-items: center;
+            flex: 0 0 auto;
+            gap: 2px;
+            max-width: 140px;
+            margin-left: 8px;
+            padding: 3px;
+            border-radius: 999px;
+            background: var(--track);
+            box-shadow: var(--inset-sm);
+            overflow: hidden;
+            white-space: nowrap;
+            transition: background-color 0.25s, max-width 0.35s ease, margin-left 0.35s ease, padding 0.35s ease, opacity 0.3s ease, box-shadow 1.25s ease, visibility 0s;
+        }
+
+        .cursor-group button {
+            width: 38px;
+            height: 38px;
+            flex: 0 0 auto;
+            border: 0;
+            border-radius: 50%;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 16px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.25s, color 0.25s, transform 0.25s;
+        }
+
+        .cursor-group button:hover {
+            transform: translateY(-1px);
+        }
+
+        .cursor-group button:active {
+            transform: none;
+        }
+
+        .cursor-group button.on {
+            background: var(--primary);
+            color: var(--on-primary);
+            box-shadow: var(--raised-md);
+        }
+
+        .cursor-group button:focus-visible {
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
+        }
+
+        .panel.is-night .cursor-group button:not(.on) {
+            color: #9aa0ae;
+        }
+
+        .panel:not(.scene-night) .cursor-group {
+            max-width: 0;
+            margin-left: 0;
+            padding-left: 0;
+            padding-right: 0;
+            opacity: 0;
+            pointer-events: none;
+            visibility: hidden;
+            transition: background-color 0.25s, max-width 0.35s ease, margin-left 0.35s ease, padding 0.35s ease, opacity 0.3s ease, box-shadow 1.25s ease, visibility 0s 0.35s;
+        }
+
+        /* 군집 그룹 접힘 규칙: 조절 UI 포커스(hover/focus/펼침)가 해제되면 그룹 전체를 접는다 */
+        .panel:not(:hover):not(:focus-within):not(.expanded) .cursor-group {
+            max-width: 0;
+            margin-left: 0;
+            padding-left: 0;
+            padding-right: 0;
+            opacity: 0;
+            pointer-events: none;
+            visibility: hidden;
+            transition: background-color 0.25s, max-width 0.35s ease, margin-left 0.35s ease, padding 0.35s ease, opacity 0.3s ease, box-shadow 1.25s ease, visibility 0s 0.35s;
+        }
+
+        @media (hover: none) {
+            .panel:not(.expanded):not(:focus-within) .cursor-group {
+                max-width: 0;
+                margin-left: 0;
+                padding-left: 0;
+                padding-right: 0;
+                opacity: 0;
+                pointer-events: none;
+                visibility: hidden;
+                transition: background-color 0.25s, max-width 0.35s ease, margin-left 0.35s ease, padding 0.35s ease, opacity 0.3s ease, box-shadow 1.25s ease, visibility 0s 0.35s;
+            }
         }
 
         /* 순수 배경화면 감상 모드: 클릭 인디케이터 및 텍스트(핀 전체) 숨김 */

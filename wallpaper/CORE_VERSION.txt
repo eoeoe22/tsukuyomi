@@ -1,5 +1,5 @@
-ed3427fba4e7ee9df35e124cdd1ce33513858211 + bridge dayStars/dayDark
-2026-10-13 (UTC)
+d9b597c17b7da102d87111f4f9d854a6d5b0068b + bridge dayStars/dayDark/cursorMode
+2026-10-15 (UTC)
 frozen source: public/tsukuyomi.js, public/tsukuyomi.css,
   public/cloud-live.js, public/cloud-overlay.js, public/clouds/day-overlay.json,
   public/lantern-front.svg, public/assets/icons/icon.svg
