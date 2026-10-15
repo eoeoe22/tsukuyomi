@@ -1491,6 +1491,9 @@
             const fsFarC = document.createElement('canvas'), fsFarG = fsFarC.getContext('2d');
             const fsGloC = document.createElement('canvas'), fsGloG = fsGloC.getContext('2d');
             const FS_BUF_SCALE = 0.5;
+            // 달 배치 모드 달 가림용: 뒤(z<0) 물고기만 따로 그려 달 원반만큼 지운 뒤 FG에 합성한다.
+            // (FG를 직접 지우면 토리이/랜턴/토리이 물고기까지 파먹으므로 버퍼 격리가 필수)
+            const cursorBackC = document.createElement('canvas'), cursorBackG = cursorBackC.getContext('2d');
             let fishList = [], fishOrbs = [], fishRipples = [];
             let fishActive = false, fishClock = 0, fishWaveCount = 0, fishLastFire = -10;
 
@@ -2291,6 +2294,21 @@
                 }
             }
 
+            // 달 배치 모드 달 가림용 원반 정보: 보이는 달(일반/미러볼)의 중심·원반 반경·불투명도.
+            // 두 달은 항상 같은 중심/반경(전환 중 크로스페이드)이라 하나로 합친다. 글로우가 아닌 원반만 가린다.
+            function cursorMoonOccluder() {
+                if (cursorMode !== 2) return null;
+                const mbOk = mbMV > 0.05 && mbMR >= 2;
+                const pmOk = pmMV > 0.05 && pmMR >= 2;
+                if (!mbOk && !pmOk) return null;
+                const mx = mbOk ? mbMX : pmMX, my = mbOk ? mbMY : pmMY;
+                if (!isFinite(mx) || !isFinite(my)) return null;
+                const a = clamp((mbOk ? mbMV : 0) + (pmOk ? pmMV : 0), 0, 1);
+                if (!(a > 0.01)) return null;
+                const discR = Math.max(1, moonR * MB_R / MB_C);
+                return { x: mx, y: my, r: discR, a };
+            }
+
             function drawCursorPass(sceneAlpha) {
                 const o = CURSOR;
                 if (!cursorFish.length && !cursorOrbs.length) return;
@@ -2379,29 +2397,77 @@
                     }
                 }
 
-                FG.save();
-                // 글로우 블룸
-                if (items.length && o.glow > 0.01) {
+                // 달 배치 모드 달 가림: z<0(뒤) 물고기는 별도 버퍼에 그려 달 원반만큼 지운 뒤 합성하면
+                // 장면 캔버스의 실제 달이 그 자리를 비집고 보인다. 앞(z>=0) 물고기는 달 위에 그대로 그린다.
+                // (가림 없음: 모드 1/달 미표시/앞 물고기만 → 기존 단일 패스와 동일)
+                const occ = cursorMoonOccluder();
+                let frontItems = items, backItems = null;
+                if (occ) {
+                    const back = items.filter(it => it.z < 0);
+                    if (back.length) {
+                        backItems = back;
+                        frontItems = items.filter(it => it.z >= 0);
+                    }
+                }
+                const drawCursorGlow = (g, list, bw, bh) => {
                     fsPrepBuf(fsGloC, fsGloG);
                     fsGloG.globalCompositeOperation = 'lighter';
-                    for (const it of items) {
+                    for (const it of list) {
                         fsDrawSilhouette(fsGloG, it.out, it.col, 0.72 * it.alpha);
                         for (const gh of it.ghosts) fsDrawSilhouette(fsGloG, gh.out, it.col, gh.a * 0.65);
                     }
-                    FG.setTransform(1, 0, 0, 1, 0, 0);
-                    FG.globalCompositeOperation = 'lighter';
-                    FG.globalAlpha = Math.min(1, o.glow) * sceneAlpha;
+                    g.setTransform(1, 0, 0, 1, 0, 0);
+                    g.globalCompositeOperation = 'lighter';
+                    g.globalAlpha = Math.min(1, o.glow) * sceneAlpha;
                     if (FILTER_OK && o.glowR > 0) {
-                        FG.filter = `blur(${(o.glowR * dpr * camSS() * 0.65).toFixed(1)}px)`;
+                        g.filter = `blur(${(o.glowR * dpr * camSS() * 0.65).toFixed(1)}px)`;
                     }
-                    FG.drawImage(fsGloC, 0, 0, fg.width, fg.height);
+                    g.drawImage(fsGloC, 0, 0, bw, bh);
+                    g.filter = 'none';
+                };
+                if (backItems && backItems.length) {
+                    fitCanvas(cursorBackC, fg.width, fg.height);
+                    const BG = cursorBackG;
+                    BG.setTransform(1, 0, 0, 1, 0, 0);
+                    BG.globalCompositeOperation = 'source-over';
+                    BG.globalAlpha = 1;
+                    BG.filter = 'none';
+                    BG.clearRect(0, 0, cursorBackC.width, cursorBackC.height);
+                    if (o.glow > 0.01) drawCursorGlow(BG, backItems, cursorBackC.width, cursorBackC.height);
+                    camSet(BG);
+                    BG.filter = 'none';
+                    BG.globalAlpha = 1;
+                    BG.globalCompositeOperation = 'source-over';
+                    for (const it of backItems) fsDrawDetailedFish(BG, it, o, sceneAlpha);
+                    // 달 원반 자리만큼 지우기: FG 합성 시 뒤 장면(실제 달)이 드러난다
+                    BG.globalCompositeOperation = 'destination-out';
+                    BG.globalAlpha = 1;
+                    BG.filter = 'none';
+                    BG.fillStyle = `rgba(0,0,0,${occ.a.toFixed(3)})`;
+                    BG.beginPath();
+                    BG.arc(occ.x, occ.y, occ.r, 0, Math.PI * 2);
+                    BG.fill();
+                    BG.globalCompositeOperation = 'source-over';
+                    BG.globalAlpha = 1;
+                }
+
+                FG.save();
+                if (backItems && backItems.length) {
+                    FG.setTransform(1, 0, 0, 1, 0, 0);
+                    FG.globalCompositeOperation = 'source-over';
+                    FG.globalAlpha = 1;
                     FG.filter = 'none';
+                    FG.drawImage(cursorBackC, 0, 0, fg.width, fg.height);
+                }
+                // 글로우 블룸
+                if (frontItems.length && o.glow > 0.01) {
+                    drawCursorGlow(FG, frontItems, fg.width, fg.height);
                 }
                 camSet(FG);
                 FG.filter = 'none';
                 FG.globalAlpha = 1;
                 FG.globalCompositeOperation = 'source-over';
-                for (const it of items) fsDrawDetailedFish(FG, it, o, sceneAlpha);
+                for (const it of frontItems) fsDrawDetailedFish(FG, it, o, sceneAlpha);
                 if (orbItems.length) {
                     FG.globalCompositeOperation = 'lighter';
                     for (const ob of orbItems) fsDrawOrbOrStar(FG, ob, sceneAlpha);
