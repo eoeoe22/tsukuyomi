@@ -446,12 +446,12 @@ vec4 sky(vec2 px){
   vec2 sd = (px - uSun) / uRes.y;
   float sunK = exp(-length(sd * vec2(.55, 1.)) * 2.6);
   float up = clamp((uHZ - px.y) / uHZ, 0., 1.);
-  vec3 shade = mix(vec3(.86, .70, .74), mix(vec3(.58, .52, .70), vec3(.40, .38, .58), smoothstep(.45, 1., up)), smoothstep(0., .5, up));
-  vec3 lit = mix(vec3(.96, .80, .80), vec3(1., .90, .80), sunK);
+  vec3 shade = mix(vec3(.76, .58, .64), mix(vec3(.50, .42, .60), vec3(.31, .27, .48), smoothstep(.45, 1., up)), smoothstep(0., .5, up));
+  vec3 lit = mix(vec3(.93, .76, .76), vec3(1., .88, .78), sunK);
   // 역광: 얇은 가장자리는 빛이 비쳐 밝고, 두꺼운 몸통은 그늘색으로 가라앉는다
   // 덩어리 단위(저주파)로만 명암을 준다. 알갱이 하나하나에 테두리·속 명암을 주면 도넛처럼 보인다
   float body = smoothstep(.55, .85, patchA);
-  float L = clamp(sunK * 1.2 + (1. - up) * .5 + .15 - body * .3 * up, 0., 1.);
+  float L = clamp(sunK * 1.2 * mix(1., .3, up) + pow(1. - up, 1.2) * .6 + .07 - body * .25 * up, 0., 1.);   // 높이 뜬 구름은 해가 비추지 못해 하늘보다 어둡다
   vec3 col = mix(shade, lit, L);
   float a = smoothstep(.0, .6, d) * (.7 + .3 * fbm(Q * 7. + 1.9, oct(7.)));
   a *= 1. - smoothstep(9., 30., Z);                           // 수평선 가까이는 대기에 묻힌다
@@ -480,8 +480,8 @@ vec4 sea(vec2 px){
   float near = clamp(dy * uFs / (uRes.y - uHZ), 0., 1.);    // 0 수평선 → 1 화면 아래
   float top = smoothstep(.42, .78, h);
   float L = clamp(top * .85 - slope * .6 * (1. - far * .6) + .1, 0., 1.);
-  vec3 trough = mix(vec3(.62, .52, .62), vec3(.30, .29, .43), smoothstep(.1, .9, near));
-  vec3 crest = mix(mix(vec3(.80, .66, .72), vec3(.56, .50, .64), smoothstep(.2, 1., near)), vec3(1., .86, .78), sunK);
+  vec3 trough = mix(vec3(.62, .48, .52), vec3(.30, .27, .38), smoothstep(.1, .9, near));
+  vec3 crest = mix(mix(vec3(.90, .71, .67), vec3(.66, .52, .58), smoothstep(.2, 1., near)), vec3(1., .86, .76), sunK);
   vec3 col = mix(trough, crest, L);
   col += vec3(1., .82, .7) * pow(top, 3.) * sunK * .35;       // 태양 쪽 봉우리 가장자리 빛
   float fog = 1. - exp(-Z * .075);
@@ -561,11 +561,11 @@ void main(){
         function makeRowSprite(lr, k, seed) {
             const { m, P } = rowPuffs(lr, seed, lr => (0.25 + lr() * 0.55) * lerp(0.5, 1, k));
             const lit = [
-                [0, mixC([255, 232, 214], [255, 214, 196], k)], [0.35, mixC([244, 206, 200], [212, 170, 184], k)],
-                [0.7, mixC([214, 180, 192], [140, 120, 158], k)], [1, mixC([190, 160, 180], [92, 86, 126], k)]];
+                [0, mixC([255, 230, 208], [255, 210, 186], k)], [0.35, mixC([246, 204, 192], [220, 166, 164], k)],
+                [0.7, mixC([220, 176, 176], [156, 118, 136], k)], [1, mixC([196, 156, 164], [100, 84, 112], k)]];
             const shade = [
-                [0, mixC([204, 170, 186], [124, 104, 146], k)], [0.45, mixC([182, 152, 176], [84, 78, 118], k)],
-                [1, mixC([160, 138, 166], [54, 54, 90], k)]];
+                [0, mixC([212, 168, 172], [136, 104, 128], k)], [0.45, mixC([190, 148, 160], [96, 78, 104], k)],
+                [1, mixC([166, 132, 150], [58, 56, 84], k)]];
             return liveSprite(m, P, {
                 lit, shade, glow: null, fade: 0.9, lx: 0.5, ly: 0, gd: [1, 1],
                 rimC: [255, 228, 204], rimK: lerp(0.75, 0.55, k),
@@ -647,15 +647,15 @@ void main(){
             });
             bakeFlare();
         }
-        const HAZE = [242, 204, 198];   // 수평선 대기색: 하늘 아랫단·먼 운해 안개가 같은 색으로 이어진다
+        const HAZE = [246, 206, 188];   // 수평선 대기색: 하늘 아랫단·먼 운해 안개가 같은 색으로 이어진다
         function drawSky() {
             // 영상 첫 프레임: 위는 맑은 하늘색, 가운데 라벤더, 수평선 쪽은 분홍 살구
             const g = ctx.createLinearGradient(0, 0, 0, HZ);
-            g.addColorStop(0, 'rgb(92,128,184)'); g.addColorStop(0.3, 'rgb(150,152,206)');
-            g.addColorStop(0.62, 'rgb(208,184,212)'); g.addColorStop(0.85, 'rgb(240,206,208)'); g.addColorStop(1, rgba(HAZE));
+            g.addColorStop(0, 'rgb(86,126,188)'); g.addColorStop(0.3, 'rgb(138,146,204)');
+            g.addColorStop(0.62, 'rgb(206,176,198)'); g.addColorStop(0.85, 'rgb(238,200,194)'); g.addColorStop(1, rgba(HAZE));
             ctx.fillStyle = g; ctx.fillRect(0, 0, W, HZ + 1);
             const g2 = ctx.createLinearGradient(0, HZ, 0, H);
-            g2.addColorStop(0, rgba(HAZE)); g2.addColorStop(0.12, 'rgb(196,160,172)'); g2.addColorStop(0.5, 'rgb(128,108,140)'); g2.addColorStop(1, 'rgb(60,62,94)');
+            g2.addColorStop(0, rgba(HAZE)); g2.addColorStop(0.12, 'rgb(214,164,160)'); g2.addColorStop(0.5, 'rgb(150,112,126)'); g2.addColorStop(1, 'rgb(64,60,90)');
             ctx.fillStyle = g2; ctx.fillRect(0, HZ, W, H - HZ);
         }
         // 구름 뒤 태양: 원반 + 좁은 후광 + 수평선 띠 (넓은 블룸은 구름 위에서 따로)
@@ -667,7 +667,7 @@ void main(){
             ctx.save();
             ctx.translate(sx, HZ); ctx.scale(1, 0.09);
             g = ctx.createRadialGradient(0, 0, 0, 0, 0, W * 0.6);
-            g.addColorStop(0, 'rgba(255,220,180,0.2)'); g.addColorStop(1, 'rgba(255,200,170,0)');
+            g.addColorStop(0, 'rgba(255,204,150,0.3)'); g.addColorStop(0.6, 'rgba(255,196,150,0.12)'); g.addColorStop(1, 'rgba(255,190,150,0)');
             ctx.fillStyle = g; ctx.fillRect(-W * 0.6, -W * 0.6, W * 1.2, W * 1.2);
             ctx.restore();
             ctx.globalCompositeOperation = 'source-over';
@@ -712,7 +712,7 @@ void main(){
                 drawTiles(ctx, r, i, s, yTop, v, t, now, 0.72, hh * 0.15, ss(0, 0.3, k) * 0.75 + 0.25, sq);
                 // 먼 줄은 융단과 같은 대기(1 - e^(-0.075·Z))에 묻히고, 가까운 줄 사이 골은 그늘
                 const fog = 1 - Math.exp(-Z * 0.075);
-                const hc = mixC(HAZE, [84, 76, 118], ss(0.25, 0.8, k));
+                const hc = mixC(HAZE, [104, 80, 108], ss(0.25, 0.8, k));
                 const a1 = Math.max(fog * 0.7, lerp(0.26, 0.18, k));
                 const top0 = yTop + hh * 0.05;
                 const g = ctx.createLinearGradient(0, top0, 0, yTop + hh * 1.25);
@@ -725,7 +725,7 @@ void main(){
         function drawSunFront() {
             ctx.globalCompositeOperation = 'screen';
             let g = ctx.createRadialGradient(sx, sy, 0, sx, sy, Math.max(W, H) * 0.5);
-            g.addColorStop(0, 'rgba(255,236,206,0.9)'); g.addColorStop(0.05, 'rgba(255,214,178,0.5)');
+            g.addColorStop(0, 'rgba(255,230,196,0.8)'); g.addColorStop(0.05, 'rgba(255,210,170,0.45)');
             g.addColorStop(0.2, 'rgba(240,170,160,0.16)'); g.addColorStop(0.5, 'rgba(160,110,140,0.04)'); g.addColorStop(1, 'rgba(0,0,0,0)');
             ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
             ctx.globalCompositeOperation = 'lighter';
@@ -734,7 +734,7 @@ void main(){
             // 화면 앞쪽(아래) 구름은 해를 등져 푸른 그늘로 가라앉는다
             ctx.globalCompositeOperation = 'multiply';
             g = ctx.createLinearGradient(0, HZ, 0, H);
-            g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.55, 'rgba(214,204,226,1)'); g.addColorStop(1, 'rgba(150,144,184,1)');
+            g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.55, 'rgba(232,212,218,1)'); g.addColorStop(1, 'rgba(164,146,178,1)');
             ctx.fillStyle = g; ctx.fillRect(0, HZ, W, H - HZ);
             ctx.globalCompositeOperation = 'source-over';
         }
@@ -810,7 +810,7 @@ void main(){
             ctx.globalCompositeOperation = 'source-over';
             // 비네트
             g = ctx.createRadialGradient(sx, H * 0.45, Math.min(W, H) * 0.35, W * 0.5, H * 0.5, Math.hypot(W, H) * 0.62);
-            g.addColorStop(0, 'rgba(14,12,30,0)'); g.addColorStop(1, 'rgba(14,12,30,0.4)');
+            g.addColorStop(0, 'rgba(14,12,30,0)'); g.addColorStop(1, 'rgba(14,12,30,0.26)');
             ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
         }
         return { id: 'sunset', night: false, bg: '#8a7aa8', jobs, layout, draw };
