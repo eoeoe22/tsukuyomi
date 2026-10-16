@@ -892,7 +892,9 @@ void main(){
     function moveThumb(animate = true) {
         if (!elThumb || !btns.length) return;
         const idx = Math.max(0, btns.findIndex(b => b.classList.contains('on')));
-        const b = btns[idx], fw = b.offsetWidth || 46, fh = b.offsetHeight || 46;
+        // 버튼은 정원형: width는 펼침/접힘·'on' 전환 중 transition 도중 값이 읽힐 수 있어
+        // transition이 없는 height를 기준으로 가로세로를 맞춘다.
+        const b = btns[idx], fh = b.offsetHeight || 46, fw = fh;
         elThumb.style.width = fw + 'px'; elThumb.style.height = fh + 'px';
         const x = isExpanded() ? idx * (fw + 4) : 0;   // 4 = .icongroup gap
         if (!thumbInit || !animate) {
@@ -937,7 +939,11 @@ void main(){
     // ---------- 시작 ----------
     resize();
     finish(cur);
+    // 초기 'on' 지정 시 버튼이 width 0→46으로 늘어나는 transition을 건너뛴다
+    for (const el of btns) el.style.transition = 'none';
     syncUI();
+    if (btns.length) void btns[0].offsetWidth;
+    for (const el of btns) el.style.transition = '';
     requestAnimationFrame(() => moveThumb(false));
     startPump();
 
