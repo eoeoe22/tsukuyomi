@@ -366,7 +366,6 @@
             // CSS transform 확대(비트맵 업스케일) 대신 장면을 카메라 파라미터로 직접 다시 그린다.
             // world(f) -> screen(m) + scale(s): screen = m + s * (world - f).
             // idle 경로와 동일 버퍼 크기로 렌더하므로 메모리 증가가 없고, 모든 프레임이 네이티브 해상도다.
-            // f/t/s 계산(cover 하한)은 focus.js의 computeZoom과 같은 식을 쓴다.
             let CAM = { on: false, fx: 0, fy: 0, mx: 0, my: 0, s: 1 };
             let camPath = null;   // 진행 중인 줌 애니메이션 경로 (setCamView 참고)
             const camOn = () => CAM.on && CAM.s > 1.001 && W > 0 && H > 0;
@@ -387,7 +386,7 @@
             // 버퍼행 = 화면행 + camExtra.
             let camExtra = 0;
             // ---------- 줌 프로파일러 (계측 전용) ----------
-            // focus.js가 확대/복귀 애니메이션을 begin/end로 감싼다. 구간 중에만 프레임별 JS 구간 시간(ms)과
+            // worlds.js가 포털 확대 애니메이션을 begin/end로 감싼다. 구간 중에만 프레임별 JS 구간 시간(ms)과
             // 캐시 재굽기·버퍼 재할당 이벤트를 모으고, 구간 밖에서는 performance.now 호출도 하지 않는다.
             // GPU/합성 시간은 JS에서 보이지 않으므로 rAF 간격(dt)과 JS 합계(js)의 차이로 추정한다.
             // 콘솔 출력: URL에 ?zprof 또는 __TSUKUYOMI__.zoomProf.log = true. 마지막 요약은 zoomProf.last.
@@ -5377,7 +5376,8 @@ void main() {
             const dragPts = new Map();   // pointerId -> { x, y, t } (anchor of last spawned ripple)
             const DRAG_MIN_DIST = 24;    // css px between spawned ripples
             const DRAG_MIN_DT = 0.06;    // seconds between spawned ripples
-            const overUI = t => (t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad,.focus-ui');
+            const overUI = t => document.body.hasAttribute('data-world-busy') ||
+                ((t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad,#worldMount'));
 
             window.addEventListener('pointerdown', e => {
                 if (!gl || RM.matches || e.button > 0) return;
@@ -5796,70 +5796,6 @@ void main() {
             if (elCursorTrack) elCursorTrack.addEventListener('click', e => { e.stopPropagation(); cursorPick(1); });
             if (elCursorMoon) elCursorMoon.addEventListener('click', e => { e.stopPropagation(); cursorPick(2); });
 
-            // ---------- 배경화면 감상 모드 (단독 토글, 기본값 감상 모드) ----------
-            // 시간대 버튼그룹과 별도. 기본은 감상 모드로 클릭 인디케이터 및 텍스트(랜드마크 핀)를 숨긴다.
-            // 버튼은 반대로 동작: 토글 활성화(.on) 시 감상 모드를 끄고 랜드마크 인디케이터를 보인다.
-            // .on이면 접힘 상태에서도 표시된다(CSS).
-            const elWallpaper = document.getElementById('btnWallpaper');
-            let wallpaperMode = true;
-            function setWallpaper(on) {
-                wallpaperMode = !!on;
-                try {
-                    if (wallpaperMode) document.body.setAttribute('data-wallpaper', 'on');
-                    else document.body.removeAttribute('data-wallpaper');
-                } catch (e) { /* body 미지원 환경 무시 */ }
-                if (elWallpaper) {
-                    elWallpaper.classList.toggle('on', !wallpaperMode);
-                    elWallpaper.setAttribute('aria-pressed', wallpaperMode ? 'false' : 'true');
-                }
-            }
-            setWallpaper(wallpaperMode);
-            // 홀드 경로: 버튼을 길게 누르면 디버그 패널을 토글한다 (감상 모드 토글은 클릭 그대로, 홀드 직후 click은 무시).
-            let wallpaperHoldTimer = 0;
-            let wallpaperHeld = false;
-            const WALLPAPER_HOLD_MS = 600;
-            function cancelWallpaperHold() {
-                clearTimeout(wallpaperHoldTimer);
-                wallpaperHoldTimer = 0;
-            }
-            if (elWallpaper) {
-                elWallpaper.addEventListener('pointerdown', e => {
-                    if (e.button !== undefined && e.button !== 0) return;
-                    wallpaperHeld = false;
-                    cancelWallpaperHold();
-                    wallpaperHoldTimer = setTimeout(() => {
-                        wallpaperHoldTimer = 0;
-                        wallpaperHeld = true;
-                        const dbg = window.__TSUKUYOMI_DEBUG__;
-                        if (dbg && dbg.toggle) dbg.toggle();
-                    }, WALLPAPER_HOLD_MS);
-                });
-                ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev =>
-                    elWallpaper.addEventListener(ev, cancelWallpaperHold));
-                elWallpaper.addEventListener('contextmenu', e => {
-                    if (wallpaperHeld) e.preventDefault();
-                });
-            }
-            if (elWallpaper) elWallpaper.addEventListener('click', e => {
-                e.stopPropagation();
-                if (wallpaperHeld) { wallpaperHeld = false; return; }
-                // 터치 UI에서 접힌 채로 눌릴 수 없으므로(버튼 숨김), 펼친 상태에서만 토글된다.
-                // 만약을 위해 미펼침이면 먼저 펼치고 토글한다.
-                if (TOUCH_UI && elPanel && !elPanel.classList.contains('expanded')) {
-                    elPanel.classList.add('expanded');
-                    moveThumb();
-                }
-                setWallpaper(!wallpaperMode);
-                if (TOUCH_UI && elPanel) {
-                    // 선택 피드백이 보이도록 잠시 펼침 유지 후 접기 (.on이면 토글만 남는다)
-                    clearTimeout(collapseTimer);
-                    collapseTimer = setTimeout(() => {
-                        elPanel.classList.remove('expanded');
-                        moveThumb();
-                    }, 900);
-                }
-            });
-
             // ---------- debug bridge (F12 패널용) ----------
             // tsukuyomi.debug.js가 이 객체를 통해 모든 파라미터를 수동 조절한다.
             // CFG(수치) + 팔레트(색) + 상태(p/phi/state) + 재빌드 액션을 노출.
@@ -5888,7 +5824,6 @@ void main() {
                     }
                 },
                 get mode() { return activeOf(); }, set mode(v) { goTo(v); },
-                get wallpaper() { return wallpaperMode; }, set wallpaper(v) { setWallpaper(v); },
                 // 공백 장면 토글 (하단 btnStars/btnDark과 동일, Wallpaper Engine 일반 옵션에서 쓴다)
                 get dayStars() { return dsOn; }, set dayStars(v) { setDayStars(!!v); },
                 get dayDark() { return dnOn; }, set dayDark(v) { setDayDark(!!v); },
@@ -5901,15 +5836,18 @@ void main() {
                 get W() { return W; }, get H() { return H; }, get HZ() { return HZ; }, get dpr() { return dpr; },
                 // 구름 오버레이(편집기 tsukuyomi.cloudlayers.js가 같은 문서를 직접 고친다), 카메라 확대 중인지
                 cloudOverlay: cloudOv,
-                get camOn() { return camOn(); },
-                // 인-캔버스 카메라 (tsukuyomi.focus.js가 구동). CSS transform 대신 장면을 직접 다시 그린다.
+                // 다른 세계(山)가 화면을 덮고 있는 동안 렌더 루프를 멈춘다 (tsukuyomi.worlds.js).
+                get suspended() { return suspended; },
+                suspend() { suspended = true; },
+                resume() { resumeLoop(); },
+                // 인-캔버스 카메라 (tsukuyomi.worlds.js의 토리이 포털 전환이 구동). CSS transform 대신 장면을 직접 다시 그린다.
                 setCamView(f, m, s, res, path) { setCamView(f, m, s, res, path); },
                 clearCam() { clearCam(); },
                 getCamView() { return CAM.on ? { f: { x: CAM.fx, y: CAM.fy }, m: { x: CAM.mx, y: CAM.my }, s: CAM.s } : null; },
                 worldToScreen(x, y) { return camW2S(x, y); },
                 screenToWorld(x, y) { return camS2W(x, y); },
                 get camOn() { return camOn(); },
-                // 줌 프로파일러: focus.js가 begin/end로 확대·복귀 구간을 감싼다 (요약은 last, 콘솔은 log)
+                // 줌 프로파일러: worlds.js가 begin/end로 포털 확대 구간을 감싼다 (요약은 last, 콘솔은 log)
                 zoomProf: {
                     begin(label) { zpBegin(label); },
                     end() { return zpEnd(); },
@@ -5929,7 +5867,7 @@ void main() {
                     get log() { return ZP.log; }, set log(v) { ZP.log = !!v; },
                     get noOcc() { return ZP.noOcc; }, set noOcc(v) { ZP.noOcc = !!v; },
                 },
-                // 포커스 오버레이(tsukuyomi.focus.js)용 랜드마크 화면 좌표 (css px)
+                // 랜드마크 월드 좌표 (css px, 카메라 적용 전). 토리이 포털(tsukuyomi.worlds.js)이 쓴다.
                 get torii() {
                     return {
                         x: torX, y: torY, w: torW, h: torH,
@@ -6063,7 +6001,16 @@ void main() {
 
             // ---------- loop ----------
             let lastT = performance.now();
+            // suspended: 루프 자체를 세운다(rAF 미예약). resume 시 lastT를 새로 잡아 dt 점프 없이 이어 간다.
+            let suspended = false, looping = false;
+            function resumeLoop() {
+                suspended = false;
+                if (looping) return;
+                looping = true;
+                requestAnimationFrame(t => { lastT = t; frame(t); });
+            }
             function frame(now) {
+                if (suspended) { looping = false; return; }
                 const gap = now - lastT;
                 const dt = Math.min(0.05, Math.max(0, gap / 1000));
                 lastT = now;
@@ -6104,6 +6051,6 @@ void main() {
             loadLanternSprite();
             resize();
             if (cloudOv) cloudOv.load();
-            requestAnimationFrame(t => { lastT = t; frame(t); });
+            resumeLoop();
         })();
     

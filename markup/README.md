@@ -1,13 +1,13 @@
-# 카드 문법 (cards/*.wiki)
+# 경량 마크업 엔진 (tsukuyomi.markup.js)
 
-랜드마크 카드(`#focusCard`)의 내용은 이 폴더의 `{kind}.wiki` 파일에 적는다.
-`torii.wiki`, `moon.wiki`, `mirror.wiki`가 있다.
-렌더러는 `tsukuyomi.markup.js`이고, Cloudwiki 문법에서 위키 전용 기능을 뺀 포크다.
+> 별도 레포지토리로 분리하기 위해 보관 중인 폴더다. `public/`(tsukuyomi 페이지)에서는 더 이상 참조하지 않는다.
+> 아래 문법 설명 중 "카드"는 예전 랜드마크 카드(`#focusCard`, 폭 340px)를 기준으로 쓴 것이다.
 
-- **미리보기:** `` ` ``로 디버그 패널을 연다. **카드 미리보기**에서 원문을 고치면 카드에 바로 반영된다.
-  메모리에만 반영되므로 **복사**해서 이 파일들에 붙여넣어 저장한다.
-- **폴백:** 파일을 못 읽거나 렌더러가 로드되지 않으면 `tsukuyomi.focus.js`의 내장 표(NAMES/DESCS/BODIES)가 대신 보인다.
+렌더러는 `tsukuyomi.markup.js`(+ `tsukuyomi.markup.css`)이고, Cloudwiki 문법에서 위키 전용 기능을 뺀 포크다.
+사용법은 `tsukuyomi.markup.js` 머리 주석의 API(`window.TsukuyomiMarkup.render / teardown / extractMeta`)를 본다.
+
 - **기반 문법:** 기본은 Markdown(marked)이다. 원시 HTML은 sanitize(DOMPurify)되고 `<script>` 등은 글자로 보인다.
+- **전역 의존:** marked(18.x UMD), DOMPurify(3.x)를 먼저 로드해야 한다.
 
 ## 카드 머리 (`:::meta`)
 

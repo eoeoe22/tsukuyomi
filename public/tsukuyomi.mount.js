@@ -1,5 +1,8 @@
-/* 산정 토리이 장면 (reference-images/mount.mp4, mount.html). 카메라 고정, 움직이는 건 구름뿐이다.
- * 두 버전을 하단 아이콘 그룹으로 전환한다(tsukuyomi.css의 dock/icongroup 재사용, 스냅샷 크로스페이드):
+/* 산정 토리이 장면 (reference-images/mount.mp4). 움직이는 건 구름뿐이다.
+ * tsukuyomi.html의 두 번째 세계(#worldMount, 경로 #mount)로, tsukuyomi.worlds.js가 처음 필요할 때 로드한다.
+ * 로드 즉시 그리지 않고 배치 + 유휴 구름 생성만 해 둔다. 화면에 올릴 때 start(), 내릴 때 stop().
+ * 카메라(setCam/clearCam)는 토리이 포털 전환 전용이다(평소엔 고정).
+ * 두 버전을 하단 아이콘 그룹(#mountDock)으로 전환한다(tsukuyomi.css의 dock/icongroup 재사용, 스냅샷 크로스페이드):
  *   - dusk(구버전, 미통합): 영상 후반 숏. 땅거미 하늘 + 뒤쪽 운해 벽 + 바위 능선 + 토리이.
  *   - sunset(통합): 영상 두 숏을 한 장면으로. 운해 수평선에 걸린 노을 태양 + 원근 운해 + 역광 능선·토리이.
  *     수평선 위 높은 구름(권운~권적운)과 수평선까지 깔린 운해 융단은 원근 평면 셰이더(makePlaneGL)가 그리고,
@@ -15,7 +18,8 @@
 (() => {
     'use strict';
 
-    const cv = document.getElementById('scene');
+    const cv = document.getElementById('mountScene');
+    const worldEl = document.getElementById('worldMount');
     const ctx = cv.getContext('2d');
     const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
     const lerp = (a, b, t) => a + (b - a) * t;
@@ -383,7 +387,7 @@
             g.addColorStop(0, 'rgba(8,10,22,0)'); g.addColorStop(1, 'rgba(8,10,22,0.4)');
             ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
         }
-        return { id: 'dusk', night: true, bg: '#1b2038', jobs, layout, draw };
+        return { id: 'dusk', night: true, bg: '#1b2038', jobs, layout, draw, L };
     }
 
     // =====================================================================
@@ -814,7 +818,7 @@ void main(){
             g.addColorStop(0, 'rgba(14,12,30,0)'); g.addColorStop(1, 'rgba(14,12,30,0.26)');
             ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
         }
-        return { id: 'sunset', night: false, bg: '#8a7aa8', jobs, layout, draw };
+        return { id: 'sunset', night: false, bg: '#8a7aa8', jobs, layout, draw, L };
     }
 
     // =====================================================================
@@ -826,17 +830,16 @@ void main(){
         get() { try { return localStorage.getItem(KEY); } catch (e) { return null; } },
         set(v) { try { localStorage.setItem(KEY, v); } catch (e) { /* 저장소 차단 */ } },
     };
-    const qs = (() => { try { return new URLSearchParams(location.search).get('scene'); } catch (e) { return null; } })();
-    let cur = SCENES[qs] || SCENES[store.get()] || SCENES.sunset;
+    let cur = SCENES[store.get()] || SCENES.sunset;
     const laidOut = new Set();
     function ensureLayout(sc) { if (!laidOut.has(sc)) { sc.layout(); laidOut.add(sc); } }
     // 남은 생성 단계를 즉시 끝낸다(처음 보이는 장면, 또는 유휴 생성이 덜 된 장면으로 전환할 때)
     function finish(sc) { while (sc.jobs.length) sc.jobs.shift()(); }
-    // 보이지 않는 장면의 구름은 유휴 시간에 한 장씩
+    // 구름은 유휴 시간에 한 장씩: 화면에 올리기 전이면 현재 장면부터(미리 데워 두기), 그다음 나머지 장면
     const idle = window.requestIdleCallback ? cb => window.requestIdleCallback(cb, { timeout: 400 }) : cb => setTimeout(cb, 30);
     let pumping = false;
     function pump() {
-        const sc = Object.values(SCENES).find(s => s !== cur && s.jobs.length);
+        const sc = [cur, ...Object.values(SCENES)].find(s => s.jobs.length);
         if (!sc) { pumping = false; return; }
         pumping = true;
         sc.jobs.shift()();
@@ -873,10 +876,10 @@ void main(){
         startPump();
     }
 
-    // ---------- UI (tsukuyomi.css의 .panel / .icongroup 재사용) ----------
-    const elPanel = document.getElementById('panel');
-    const elThumb = document.getElementById('thumb');
-    const btns = Array.from(document.querySelectorAll('#icongroup button[data-scene]'));
+    // ---------- UI (#mountDock, tsukuyomi.css의 .panel / .icongroup 재사용) ----------
+    const elPanel = document.getElementById('mountPanel');
+    const elThumb = document.getElementById('mountThumb');
+    const btns = Array.from(document.querySelectorAll('#mountGroup button[data-scene]'));
     const HOVER_OK = (() => { try { return window.matchMedia('(hover: hover)').matches; } catch (e) { return true; } })();
     const TOUCH_UI = (() => { try { return window.matchMedia('(hover: none)').matches; } catch (e) { return false; } })();
     function isExpanded() {
@@ -913,7 +916,7 @@ void main(){
             b.setAttribute('aria-pressed', on ? 'true' : 'false');
         }
         if (elPanel) elPanel.classList.toggle('is-night', cur.night);
-        document.body.style.background = cur.bg;
+        if (worldEl) worldEl.style.background = cur.bg;
         moveThumb();
     }
     let collapseTimer = 0;
@@ -936,24 +939,27 @@ void main(){
         window.addEventListener('resize', () => moveThumb(false));
     }
 
-    // ---------- 시작 ----------
+    // ---------- 카메라 (포털 전환 전용): screen = m + s * (world - f) ----------
+    // 모든 레이어를 같은 변환으로 다시 그린다(벡터는 원해상도, 구운 스프라이트·셰이더 버퍼는 확대).
+    let CAM = null;
+    function setCam(f, m, s) { CAM = { fx: f.x, fy: f.y, mx: m.x, my: m.y, s: Math.max(1, s) }; }
+    function clearCam() { CAM = null; }
+
+    // ---------- 시작: 배치 + 유휴 생성만. 그리기는 start()부터 ----------
     resize();
-    finish(cur);
-    // 초기 'on' 지정 시 버튼이 width 0→46으로 늘어나는 transition을 건너뛴다
     for (const el of btns) el.style.transition = 'none';
     syncUI();
     if (btns.length) void btns[0].offsetWidth;
     for (const el of btns) el.style.transition = '';
-    requestAnimationFrame(() => moveThumb(false));
     startPump();
 
-    const t0 = performance.now();
-    let last = t0;
-    function frame(now) {
-        const t = (now - t0) / 1000, dt = Math.min(0.1, Math.max(0, now - last) / 1000);
-        last = now;
+    // 시간은 그린 프레임만큼만 흐른다(멈춘 동안 구름이 순간이동하지 않게)
+    let t = 0, last = 0, running = false, raf = 0;
+    function drawFrame(now, dt) {
+        t += dt;
         if (LIVE_OK) cloudLive.tick(t, now, RM.matches ? Object.assign({}, CL, { CL_RATE: 0.15 }) : CL);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        if (CAM) ctx.setTransform(dpr * CAM.s, 0, 0, dpr * CAM.s, dpr * (CAM.mx - CAM.s * CAM.fx), dpr * (CAM.my - CAM.s * CAM.fy));
+        else ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         cur.draw(t, now);
         if (fadeT > 0) {
             const a = fadeT * fadeT * (3 - 2 * fadeT);
@@ -963,9 +969,38 @@ void main(){
             ctx.globalAlpha = 1;
             fadeT = Math.max(0, fadeT - dt / FADE_S);
         }
-        requestAnimationFrame(frame);
     }
-    requestAnimationFrame(frame);
+    function frame(now) {
+        if (!running) { raf = 0; return; }
+        const dt = Math.min(0.1, Math.max(0, now - last) / 1000);
+        last = now;
+        drawFrame(now, dt);
+        raf = requestAnimationFrame(frame);
+    }
+    // 화면에 올린다: 남은 구름을 마저 만들고 첫 프레임을 바로 그려 빈 캔버스가 보이지 않게 한다
+    function start() {
+        if (running) return;
+        finish(cur);
+        ensureLayout(cur);
+        running = true;
+        last = performance.now();
+        drawFrame(last, 0);
+        moveThumb(false);
+        if (!raf) raf = requestAnimationFrame(frame);
+    }
+    function stop() { running = false; }
 
+    // 토리이 배치: torii.svg 좌표 X → 화면 ox + X * k (카메라 적용 전)
+    function torii() {
+        const { tw, tx, floorY } = cur.L, k = tw / TB.w;
+        return { ox: tx - TB.cx * k, oy: floorY + tw * 0.012 - TB.base * k, k };
+    }
+
+    window.TsukuyomiMount = {
+        start, stop, setCam, clearCam, torii, setScene, syncUI: () => syncUI(),
+        get running() { return running; },
+        get scene() { return cur.id; },
+        get bg() { return cur.bg; },
+    };
     window.__MOUNT__ = { SCENES, setScene, get scene() { return cur.id; }, cloudLive };
 })();
