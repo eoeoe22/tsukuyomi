@@ -277,15 +277,16 @@
         // 땅거미: 윗면은 오른쪽 위 노을빛을 받아 장밋빛, 몸통·아랫면은 푸른 남색 그늘. 앞줄일수록 어둡다
         function makeRowSprite(lr, k, seed) {
             const { m, P } = rowPuffs(lr, seed, lr => 0.35 + lr() * 0.65);
+            const kl = Math.pow(k, 0.6);   // 장밋빛은 맨 윗줄에만: 아래 줄로 갈수록 빠르게 그늘로
             const lit = [
-                [0, mixC([240, 184, 182], [196, 146, 160], k)], [0.3, mixC([168, 140, 170], [124, 112, 150], k)],
-                [0.65, mixC([108, 108, 148], [80, 86, 124], k)], [1, mixC([84, 92, 132], [62, 72, 108], k)]];
+                [0, mixC([244, 178, 176], [104, 98, 124], kl)], [0.22, mixC([150, 120, 142], [70, 78, 108], kl)],
+                [0.6, mixC([74, 82, 112], [52, 64, 94], kl)], [1, mixC([58, 68, 98], [42, 54, 82], kl)]];
             const shade = [
-                [0, mixC([116, 106, 144], [82, 82, 116], k)], [0.4, mixC([80, 82, 120], [56, 62, 96], k)],
-                [1, mixC([62, 70, 104], [44, 52, 82], k)]];
+                [0, mixC([74, 78, 106], [56, 62, 88], k)], [0.4, mixC([52, 60, 88], [42, 52, 78], k)],
+                [1, mixC([42, 52, 80], [34, 44, 70], k)]];
             return liveSprite(m, P, {
                 lit, shade, glow: null, fade: 0.9, lx: 0.95, ly: 0, gd: [1.1, 0.8],
-                rimC: [255, 192, 186], rimK: lerp(0.6, 0.35, k),
+                rimC: [255, 192, 186], rimK: lerp(0.95, 0.3, kl),
                 skyBot: 0.5, vLift: 0.15, upK: 1.15, lobeMin: 0.4, crease: 0.5, lobeW: 0.75,
             }, seed, { cov: 0.37, sc: 6.2, abs: 1.1, ax: 1.15, sun: CFG.SUN });
         }
@@ -311,7 +312,7 @@
             const { tw, tx, floorY } = L;
             // 하늘
             let g = ctx.createLinearGradient(0, 0, 0, H);
-            g.addColorStop(0, 'rgb(26,30,58)'); g.addColorStop(0.35, 'rgb(44,52,92)'); g.addColorStop(0.7, 'rgb(70,82,124)');
+            g.addColorStop(0, 'rgb(30,36,62)'); g.addColorStop(0.35, 'rgb(40,50,78)'); g.addColorStop(0.7, 'rgb(48,60,90)');
             ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
             // 운해 줄
             rows.forEach((r, i) => {
@@ -322,13 +323,13 @@
                 // 줄 아래 옅은 대기: 다음(앞) 줄과 거리감을 띄운다
                 const hh = r.spr[0].h0 * s, ha = lerp(0.34, 0.18, r.k);
                 g = ctx.createLinearGradient(0, yTop + hh * 0.3, 0, yTop + hh * 1.3);
-                g.addColorStop(0, 'rgba(78,90,130,0)'); g.addColorStop(0.6, `rgba(78,90,130,${ha})`); g.addColorStop(1, 'rgba(78,90,130,0)');
+                g.addColorStop(0, 'rgba(52,64,94,0)'); g.addColorStop(0.6, `rgba(52,64,94,${ha})`); g.addColorStop(1, 'rgba(52,64,94,0)');
                 ctx.fillStyle = g; ctx.fillRect(0, yTop + hh * 0.3, W, hh);
             });
             // 오른쪽 위 노을빛이 운해 윗면에 번지고, 왼쪽 아래는 푸른 그늘로 가라앉는다
             ctx.globalCompositeOperation = 'screen';
-            g = ctx.createRadialGradient(W * 0.86, -H * 0.1, 0, W * 0.86, -H * 0.1, Math.max(W, H) * 0.75);
-            g.addColorStop(0, 'rgba(190,120,128,0.45)'); g.addColorStop(0.5, 'rgba(120,80,110,0.14)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+            g = ctx.createRadialGradient(W * 0.86, -H * 0.1, 0, W * 0.86, -H * 0.1, Math.max(W, H) * 0.6);
+            g.addColorStop(0, 'rgba(190,120,128,0.4)'); g.addColorStop(0.5, 'rgba(120,80,110,0.06)'); g.addColorStop(1, 'rgba(0,0,0,0)');
             ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
             ctx.globalCompositeOperation = 'multiply';
             g = ctx.createRadialGradient(W * 0.05, H * 0.75, 0, W * 0.05, H * 0.75, Math.max(W, H) * 0.7);
@@ -338,13 +339,13 @@
             // 능선 뒤 안개 띠 + 토리이 기둥 사이로 비치는 밝은 운무 + 흐르는 안개 덩어리
             const y0 = floorY - tw * 0.75, y1 = floorY + tw * 0.05;
             g = ctx.createLinearGradient(0, y0, 0, y1);
-            g.addColorStop(0, 'rgba(84,98,140,0)'); g.addColorStop(0.6, 'rgba(84,98,140,0.42)'); g.addColorStop(1, 'rgba(92,106,148,0.6)');
+            g.addColorStop(0, 'rgba(44,58,88,0)'); g.addColorStop(0.6, 'rgba(44,58,88,0.5)'); g.addColorStop(1, 'rgba(50,64,96,0.65)');
             ctx.fillStyle = g; ctx.fillRect(0, y0, W, y1 - y0);
             g = ctx.createRadialGradient(tx, floorY - tw * 0.18, 0, tx, floorY - tw * 0.18, tw * 0.9);
-            g.addColorStop(0, 'rgba(138,150,190,0.38)'); g.addColorStop(1, 'rgba(138,150,190,0)');
+            g.addColorStop(0, 'rgba(70,86,120,0.14)'); g.addColorStop(1, 'rgba(70,86,120,0)');
             ctx.fillStyle = g; ctx.fillRect(tx - tw, floorY - tw * 1.1, tw * 2, tw * 1.2);
             const fv = RM.matches ? 0 : 6 * U;
-            ctx.globalAlpha = 0.16;
+            ctx.globalAlpha = 0.08;
             for (let i = 0; i < 9; i++) {
                 const bw = tw * (1.4 + hash(i, 1, 5) * 1.4), bh = bw * 0.22, span = W + bw * 2;
                 const x = ((hash(i, 2, 5) * span + t * fv * (0.6 + hash(i, 3, 5))) % span) - bw;
@@ -357,16 +358,16 @@
             ctx.translate(tx - TB.cx * k, floorY + tw * 0.012 - TB.base * k);
             ctx.scale(k, k);
             g = ctx.createLinearGradient(0, TB.y, 0, TB.base);
-            g.addColorStop(0, '#9a4632'); g.addColorStop(0.35, '#87392a'); g.addColorStop(1, '#5c2420');
+            g.addColorStop(0, '#4e2219'); g.addColorStop(0.35, '#421c16'); g.addColorStop(1, '#2a1012');
             ctx.fillStyle = g; ctx.fill(TORII_RED);
-            ctx.fillStyle = '#241417'; ctx.fill(TORII_BLK);
+            ctx.fillStyle = '#1a0f12'; ctx.fill(TORII_BLK);
             ctx.clip(TORII_ALL);
-            ctx.globalAlpha = 0.18; ctx.fillStyle = '#e0a29a';   // 오른쪽 면 노을 반사광
+            ctx.globalAlpha = 0.1; ctx.fillStyle = '#e0a29a';   // 오른쪽 면 노을 반사광
             ctx.fillRect(236, 110, 8, 300); ctx.fillRect(456, 110, 8, 300);
             ctx.globalAlpha = 0.35; ctx.fillStyle = '#1a0c10';   // 기둥 왼쪽 그늘 면
             ctx.fillRect(213, 110, 10, 300); ctx.fillRect(433, 110, 10, 300);
             ctx.fillRect(140, 100, 400, 14);
-            ctx.globalAlpha = 0.2; ctx.fillStyle = '#4a5684';    // 땅거미 대기
+            ctx.globalAlpha = 0.14; ctx.fillStyle = '#3a4668';    // 땅거미 대기
             ctx.fillRect(TB.x, TB.y, TB.w, TB.h);
             ctx.globalAlpha = 1;
             ctx.restore();
@@ -379,7 +380,7 @@
             ctx.restore();
             // 비네트
             g = ctx.createRadialGradient(W * 0.5, H * 0.45, Math.min(W, H) * 0.35, W * 0.5, H * 0.5, Math.hypot(W, H) * 0.62);
-            g.addColorStop(0, 'rgba(8,10,22,0)'); g.addColorStop(1, 'rgba(8,10,22,0.55)');
+            g.addColorStop(0, 'rgba(8,10,22,0)'); g.addColorStop(1, 'rgba(8,10,22,0.4)');
             ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
         }
         return { id: 'dusk', night: true, bg: '#1b2038', jobs, layout, draw };
