@@ -12,5 +12,6 @@ Copy-Item public/cloud-overlay.js wallpaper/vendor/cloud-overlay.js -Force
 Copy-Item public/clouds/day-overlay.json wallpaper/vendor/clouds/day-overlay.json -Force
 Copy-Item public/lantern-front.svg wallpaper/vendor/lantern-front.svg -Force
 Copy-Item public/assets/icons/icon.svg wallpaper/vendor/assets/icons/icon.svg -Force
+Copy-Item public/tsukuyomi.mount.js wallpaper/vendor/tsukuyomi.mount.js -Force
 python wallpaper/tools/generate-project-json.py
 python wallpaper/tools/verify-wallpaper.py

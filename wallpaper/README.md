@@ -16,11 +16,13 @@
 ```
 wallpaper/
   project.json        WE 프로젝트 정의 (file=wallpaper.html, 장면/연출/고급 속성)
-  wallpaper.html      WE 진입점. dock DOM은 유지(코어 참조) + 표시만 숨김. debug 미로드
+  wallpaper.html      WE 진입점. 두 세계 DOM(#worldMoon / #worldMount) + dock DOM 유지(코어 참조, 표시만 숨김). debug 미로드
   wallpaper.css       WE 전용 오버라이드 (하단 시간대 UI·디버그 잔재 숨김)
-  wallpaper.js        WE 브리지 (scene/intro/daystars/daydark/cfg_*/snapshot_json → __TSUKUYOMI__ 호출)
+  wallpaper.js        WE 브리지 (scene/intro/daystars/daydark/cfg_*/fish_*/snapshot_json → __TSUKUYOMI__ 호출,
+                      산 계열 장면은 vendor/tsukuyomi.mount.js 지연 로드 + 페이드 전환)
   vendor/             코어 동결본 (public에서 바이트 복사, 수정 금지)
     tsukuyomi.js / tsukuyomi.css / cloud-live.js / cloud-overlay.js
+    tsukuyomi.mount.js (산정 토리이 세계, 산 계열 장면을 처음 고를 때 로드)
     clouds/day-overlay.json (공백 구름 손그림 레이어 문서)
     lantern-front.svg / assets/icons/icon.svg
   tools/
@@ -36,35 +38,40 @@ wallpaper/
 
 ## 동결 버전
 
-- `CORE_VERSION.txt` 참조 (커밋 `615d74c` + 별 바다 물고기 군집·고해상도 축소 해결, 2026-10-15 UTC 기준).
+- `CORE_VERSION.txt` 참조 (커밋 `438b209`, 산 장면·토리이 물고기 반사광 포함, 2026-10-17 기준).
 - `project.json`의 고급 기본값 189종은 동결 CFG에서 그대로 생성됐다 (공백 장면 DS_*/DN_*/DY_REF_AR 13종 포함).
+- 물고기 (토리이 수면 상승) 고급 그룹 32종(반사광 켜기 체크 1 + 슬라이더 25 + 색 6)은 동결 FISH에서 생성됐다.
 - 검증: `python wallpaper/tools/verify-wallpaper.py` (vendor 해시·기본값·참조·git 범위 검사).
 
 ## WE 옵션
 
 기본 7종은 그룹에 속하지 않는다 (장면별 노출: intro·물고기 군집은 밤/미러볼, 공백 토글 2종은 공백 선택 시).
-12개 카테고리 그룹(전환 타이밍·레이아웃·토리이/달·별·산·구름·공백 장면·태양·달/안개·
-반사·물결·랜턴)으로 접어서 보여준다. 키 앞의 영문+숫자 접두사는 카테고리 순서를 고정하며,
+13개 카테고리 그룹(전환 타이밍·레이아웃·토리이/달·별·산·구름·공백 장면·태양·달/안개·
+반사·물결·랜턴 + 물고기 (토리이 수면 상승))으로 접어서 보여준다. 키 앞의 영문+숫자 접두사는 카테고리 순서를 고정하며,
 WE 조건식이 해석할 수 있도록 반드시 문자 시작으로 쓴다 (숫자 시작 키는 조건 평가 실패로 숨겨진다).
 미러볼 본체 파라미터(`tilt`·`step` 등 소문자 MB_*·SHOW_*)는 CFG가 아니라 코어 기본값 그대로 쓴다
 (WE 고급 옵션에 노출하지 않는다).
 
 | 키 | 종류 | 기본값 | 설명 |
 |---|---|---|---|
-| `a00_scene` | 콤보 (공백 1 / 황혼 2 / 밤 3 / 밤(미러볼) 4) | 밤(3) | 하단 시간대 UI 대신 장면을 선택한다 (웹 4버튼과 동일) |
+| `a00_scene` | 콤보 (표시 순서: 산 5 / 산(노을) 6 / 공백 1 / 황혼 2 / 밤 3 / 밤(미러볼) 4) | 밤(3) | 하단 UI 대신 장면을 선택한다. 1~4는 웹 月 4버튼, 5·6은 웹 山(#mount)의 땅거미/노을과 동일. 기존 값 1~4는 그대로라 예전 설치본의 선택이 유지된다 |
 | `a01_intro` | 체크 (밤 계열일 때만 표시) | 켜짐 | 초기 진입 연출 재생. 밤=황혼→밤, 미러볼=황혼→밤 이후 미러볼 전환까지. 끄면 밤은 즉시 idle, 미러볼은 즉시 밤에서 전환 연출만 재생 |
 | `a01_fish` | 콤보 (끔 0 / 커서 따라가기 1 / 달에 배치 2, 밤 계열일 때만 표시 (고급과 무관)) | 끔(0) | 물고기 군집 (웹 하단 군집 3버튼과 동일, 밤에서만 적용) |
 | `a01_daystars` | 체크 (공백 선택 시 표시 (고급과 무관)) | 꺼짐 | 공백 장면에 별 궤적 표시 (웹 btnStars와 동일, 공백에서만 적용) |
 | `a01_daydark` | 체크 (공백 선택 시 표시 (고급과 무관)) | 꺼짐 | 공백 장면을 어둡게 (공백 밤, 웹 btnDark와 동일, 공백에서만 적용) |
-| `a02_show_advanced` | 체크 | 꺼짐 | 켜면 아래 12개 고급 그룹이 표시된다 |
+| `a02_show_advanced` | 체크 | 꺼짐 | 켜면 아래 13개 고급 그룹이 표시된다 |
 | `a03_snapshot_json` | 텍스트 | 비움 | 웹 디버그 패널 "내보내기" JSON을 붙여넣는 탈출구 (cfg+palettes 반영, 장면은 WE 옵션이 우선) |
 | `a04_~a15_` + CFG키 189종 | 슬라이더/체크 | 동결값 | 웹 디버그 패널 파라미터를 카테고리별로 위임. 0/1 토글(CL_LIVE·DAY_SCENE·MTN_SHOW·REFL_AUTO·LANTERN_CARD_AVOID)은 체크로 표시 |
+| `a16_fish_` + FISH키 32종 | 체크/슬라이더/색 | 동결값 | 웹 디버그 패널 "물고기 (토리이 수면 상승)" 섹션 위임 (`__TSUKUYOMI__.fish`). 맨 앞 `a16_fish_tlOn`이 **토리이 반사광 켜기** (기본 켜짐). 색 c0~c5는 WE color("r g b")를 `#rrggbb`로 변환 |
 
 공백·황혼 선택 시에는 인트로 없이 해당 idle로 바로 진입한다.
+산·산(노을)은 두 번째 세계로 단순 페이드(1.1초) 전환하며, 산에 있는 동안 月 렌더 루프는 멈춘다
+(산끼리는 산 엔진의 크로스페이드). 산에서 月로 돌아오면 첫 진입처럼 처리한다 (공백·황혼은 즉시 idle, 밤 계열은 인트로 설정을 따름).
+토리이 수면 상승 물고기는 밤 계열에서 토리이를 클릭하면 발사된다 (WE 마우스 입력 허용 시).
 실행 중 장면을 바꾸면 전환 애니메이션으로 이동한다 (밤+연출 끄기는 즉시 점프,
 미러볼로 바꾸면 밤 도착 후 스포트라이트 전환 연출이 붙는다).
 
-이번 project.json은 일반 1종(물고기 군집) 추가로 바뀌었으므로
+이번 project.json은 장면 콤보 2종(산/산(노을)) 추가와 물고기 고급 그룹 추가로 바뀌었으므로
 WE 폴더에 통째로 다시 복사한다.
 `wallpaper.js`는 신구 키(`scene`·`intro`·`fish`/`cursor`·`daystars`·`daydark`·`cfg_*`·숫자 시작 키)도 계속 받으므로, 순서를 놓쳐도 장면 전환은 동작한다.
 
@@ -80,24 +87,24 @@ WE 폴더에 통째로 다시 복사한다.
 # 정적 서빙 후 브라우저로 열기 (WE 리스너가 없어도 코어 기본값=황혼 idle에서 WE 지정 장면으로 진입)
 python -m http.server 8788 --directory wallpaper
 # http://localhost:8788/wallpaper.html
-# 장면 강제: wallpaper.html?scene=day&stars=1 / ?scene=day&dark=1 / ?scene=dusk / ?scene=night&intro=0 / ?scene=night&fish=1 / ?scene=mirror&fish=2
+# 장면 강제: wallpaper.html?scene=mount / ?scene=mount-sunset / ?scene=day&stars=1 / ?scene=day&dark=1 / ?scene=dusk / ?scene=night&intro=0 / ?scene=night&fish=1 / ?scene=mirror&fish=2
 node --check wallpaper/wallpaper.js
 python wallpaper/tools/verify-wallpaper.py
 ```
 
 ## 배포 패키지 (`dist-we/Tsukuyomi-WE.zip`)
 
-필수 12종만 포함. `tools/`·`README.md`·`CORE_VERSION.txt`는 제외.
+필수 13종만 포함. `tools/`·`README.md`·`CORE_VERSION.txt`는 제외.
 
 - `project.json` (`"preview": "preview.jpg"` 포함), `wallpaper.html`,
   `wallpaper.js`, `wallpaper.css`, `preview.jpg`
-- `vendor/` 7종: `tsukuyomi.js`·`tsukuyomi.css`·`cloud-live.js`·`cloud-overlay.js`·
-  `clouds/day-overlay.json`·`lantern-front.svg`·`assets/icons/icon.svg`
+- `vendor/` 8종: `tsukuyomi.js`·`tsukuyomi.css`·`cloud-live.js`·`cloud-overlay.js`·
+  `tsukuyomi.mount.js`·`clouds/day-overlay.json`·`lantern-front.svg`·`assets/icons/icon.svg`
 - `preview.jpg`는 `thumbnail.png`(원본, 128px)를 300x300 JPEG으로 변환한
   WE용 썸네일이다. WE가 인식하는 썸네일명은 `preview.jpg`/`preview.gif`뿐이므로
   `thumbnail.png`를 직접 지정하면 표시되지 않는다. `thumbnail.png`는 원본 보관용으로
   소스에만 두고 배포 zip에는 넣지 않는다.
-- 재생성은 이 12개를 `Tsukuyomi/` 폴더에 담아 zip으로 묶으면 된다.
+- 재생성은 이 13개를 `Tsukuyomi/` 폴더에 담아 zip으로 묶으면 된다.
 
 ## Workshop 릴리즈 업로드 (폴더째 복사 방식)
 
@@ -117,7 +124,7 @@ python wallpaper/tools/verify-wallpaper.py
    목록 썸네일이 `preview.jpg`로 뜨고,
    오른쪽 속성 패널에 `장면`이 보이면 정상이다.
    (에디터의 Edit 메뉴가 아니라 Installed 탭에서 확인한다.)
-5. 미리보기에서 장면 4종 + 연출 켜짐/꺼짐 + 물고기 군집 3종 + 공백 토글 2종을 확인.
+5. 미리보기에서 장면 6종(산·산(노을) 포함) + 연출 켜짐/꺼짐 + 토리이 반사광 켜기/끄기 + 물고기 군집 3종 + 공백 토글 2종을 확인.
 6. Workshop에 별도 릴리즈로 업로드. 웹 배포와 버전이 엮이지 않게 릴리즈 노트에 동결 커밋을 적는다.
    썸네일은 `preview.jpg`가 이미 지정되어 있어 별도 등록이 불필요하며,
    퍼블리시 과정에서 WE가 스냅샷을 새로 만들면 그걸로 교체된다.

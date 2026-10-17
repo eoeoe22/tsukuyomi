@@ -2,7 +2,7 @@
   "file": "wallpaper.html",
   "preview": "preview.jpg",
   "title": "Tsukuyomi 月",
-  "description": "공백·황혼·밤·밤(미러볼)이 이어지는 고요한 수면. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출과 물고기 군집을 고를 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 공백 장면의 별 궤적·공백 밤 토글은 공백 선택 시 보이며(고급과 무관), 공백에서만 적용된다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터를 그대로 조절할 수 있다.",
+  "description": "산·산(노을)·공백·황혼·밤·밤(미러볼)을 고르는 고요한 토리이 장면. 산 계열은 산정 토리이 세계로 페이드 전환된다. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출과 물고기 군집을 고를 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 공백 장면의 별 궤적·공백 밤 토글은 공백 선택 시 보이며(고급과 무관), 공백에서만 적용된다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터(물고기 토리이 수면 상승·토리이 반사광 포함)를 그대로 조절할 수 있다.",
   "type": "web",
   "general": {
     "properties": {
@@ -11,6 +11,14 @@
         "type": "combo",
         "value": 3,
         "options": [
+          {
+            "label": "산",
+            "value": 5
+          },
+          {
+            "label": "산 (노을)",
+            "value": 6
+          },
           {
             "label": "공백",
             "value": 1
@@ -2371,6 +2379,354 @@
         "fraction": true,
         "precision": 2,
         "order": 207
+      },
+      "a16": {
+        "text": "물고기 (토리이 수면 상승)",
+        "type": "group",
+        "condition": "a02_show_advanced.value == true",
+        "order": 208
+      },
+      "a16_fish_tlOn": {
+        "text": "토리이 반사광 켜기 (WebGL 필요)",
+        "condition": "a02_show_advanced.value == true",
+        "type": "bool",
+        "value": true,
+        "order": 209
+      },
+      "a16_fish_motif": {
+        "text": "motif",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 1,
+        "min": 0,
+        "max": 5,
+        "step": 1,
+        "fraction": false,
+        "order": 210
+      },
+      "a16_fish_size": {
+        "text": "size",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 46,
+        "min": 20,
+        "max": 120,
+        "step": 1,
+        "fraction": false,
+        "order": 211
+      },
+      "a16_fish_aspect": {
+        "text": "aspect",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.95,
+        "min": 0.6,
+        "max": 1.6,
+        "step": 0.02,
+        "fraction": true,
+        "precision": 2,
+        "order": 212
+      },
+      "a16_fish_wag": {
+        "text": "wag",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.11,
+        "min": 0,
+        "max": 0.24,
+        "step": 0.005,
+        "fraction": true,
+        "precision": 3,
+        "order": 213
+      },
+      "a16_fish_patA": {
+        "text": "patA",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.9,
+        "min": 0,
+        "max": 1.2,
+        "step": 0.02,
+        "fraction": true,
+        "precision": 2,
+        "order": 214
+      },
+      "a16_fish_winD": {
+        "text": "winD",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.6,
+        "min": 0,
+        "max": 0.9,
+        "step": 0.02,
+        "fraction": true,
+        "precision": 2,
+        "order": 215
+      },
+      "a16_fish_fillA": {
+        "text": "fillA",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.7,
+        "min": 0.15,
+        "max": 1,
+        "step": 0.01,
+        "fraction": true,
+        "precision": 2,
+        "order": 216
+      },
+      "a16_fish_nMid": {
+        "text": "nMid",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 37,
+        "min": 10,
+        "max": 260,
+        "step": 2,
+        "fraction": false,
+        "order": 217
+      },
+      "a16_fish_nNear": {
+        "text": "nNear",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 12,
+        "min": 0,
+        "max": 80,
+        "step": 1,
+        "fraction": false,
+        "order": 218
+      },
+      "a16_fish_nFar": {
+        "text": "nFar",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 24,
+        "min": 0,
+        "max": 240,
+        "step": 2,
+        "fraction": false,
+        "order": 219
+      },
+      "a16_fish_farBlur": {
+        "text": "farBlur",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 6,
+        "min": 0,
+        "max": 18,
+        "step": 0.5,
+        "fraction": true,
+        "precision": 1,
+        "order": 220
+      },
+      "a16_fish_farA": {
+        "text": "farA",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.38,
+        "min": 0,
+        "max": 1,
+        "step": 0.02,
+        "fraction": true,
+        "precision": 2,
+        "order": 221
+      },
+      "a16_fish_spd": {
+        "text": "spd",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 1,
+        "min": 0.2,
+        "max": 2.5,
+        "step": 0.05,
+        "fraction": true,
+        "precision": 2,
+        "order": 222
+      },
+      "a16_fish_swirl": {
+        "text": "swirl",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.8,
+        "min": -2,
+        "max": 2,
+        "step": 0.05,
+        "fraction": true,
+        "precision": 2,
+        "order": 223
+      },
+      "a16_fish_trail": {
+        "text": "trail",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 3,
+        "min": 0,
+        "max": 8,
+        "step": 1,
+        "fraction": false,
+        "order": 224
+      },
+      "a16_fish_trailA": {
+        "text": "trailA",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.25,
+        "min": 0,
+        "max": 0.8,
+        "step": 0.02,
+        "fraction": true,
+        "precision": 2,
+        "order": 225
+      },
+      "a16_fish_glow": {
+        "text": "glow",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.75,
+        "min": 0,
+        "max": 1.6,
+        "step": 0.02,
+        "fraction": true,
+        "precision": 2,
+        "order": 226
+      },
+      "a16_fish_glowR": {
+        "text": "glowR",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 9,
+        "min": 2,
+        "max": 28,
+        "step": 0.5,
+        "fraction": true,
+        "precision": 1,
+        "order": 227
+      },
+      "a16_fish_spark": {
+        "text": "spark",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 23,
+        "min": 0,
+        "max": 80,
+        "step": 1,
+        "fraction": false,
+        "order": 228
+      },
+      "a16_fish_aurora": {
+        "text": "aurora",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.25,
+        "min": 0,
+        "max": 1,
+        "step": 0.02,
+        "fraction": true,
+        "precision": 2,
+        "order": 229
+      },
+      "a16_fish_refl": {
+        "text": "refl",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.65,
+        "min": 0,
+        "max": 1,
+        "step": 0.02,
+        "fraction": true,
+        "precision": 2,
+        "order": 230
+      },
+      "a16_fish_tlGain": {
+        "text": "tlGain",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 2,
+        "min": 0,
+        "max": 3,
+        "step": 0.05,
+        "fraction": true,
+        "precision": 2,
+        "order": 231
+      },
+      "a16_fish_tlReach": {
+        "text": "tlReach",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 1.5,
+        "min": 0.3,
+        "max": 3,
+        "step": 0.05,
+        "fraction": true,
+        "precision": 2,
+        "order": 232
+      },
+      "a16_fish_tlRim": {
+        "text": "tlRim",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.5,
+        "min": 0,
+        "max": 2,
+        "step": 0.05,
+        "fraction": true,
+        "precision": 2,
+        "order": 233
+      },
+      "a16_fish_tlRefl": {
+        "text": "tlRefl",
+        "condition": "a02_show_advanced.value == true",
+        "type": "slider",
+        "value": 0.3,
+        "min": 0,
+        "max": 1,
+        "step": 0.02,
+        "fraction": true,
+        "precision": 2,
+        "order": 234
+      },
+      "a16_fish_c0": {
+        "text": "c0 (분홍)",
+        "condition": "a02_show_advanced.value == true",
+        "type": "color",
+        "value": "1 0.4157 0.8353",
+        "order": 235
+      },
+      "a16_fish_c1": {
+        "text": "c1 (청록)",
+        "condition": "a02_show_advanced.value == true",
+        "type": "color",
+        "value": "0.3216 0.949 1",
+        "order": 236
+      },
+      "a16_fish_c2": {
+        "text": "c2 (노랑)",
+        "condition": "a02_show_advanced.value == true",
+        "type": "color",
+        "value": "0.9569 0.949 0.3333",
+        "order": 237
+      },
+      "a16_fish_c3": {
+        "text": "c3 (살구)",
+        "condition": "a02_show_advanced.value == true",
+        "type": "color",
+        "value": "1 0.6667 0.3608",
+        "order": 238
+      },
+      "a16_fish_c4": {
+        "text": "c4 (하늘)",
+        "condition": "a02_show_advanced.value == true",
+        "type": "color",
+        "value": "0.4157 0.6824 1",
+        "order": 239
+      },
+      "a16_fish_c5": {
+        "text": "c5 (연두)",
+        "condition": "a02_show_advanced.value == true",
+        "type": "color",
+        "value": "0.4196 0.9608 0.6588",
+        "order": 240
       }
     }
   }

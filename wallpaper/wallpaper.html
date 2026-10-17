@@ -16,9 +16,21 @@
 </head>
 
 <body>
-    <canvas id="scene" aria-hidden="true"></canvas>
-    <canvas id="ripple" aria-hidden="true"></canvas>
-    <canvas id="fg" aria-hidden="true"></canvas>
+    <!-- 月: 수면 토리이 장면 (vendor/tsukuyomi.js) -->
+    <div class="world" id="worldMoon">
+        <div class="world-view">
+            <canvas id="scene" aria-hidden="true"></canvas>
+            <canvas id="ripple" aria-hidden="true"></canvas>
+            <canvas id="fg" aria-hidden="true"></canvas>
+        </div>
+    </div>
+    <!-- 山: 산정 토리이 장면 (vendor/tsukuyomi.mount.js, 산 계열 장면을 처음 고를 때 wallpaper.js가 로드).
+         하단 #mountDock은 두지 않는다 (산 엔진은 UI가 없어도 동작, 장면은 WE 옵션으로 선택). -->
+    <div class="world" id="worldMount" hidden>
+        <div class="world-view">
+            <canvas id="mountScene" aria-hidden="true"></canvas>
+        </div>
+    </div>
 
     <!-- 하단 시간대 UI: 코어가 참조하므로 DOM은 유지하고, 표시는 wallpaper.css에서 숨긴다.
          장면 선택은 Wallpaper Engine 옵션(scene)으로 대체한다. btnMirror는 미러볼

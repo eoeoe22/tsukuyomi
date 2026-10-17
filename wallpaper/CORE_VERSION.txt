@@ -1,6 +1,6 @@
-615d74c96b7e2a19fab49b7409b3d37413052f3e + 별 바다 물고기 군집(cursorMode)·고해상도 축소 해결(MOON_MAX 28->56·cursorSizeScale)
-2026-10-15 (UTC)
+438b209acb309984a1ae2ff245a3d8c42f5b45f3 (산 장면 통합·토리이 물고기 반사광·반사상 줄무늬 수정까지)
+2026-10-17
 frozen source: public/tsukuyomi.js, public/tsukuyomi.css,
-  public/cloud-live.js, public/cloud-overlay.js, public/clouds/day-overlay.json,
-  public/lantern-front.svg, public/assets/icons/icon.svg
+  public/cloud-live.js, public/cloud-overlay.js, public/tsukuyomi.mount.js,
+  public/clouds/day-overlay.json, public/lantern-front.svg, public/assets/icons/icon.svg
 verify: python wallpaper/tools/verify-wallpaper.py

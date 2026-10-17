@@ -3,7 +3,9 @@
 
 읽기만 함 (수정 없음):
   - wallpaper/vendor/tsukuyomi.js  -> CFG 기본값 (정확한 동결 수치)
+  - wallpaper/vendor/tsukuyomi.js  -> FISH 기본값 (토리이 수면 상승 물고기, 반사광 tlOn 포함)
   - public/tsukuyomi.debug.js     -> GROUPS (디버그 패널 스키마: min/max/step/rebuild)
+                                     FISH_GROUPS / FISH_COLORS (물고기 패널 스키마)
 
 쓰기:
   - wallpaper/project.json        -> WE 사용자 속성 (기본 7종 + 그룹 12종 + CFG 전체 위임)
@@ -17,6 +19,7 @@
     daystars/daydark는 공백 선택 시 노출)
   - 그룹 헤더: a04 ~ a15 (값 없음, type=group, 그 뒤 속성이 소속)
   - 멤버: <헤더코드>_<CFG키> (예: a04_T_NIGHT)
+  - 물고기 그룹: a16 헤더 + a16_fish_<FISH키> (토리이 반사광 켜기 tlOn 체크가 맨 앞, 색은 color)
 
 실행: python wallpaper/tools/generate-project-json.py
 """
@@ -86,6 +89,43 @@ def parse_groups(path: Path):
     return grouped
 
 
+def parse_fish(path: Path) -> dict:
+    """vendor 코어의 FISH 기본값 (숫자 + '#rrggbb' 색)."""
+    text = path.read_text(encoding="utf-8")
+    m = re.search(r"const FISH = \{(.*?)\};", text, re.S)
+    if not m:
+        raise SystemExit(f"FISH block not found in {path}")
+    out = {}
+    for key, raw in re.findall(r"\b([a-z][A-Za-z0-9]*)\s*:\s*('#[0-9a-fA-F]{6}'|-?[\d.]+)", m.group(1)):
+        out[key] = raw.strip("'") if raw.startswith("'") else float(raw)
+    return out
+
+
+def parse_fish_groups(path: Path):
+    """디버그 패널 FISH_GROUPS (슬라이더) + check (체크) + FISH_COLORS (색)."""
+    text = path.read_text(encoding="utf-8")
+    m = re.search(r"const FISH_GROUPS = \[(.*?)\n\s*\];", text, re.S)
+    c = re.search(r"const FISH_COLORS = \[(.*?)\];", text, re.S)
+    if not m or not c:
+        raise SystemExit(f"FISH_GROUPS/FISH_COLORS not found in {path}")
+    checks = re.findall(r"check:\s*\['([a-zA-Z0-9]+)',\s*'([^']+)'\]", m.group(1))
+    sliders = [
+        {"key": k, "min": float(mn), "max": float(mx), "step": st.strip()}
+        for k, mn, mx, st in re.findall(
+            r"\['([a-z][A-Za-z0-9]*)',\s*(-?[\d.]+),\s*(-?[\d.]+),\s*(-?[\d.]+)\]", m.group(1))
+    ]
+    colors = re.findall(r"\['(c\d)',\s*'([^']+)'\]", c.group(1))
+    if not checks or not sliders or not colors:
+        raise SystemExit(f"FISH_GROUPS parse failed in {path}")
+    return checks, sliders, colors
+
+
+def hex_to_we(h: str) -> str:
+    # WE color 속성 값: "r g b" (0~1 실수, 공백 구분)
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return " ".join(f"{v:.4f}".rstrip("0").rstrip(".") if v not in (0, 1) else str(int(v)) for v in (r, g, b))
+
+
 def decimals(step_str: str) -> int:
     s = step_str.strip()
     if "." not in s:
@@ -123,7 +163,11 @@ def main() -> None:
         "text": "장면",
         "type": "combo",
         "value": 3,
+        # 표시 순서는 산 계열이 먼저. 값은 기존 1~4(공백/황혼/밤/미러볼)를 유지하고 산 2종을 5/6으로 붙인다
+        # (기존 설치본의 저장값이 그대로 같은 장면을 가리키도록).
         "options": [
+            {"label": "산", "value": 5},
+            {"label": "산 (노을)", "value": 6},
             {"label": "공백", "value": 1},
             {"label": "황혼", "value": 2},
             {"label": "밤", "value": 3},
@@ -191,7 +235,9 @@ def main() -> None:
                 "condition": "a02_show_advanced.value == true",
             })
 
-    for g in grouped:
+    slider_items = grouped
+
+    for g in slider_items:
         key = g["key"]
         code = group_codes[g["group"]]
         default = cfg[key]
@@ -225,13 +271,47 @@ def main() -> None:
                 base["fraction"] = False
         add(prop_key, base)
 
+    # 물고기 (토리이 수면 상승) 그룹: 코드 a16. CFG가 아니라 코어 FISH 객체(__TSUKUYOMI__.fish)에 위임한다.
+    # 토리이 반사광 켜기(tlOn) 체크를 맨 앞에 둔다. 멤버 키는 a16_fish_<FISH키>.
+    fish = parse_fish(VENDOR_JS)
+    checks, sliders, colors = parse_fish_groups(DEBUG_JS)
+    fcode = f"a{4 + len(group_codes):02d}"
+    adv = "a02_show_advanced.value == true"
+    add(fcode, {"text": "물고기 (토리이 수면 상승)", "type": "group", "condition": adv})
+    for key, label in checks:
+        if key not in fish:
+            raise SystemExit(f"FISH default missing for: {key}")
+        add(f"{fcode}_fish_{key}", {
+            "text": label, "condition": adv, "type": "bool", "value": bool(fish[key] >= 0.5),
+        })
+    for s in sliders:
+        key = s["key"]
+        if key not in fish:
+            raise SystemExit(f"FISH default missing for: {key}")
+        step_f = float(s["step"])
+        v = min(s["max"], max(s["min"], fish[key]))
+        prop = {
+            "text": key, "condition": adv, "type": "slider",
+            "value": num(v), "min": num(s["min"]), "max": num(s["max"]), "step": num(step_f),
+        }
+        if step_f < 1:
+            prop["fraction"] = True
+            prop["precision"] = decimals(s["step"])
+        else:
+            prop["fraction"] = False
+        add(f"{fcode}_fish_{key}", prop)
+    for key, label in colors:
+        add(f"{fcode}_fish_{key}", {
+            "text": f"{key} ({label})", "condition": adv, "type": "color", "value": hex_to_we(fish[key]),
+        })
+
     project = {
         "file": "wallpaper.html",
         # WE Installed 탭 썸네일은 preview.jpg/gif 관례명만 인식한다.
         # thumbnail.png 등 별도명은 무시되므로 반드시 preview.jpg를 지정한다.
         "preview": "preview.jpg",
         "title": "Tsukuyomi 月",
-        "description": "공백·황혼·밤·밤(미러볼)이 이어지는 고요한 수면. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출과 물고기 군집을 고를 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 공백 장면의 별 궤적·공백 밤 토글은 공백 선택 시 보이며(고급과 무관), 공백에서만 적용된다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터를 그대로 조절할 수 있다.",
+        "description": "산·산(노을)·공백·황혼·밤·밤(미러볼)을 고르는 고요한 토리이 장면. 산 계열은 산정 토리이 세계로 페이드 전환된다. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출과 물고기 군집을 고를 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 공백 장면의 별 궤적·공백 밤 토글은 공백 선택 시 보이며(고급과 무관), 공백에서만 적용된다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터(물고기 토리이 수면 상승·토리이 반사광 포함)를 그대로 조절할 수 있다.",
         "type": "web",
         "general": {"properties": props},
     }
@@ -243,7 +323,7 @@ def main() -> None:
     OUT_MAP.write_bytes(
         (json.dumps(rebuild, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),
     )
-    print(f"groups={len(grouped)} categories={len(group_codes)} "
+    print(f"groups={len(grouped)} categories={len(group_codes)}+fish "
           f"props={len(props)} -> {OUT_JSON.name}")
 
 

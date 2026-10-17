@@ -32,6 +32,7 @@ FROZEN_FILES = [
     "clouds/day-overlay.json",
     "lantern-front.svg",
     "assets/icons/icon.svg",
+    "tsukuyomi.mount.js",
 ]
 
 failures = []
@@ -92,11 +93,11 @@ def main() -> int:
             check(f"project.json 기본 속성: {k}", k in props, "누락")
         sc = props.get("a00_scene", {})
         check("scene 콤보", sc.get("type") == "combo"
-              and sorted(o.get("value") for o in sc.get("options", [])) == [1, 2, 3, 4],
-              "options 1/2/3/4 (공백/황혼/밤/밤(미러볼)) 필요")
+              and [o.get("value") for o in sc.get("options", [])] == [5, 6, 1, 2, 3, 4],
+              "options 5/6/1/2/3/4 (산/산(노을)/공백/황혼/밤/밤(미러볼)) 필요 (기존 1~4 값 유지)")
         check("scene 기본값 밤", sc.get("value") == 3, f"value={sc.get('value')}")
-        check("scene 문구 공백", [o.get("label") for o in sc.get("options", [])]
-              == ["공백", "황혼", "밤", "밤 (미러볼)"],
+        check("scene 문구", [o.get("label") for o in sc.get("options", [])]
+              == ["산", "산 (노을)", "공백", "황혼", "밤", "밤 (미러볼)"],
               f"labels={[o.get('label') for o in sc.get('options', [])]}")
         check("intro 기본값 켜짐", props.get("a01_intro", {}).get("value") is True, "기본값 true 필요")
         check("intro 조건(밤 계열만)", props.get("a01_intro", {}).get("condition") == "a00_scene.value == 3 || a00_scene.value == 4",
@@ -156,14 +157,15 @@ def main() -> int:
         # 에디터 출력에는 "index"가 없다. 비표준 키가 있으면 WE가 파일을 거부할 수 있다 (회귀 방지).
         no_index = [k for k, p in props.items() if "index" in p]
         check("비표준 index 없음(에디터 출력과 동일)", not no_index, f"{no_index[:5]}")
-        # 그룹 헤더 12종: 키 a04~a15, type=group, 조건은 고급 표시
+        # 그룹 헤더 13종: CFG 카테고리 a04~a15 + 물고기 a16, type=group, 조건은 고급 표시
         headers = [k for k, p in props.items() if p.get("type") == "group"]
-        check("그룹 헤더 12종", len(headers) == 12, f"{len(headers)}종")
-        if len(headers) == 12:
-            check("그룹 헤더 키 a04~a15", sorted(headers) == [f"a{i:02d}" for i in range(4, 16)],
+        check("그룹 헤더 13종", len(headers) == 13, f"{len(headers)}종")
+        if len(headers) == 13:
+            check("그룹 헤더 키 a04~a16", sorted(headers) == [f"a{i:02d}" for i in range(4, 17)],
                   f"{sorted(headers)[:4]}...")
             htxt = [props[k].get("text") for k in sorted(headers)]
-            check("그룹 헤더명==디버그 카테고리", htxt == cat_order, f"{htxt[:3]}...")
+            check("그룹 헤더명==디버그 카테고리", htxt[:12] == cat_order, f"{htxt[:3]}...")
+            check("물고기 그룹 헤더", htxt[12] == "물고기 (토리이 수면 상승)", f"{htxt[12]!r}")
         code_of = {t: f"a{4 + i:02d}" for i, t in enumerate(cat_order)}
         expected = {f"{code_of[e['title']]}_{e['key']}": e["title"] for e in entries}
         missing = [k for k in expected if k not in props]
@@ -219,7 +221,43 @@ def main() -> int:
                 if abs(float(p.get("min")) - mn) > 1e-9 or abs(float(p.get("max")) - mx) > 1e-9:
                     bad_defaults.append(k + "(range)")
         check("고급 기본값==동결 CFG", not bad_defaults, f"불일치: {bad_defaults[:8]}")
-        adv_cond = [k for k in list(expected) + headers
+        # 물고기 (토리이 수면 상승) 그룹: 토리이 반사광 켜기(tlOn)가 그룹 첫 멤버(체크, 기본 켜짐),
+        # FISH_GROUPS 슬라이더·FISH_COLORS 색 전수 커버, 기본값 == vendor FISH
+        fish_m = re.search(r"const FISH = \{(.*?)\};", vendor_js, re.S)
+        fish_def = dict(re.findall(r"\b([a-z][A-Za-z0-9]*)\s*:\s*'?(#[0-9a-fA-F]{6}|-?[\d.]+)'?",
+                                   fish_m.group(1))) if fish_m else {}
+        fg = re.search(r"const FISH_GROUPS = \[(.*?)\n\s*\];", dbg, re.S)
+        fish_sl = re.findall(r"\['([a-z][A-Za-z0-9]*)',\s*(-?[\d.]+),\s*(-?[\d.]+),\s*(-?[\d.]+)\]",
+                             fg.group(1)) if fg else []
+        fish_cols = re.findall(r"\['(c\d)',", dbg)
+        fish_keys = [k for k in props if k.startswith("a16_fish_")]
+        check("물고기 반사광 켜기 고급 체크", bool(fish_keys) and fish_keys[0] == "a16_fish_tlOn"
+              and props["a16_fish_tlOn"].get("type") == "bool"
+              and props["a16_fish_tlOn"].get("value") is (float(fish_def.get("tlOn", 0)) >= 0.5),
+              f"first={fish_keys[:1]}")
+        miss_f = [k for k, *_ in fish_sl if f"a16_fish_{k}" not in props] +                  [k for k in fish_cols if f"a16_fish_{k}" not in props]
+        check("물고기 멤버 전수 커버", fish_sl and not miss_f, f"누락: {miss_f[:8]}")
+        bad_f = []
+        for k, mn, mx, st in fish_sl:
+            pp = props.get(f"a16_fish_{k}") or {}
+            exp = min(float(mx), max(float(mn), float(fish_def.get(k, "nan"))))
+            try:
+                if abs(float(pp.get("value")) - exp) > 1e-9 or pp.get("type") != "slider"                         or float(pp.get("step")) <= 0 or not isinstance(pp.get("fraction"), bool):
+                    bad_f.append(k)
+            except (TypeError, ValueError):
+                bad_f.append(k)
+        for k in fish_cols:
+            pp = props.get(f"a16_fish_{k}") or {}
+            hx = fish_def.get(k, "#000000")
+            want = [int(hx[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            try:
+                got = [float(x) for x in str(pp.get("value")).split()]
+                if pp.get("type") != "color" or len(got) != 3 or max(abs(a - b) for a, b in zip(got, want)) > 1e-3:
+                    bad_f.append(k)
+            except ValueError:
+                bad_f.append(k)
+        check("물고기 기본값==동결 FISH", not bad_f, f"불일치: {bad_f[:8]}")
+        adv_cond = [k for k in list(expected) + headers + fish_keys
                     if props.get(k, {}).get("condition") != "a02_show_advanced.value == true"]
         check("고급 조건 일괄", not adv_cond, f"조건 없음: {adv_cond[:5]}")
         # 슬라이더 스키마: 에디터 생성 파일과 동일한 키셋 (min/max/step/fraction[/precision])
@@ -279,6 +317,10 @@ def main() -> int:
 
     # 4. wallpaper.html 참조
     html = (WP / "wallpaper.html").read_text(encoding="utf-8")
+    for ref in ('id="worldMoon"', 'id="worldMount"', 'id="mountScene"'):
+        check(f"html 세계 DOM: {ref}", ref in html, "누락")
+    check("wallpaper.js 산 엔진 로드", "vendor/tsukuyomi.mount.js" in wjs, "vendor 경로 누락")
+    check("wallpaper.js 물고기 그룹 위임", "FISH_RE" in wjs and "b.fish" in wjs, "a16_fish_* 처리 없음")
     for ref in ("vendor/tsukuyomi.js", "vendor/tsukuyomi.css",
                 "vendor/cloud-live.js", "vendor/cloud-overlay.js",
                 "wallpaper.js", "wallpaper.css"):

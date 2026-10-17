@@ -366,7 +366,6 @@
             // CSS transform 확대(비트맵 업스케일) 대신 장면을 카메라 파라미터로 직접 다시 그린다.
             // world(f) -> screen(m) + scale(s): screen = m + s * (world - f).
             // idle 경로와 동일 버퍼 크기로 렌더하므로 메모리 증가가 없고, 모든 프레임이 네이티브 해상도다.
-            // f/t/s 계산(cover 하한)은 focus.js의 computeZoom과 같은 식을 쓴다.
             let CAM = { on: false, fx: 0, fy: 0, mx: 0, my: 0, s: 1 };
             let camPath = null;   // 진행 중인 줌 애니메이션 경로 (setCamView 참고)
             const camOn = () => CAM.on && CAM.s > 1.001 && W > 0 && H > 0;
@@ -387,18 +386,18 @@
             // 버퍼행 = 화면행 + camExtra.
             let camExtra = 0;
             // ---------- 줌 프로파일러 (계측 전용) ----------
-            // focus.js가 확대/복귀 애니메이션을 begin/end로 감싼다. 구간 중에만 프레임별 JS 구간 시간(ms)과
+            // worlds.js가 포털 확대 애니메이션을 begin/end로 감싼다. 구간 중에만 프레임별 JS 구간 시간(ms)과
             // 캐시 재굽기·버퍼 재할당 이벤트를 모으고, 구간 밖에서는 performance.now 호출도 하지 않는다.
             // GPU/합성 시간은 JS에서 보이지 않으므로 rAF 간격(dt)과 JS 합계(js)의 차이로 추정한다.
             // 콘솔 출력: URL에 ?zprof 또는 __TSUKUYOMI__.zoomProf.log = true. 마지막 요약은 zoomProf.last.
             const ZP = { on: false, label: '', t0: 0, acc: null, frames: [], last: null, log: /[?&]zprof\b/.test(location.search), noOcc: false };
             // noOcc: A/B 계측 전용 — 달 배치 모드의 달 가림(뒤 물고기 별도 버퍼 + destination-out) 경로를 끈다.
             // sdir: 별 직접 그리기 프레임이면 1 (avg = 직접 그리기 비율). mbBody: 미러볼 본체 재굽기 JS 시간.
-            // 물고기 계측(하위 구간, 상위 합계와 중복 집계): fishUpd/curUpd ⊂ update, fishScene/fishBack/fishFront/curDraw ⊂ fg.
+            // 물고기 계측(하위 구간, 상위 합계와 중복 집계): fishUpd/curUpd ⊂ update, fishScene/fishBack/fishLight/fishFront/curDraw ⊂ fg.
             // nFish/nCur: 프레임별 개체 수(물고기+오브 / 군집 물고기+오브), avg/max로 부하 규모를 같이 본다.
             const ZP_KEYS = ['update', 'live', 'sky', 'clouds', 'stars', 'moon', 'mbBody', 'refl', 'water', 'fg', 'ripple', 'cam', 'sdir',
-                'fishUpd', 'fishScene', 'fishBack', 'fishFront', 'curUpd', 'curDraw', 'nFish', 'nCur'];
-            const ZP_FISH = ['fishUpd', 'fishScene', 'fishBack', 'fishFront', 'curUpd', 'curDraw'];
+                'fishUpd', 'fishScene', 'fishBack', 'fishLight', 'fishFront', 'curUpd', 'curDraw', 'nFish', 'nCur'];
+            const ZP_FISH = ['fishUpd', 'fishScene', 'fishBack', 'fishLight', 'fishFront', 'curUpd', 'curDraw'];
             const zpNow = () => ZP.on ? performance.now() : 0;
             function zpAdd(k, t0) { if (ZP.on) ZP.acc[k] = (ZP.acc[k] || 0) + (performance.now() - t0); }
             function zpEv(k) { if (ZP.on) (ZP.acc.ev || (ZP.acc.ev = [])).push(k); }
@@ -1318,6 +1317,9 @@
                 spd: 1.0, swirl: 0.8, trail: 3, trailA: 0.25,
                 glow: 0.75, glowR: 9, spark: 23, aurora: 0.25, refl: 0.65,
                 seed: 17,
+                // 토리이 반사광(WebGL): tlOn 켜기(1)/끄기(0), tlGain 세기, tlReach 광원 도달 거리 배율,
+                // tlRim 뒤 광원 가장자리 림라이트 비중, tlRefl 수면 반사상에 얹는 비율
+                tlOn: 1, tlGain: 2.0, tlReach: 1.5, tlRim: 0.5, tlRefl: 0.3,
                 c0: '#ff6ad5', c1: '#52f2ff', c2: '#f4f255', c3: '#ffaa5c', c4: '#6aaeff', c5: '#6bf5a8'
             };
             const FISH_DEFAULTS = JSON.parse(JSON.stringify(FISH));
@@ -2113,6 +2115,266 @@
                 FG.restore();
             }
 
+            // ---------- 토리이 물고기 조명 (WebGL 전용) ----------
+            // 상승 물고기·빛방울을 점광원으로 삼아 토리이 표면에 반사광을 더한다. 2D 폴백 없음(WebGL 실패 시 그냥 꺼짐).
+            // 토리이 실루엣 알파의 기울기로 가장자리 법선을 근사해, 앞(z>0) 광원은 면 전체를 확산광으로,
+            // 뒤(z<0) 광원은 광원 쪽 가장자리만 림라이트로 밝힌다. 결과는 FG/수면 반사에 'lighter'로 더한다.
+            // 끄기: FISH.tlOn = 0 (디버그 패널 체크박스, 월페이퍼 옵션은 __TSUKUYOMI__.fish.tlOn 으로 제어)
+            const TL_RES = 0.5;   // 조명 버퍼 해상도(토리이 스프라이트 대비). 반사광은 부드러워 절반으로 충분
+            const TL_VS = `attribute vec2 aP;
+varying vec2 vUv;
+void main() { vUv = vec2(aP.x * 0.5 + 0.5, 0.5 - aP.y * 0.5); gl_Position = vec4(aP, 0.0, 1.0); }`;
+            const tlFS = n => `#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+#define TL_MAX ${n}
+varying vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2 uSize;
+uniform float uNr, uRim, uSheen;
+uniform int uN;
+uniform vec4 uLp[TL_MAX];
+uniform vec4 uLc[TL_MAX];
+void main() {
+  vec4 t = texture2D(uTex, vUv);
+  if (t.a < 0.004) { gl_FragColor = vec4(0.0); return; }
+  vec2 px = vUv * uSize;
+  vec2 o1 = vec2(uNr) / uSize, o2 = o1 * 0.5;
+  vec2 g = vec2(texture2D(uTex, vUv + vec2(o1.x, 0.0)).a - texture2D(uTex, vUv - vec2(o1.x, 0.0)).a,
+                texture2D(uTex, vUv + vec2(0.0, o1.y)).a - texture2D(uTex, vUv - vec2(0.0, o1.y)).a)
+         + vec2(texture2D(uTex, vUv + vec2(o2.x, 0.0)).a - texture2D(uTex, vUv - vec2(o2.x, 0.0)).a,
+                texture2D(uTex, vUv + vec2(0.0, o2.y)).a - texture2D(uTex, vUv - vec2(0.0, o2.y)).a);
+  vec2 nOut = -g * 0.5;
+  float edge = clamp(length(nOut), 0.0, 1.0);
+  vec2 nDir = edge > 0.001 ? nOut / length(nOut) : vec2(0.0);
+  vec3 N = normalize(vec3(nOut * 1.6, 1.0));
+  vec3 acc = vec3(0.0);
+  for (int i = 0; i < TL_MAX; i++) {
+    if (i >= uN) break;
+    vec4 lp = uLp[i], lc = uLc[i];
+    vec3 L = vec3(lp.xy - px, lp.z);
+    float d2 = dot(L, L);
+    float r2 = lp.w * lp.w;
+    float f = max(0.0, r2 / (r2 + d2) - 0.05) * 1.0526;
+    float att = lc.a * f * f;
+    vec3 Ld = L * inversesqrt(d2 + 1.0);
+    float diff = max(dot(N, Ld), 0.0);
+    float rim = edge * max(dot(nDir, normalize(L.xy + vec2(0.001))), 0.0) * (0.35 + 0.65 * clamp(-Ld.z * 1.5, 0.0, 1.0));
+    acc += lc.rgb * att * (diff + rim * uRim);
+  }
+  vec3 alb = t.rgb / max(t.a, 0.001);
+  // 도료색 반사 + 옻칠 광택(광원색 그대로)을 섞어 물고기 색이 토리이 위에 남게 한다
+  vec3 c = 1.0 - exp(-acc * (alb * 0.8 + vec3(uSheen)));
+  c *= t.a;
+  gl_FragColor = vec4(c, max(c.r, max(c.g, c.b)));
+}`;
+            const tlC = document.createElement('canvas');
+            const tlAlb = document.createElement('canvas'), tlAG = tlAlb.getContext('2d');
+            const tlRef = document.createElement('canvas'), tlRG = tlRef.getContext('2d');
+            const tlRefW = document.createElement('canvas'), tlWG = tlRefW.getContext('2d');
+            let tlG = null, tlU = null, tlTex = null, tlMax = 0, tlBad = false, tlAlbKey = '', tlTexKey = '', tlLp = null, tlLc = null;
+            let tlLastN = 0, tlLastI = 0;   // 진단용: 직전 프레임 광원 수 / 세기 합
+            function tlInitGL() {
+                tlG = null; tlTexKey = '';
+                let g = null;
+                try {
+                    g = tlC.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
+                } catch (e) { g = null; }
+                if (!g) { tlBad = true; return; }
+                try {
+                    // 광원 배열 크기: 프래그먼트 uniform 한도 안에서 최대 48개
+                    const maxVec = g.getParameter(g.MAX_FRAGMENT_UNIFORM_VECTORS) || 64;
+                    tlMax = clamp(Math.floor((maxVec - 12) / 2), 8, 48);
+                    const sh = (type, src) => {
+                        const s = g.createShader(type);
+                        g.shaderSource(s, src);
+                        g.compileShader(s);
+                        if (!g.getShaderParameter(s, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(s));
+                        return s;
+                    };
+                    const prog = g.createProgram();
+                    g.attachShader(prog, sh(g.VERTEX_SHADER, TL_VS));
+                    g.attachShader(prog, sh(g.FRAGMENT_SHADER, tlFS(tlMax)));
+                    g.linkProgram(prog);
+                    if (!g.getProgramParameter(prog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(prog));
+                    g.useProgram(prog);
+                    const buf = g.createBuffer();
+                    g.bindBuffer(g.ARRAY_BUFFER, buf);
+                    g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), g.STATIC_DRAW);
+                    const aP = g.getAttribLocation(prog, 'aP');
+                    g.enableVertexAttribArray(aP);
+                    g.vertexAttribPointer(aP, 2, g.FLOAT, false, 0, 0);
+                    tlU = {};
+                    for (const k of ['uTex', 'uSize', 'uNr', 'uRim', 'uSheen', 'uN']) tlU[k] = g.getUniformLocation(prog, k);
+                    tlU.uLp = g.getUniformLocation(prog, 'uLp[0]');
+                    tlU.uLc = g.getUniformLocation(prog, 'uLc[0]');
+                    tlTex = g.createTexture();
+                    g.activeTexture(g.TEXTURE0);
+                    g.bindTexture(g.TEXTURE_2D, tlTex);
+                    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR);
+                    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+                    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE);
+                    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE);
+                    g.pixelStorei(g.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+                    g.uniform1i(tlU.uTex, 0);
+                    g.disable(g.BLEND);
+                    g.clearColor(0, 0, 0, 0);
+                    tlLp = new Float32Array(tlMax * 4);
+                    tlLc = new Float32Array(tlMax * 4);
+                    tlG = g;
+                } catch (e) {
+                    console.warn('WebGL torii light disabled:', e);
+                    tlBad = true;
+                }
+            }
+            tlC.addEventListener('webglcontextlost', e => { e.preventDefault(); tlG = null; });
+            tlC.addEventListener('webglcontextrestored', () => { tlBad = false; tlInitGL(); });
+
+            // 조명 알베도 스프라이트: 밤 팔레트(어두움)가 아닌 낮 기준 도료색으로 그려야 반사광 색이 살아난다.
+            function tlBuildAlbedo(bw, bh, k) {
+                const key = bw + 'x' + bh + '|' + k.toFixed(4);
+                if (key === tlAlbKey) return false;
+                tlAlbKey = key;
+                fitCanvas(tlAlb, bw, bh);
+                const [red, blk] = keyed(TORII, 0);
+                tlAG.setTransform(1, 0, 0, 1, 0, 0);
+                tlAG.clearRect(0, 0, bw, bh);
+                tlAG.setTransform(k, 0, 0, k, -TB.x * k, -TB.y * k);
+                tlAG.fillStyle = rgba(red); tlAG.fill(TORII_RED);
+                tlAG.fillStyle = rgba(blk); tlAG.fill(TORII_BLK);
+                return true;
+            }
+
+            // fishScene의 물고기·빛방울에서 토리이에 영향이 큰 순으로 tlMax개 광원을 고른다 (월드 css px).
+            function tlCollect(Sc, sceneAlpha) {
+                const o = FISH;
+                const out = [];
+                const cx0 = torX, cx1 = torX + torW, cy0 = torY, cy1 = torBase;
+                // 깊이(z)는 앞/뒤 방향 판정용: 토리이가 얇아 실제 궤도 깊이만큼 띄우면 빛이 거의 닿지 않는다
+                const zK = torW * 0.2;
+                const push = (x, y, z, R, col, I) => {
+                    if (I <= 0.01 || R <= 0.5) return;
+                    const dx = x < cx0 ? cx0 - x : x > cx1 ? x - cx1 : 0;
+                    const dy = y < cy0 ? cy0 - y : y > cy1 ? y - cy1 : 0;
+                    const r2 = R * R;
+                    const score = I * r2 / (r2 + dx * dx + dy * dy + z * z * 0.25);
+                    if (score < 0.012) return;
+                    out.push({ x, y, z, R, col, I, score });
+                };
+                const fishI = o.tlGain * sceneAlpha;
+                for (const list of [Sc.backList, Sc.frontList]) {
+                    for (const it of list) {
+                        const sz = it.st.sz;
+                        const R = sz * 1.15 * o.tlReach;
+                        let z = (it.z || 0) * zK;
+                        z += (z >= 0 ? 1 : -1) * R * 0.25;   // 토리이 평면 위에 딱 붙은 광원도 앞/뒤 한쪽을 비추게
+                        push(it.f.x, it.f.y, z, R, fsMixW(it.col, 0.2), it.alpha * fishI * (it.f.L === 2 ? 0.9 : 0.6));
+                    }
+                }
+                for (const list of [Sc.backOrbs, Sc.frontOrbs]) {
+                    for (const ob of list) {
+                        const R = ob.rNow * 4 * o.tlReach;
+                        push(ob.x, ob.y, ob.z * zK + (ob.z >= 0 ? R : -R) * 0.25, R, fsMixW(ob.col, 0.5), ob.a * fishI * 0.45);
+                    }
+                }
+                if (out.length > tlMax) {
+                    out.sort((a, b) => b.score - a.score);
+                    out.length = tlMax;
+                }
+                return out;
+            }
+
+            // FG 토리이 본체 위에 반사광을 더한다. drawTorii 직후(앞 랜턴·앞 물고기 이전)에 호출.
+            function drawToriiLight(Sc, sceneAlpha) {
+                tlLastN = 0; tlLastI = 0;
+                const o = FISH;
+                if (!Sc || !o.tlOn || o.tlGain <= 0.01 || sceneAlpha <= 0.01 || torW < 2 || torH < 2) return;
+                if (!tlG && !tlBad) tlInitGL();
+                const g = tlG;
+                if (!g || g.isContextLost()) return;
+                const lights = tlCollect(Sc, sceneAlpha);
+                if (!lights.length) return;
+                const cs = camRK();
+                const bw = Math.max(1, Math.ceil(torW * dpr * cs * TL_RES));
+                const bh = Math.max(1, Math.ceil(torH * dpr * cs * TL_RES));
+                const k = torS * dpr * cs * TL_RES;
+                if (tlBuildAlbedo(bw, bh, k) || tlTexKey !== tlAlbKey) {
+                    tlTexKey = tlAlbKey;
+                    g.bindTexture(g.TEXTURE_2D, tlTex);
+                    g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, tlAlb);
+                }
+                if (tlC.width !== bw || tlC.height !== bh) { tlC.width = bw; tlC.height = bh; }
+                // 월드 → 조명 버퍼 px
+                const kx = bw / torW, ky = bh / torH;
+                const n = lights.length;
+                for (let i = 0; i < n; i++) {
+                    const L = lights[i], j = i * 4;
+                    tlLp[j] = (L.x - torX) * kx; tlLp[j + 1] = (L.y - torY) * ky; tlLp[j + 2] = L.z * kx; tlLp[j + 3] = L.R * kx;
+                    tlLc[j] = L.col[0] / 255; tlLc[j + 1] = L.col[1] / 255; tlLc[j + 2] = L.col[2] / 255; tlLc[j + 3] = L.I;
+                }
+                g.viewport(0, 0, bw, bh);
+                g.clear(g.COLOR_BUFFER_BIT);
+                g.uniform2f(tlU.uSize, bw, bh);
+                g.uniform1f(tlU.uNr, Math.max(1.5, bw * 0.014));
+                g.uniform1f(tlU.uRim, o.tlRim);
+                g.uniform1f(tlU.uSheen, 0.28);
+                g.uniform1i(tlU.uN, n);
+                g.uniform4fv(tlU.uLp, tlLp);
+                g.uniform4fv(tlU.uLc, tlLc);
+                g.drawArrays(g.TRIANGLES, 0, 6);
+                tlLastN = n;
+                tlLastI = lights.reduce((a, L) => a + L.I, 0);
+
+                FG.save();
+                camSet(FG);
+                FG.globalCompositeOperation = 'lighter';
+                FG.globalAlpha = 1;
+                FG.drawImage(tlC, torX, torY, torW, torH);
+                FG.restore();
+
+                // 수면의 토리이 반사상에도 같은 반사광을 뒤집어 물결 띠로 얹는다 (drawTorii 반사와 같은 띠 변위)
+                if (o.tlRefl > 0.01 && camFlatOn()) {
+                    fitCanvas(tlRef, bw, bh);
+                    tlRG.setTransform(1, 0, 0, 1, 0, 0);
+                    tlRG.clearRect(0, 0, bw, bh);
+                    tlRG.setTransform(1, 0, 0, -1, 0, bh);
+                    tlRG.drawImage(tlC, 0, 0);
+                    const reflH = H - HZ;
+                    const pad = (TB.y + TB.h - TB.base) * torS;
+                    const top = torBase - pad;
+                    ctx.save();
+                    camSet(ctx);
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.globalAlpha = Math.min(1, o.tlRefl);
+                    if (RM.matches) {
+                        ctx.drawImage(tlRef, torX, top, torW, torH);
+                    } else {
+                        // 띠를 lighter로 바로 겹쳐 그리면 이음새 겹침(+0.5px)이 두 번 더해져 가로 줄무늬가 생긴다.
+                        // 오프스크린 버퍼에 source-over로 띠를 조립한 뒤 한 번만 lighter로 얹는다.
+                        const padX = Math.ceil((CFG.REFL_AMP0 + CFG.REFL_AMP1 + 1) * kx) + 2;
+                        fitCanvas(tlRefW, bw + padX * 2, bh);
+                        tlWG.setTransform(1, 0, 0, 1, 0, 0);
+                        tlWG.clearRect(0, 0, bw + padX * 2, bh);
+                        const step = effReflStep(reflH);
+                        for (let r = 0; r < torH; r += step) {
+                            const sh = Math.min(step, torH - r);
+                            const y = top + r;
+                            if (y > H) break;
+                            const d = y - HZ, kk = d / reflH;
+                            const amp = CFG.REFL_AMP0 + CFG.REFL_AMP1 * kk * kk;
+                            const dx = amp * (0.7 * Math.sin(d * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(d * CFG.SL_F2 - clock * CFG.SL_F3));
+                            const sy = r * ky, sH = Math.min(bh - sy, (sh + 0.5) * ky);
+                            if (sH > 0) tlWG.drawImage(tlRef, 0, sy, bw, sH, padX + dx * kx, sy, bw, sH);
+                        }
+                        const pw = padX / kx;
+                        ctx.drawImage(tlRefW, torX - pw, top, torW + pw * 2, torH);
+                    }
+                    ctx.restore();
+                }
+            }
+
             // ---------- 물고기 군집 배치 옵션 (물고기 이펙트 초안 Argon.html sphere 모드 이식) ----------
             // 밤 장면(일반 달 밤 / 미러볼 밤)에서 노출되는 3옵션: 숨김(bi-ban, 기본값) / 커서 추적(bi-cursor-fill) / 달 배치(bi-globe2).
             // 군집 중심을 축으로 삼아 구체 군집이 회전 소용돌이(sphere) 형태로 따라다닌다. 상태는 유지되고 밤에서만 그려진다.
@@ -2121,7 +2383,8 @@
                 motif: 0, size: 24, aspect: 1.0, wag: 0.085, patA: 0.88, winD: 0.58, fillA: 0.72,
                 nMid: 48, nNear: 6, nFar: 8,
                 spd: 1.15, swR: 0.06, tilt: -24, swirl: 1.25, trail: 2, trailA: 0.22,
-                glow: 0.85, glowR: 9, spark: 12, seed: 11, fade: 0.45, refl: 0.55
+                glow: 0.85, glowR: 9, spark: 12, seed: 11, fade: 0.45, refl: 0.55,
+                follow: 18, followFar: 2.5   // 중심 추적 속도(1/s), 커서가 멀 때(Rs×3 이상) 배율
             };
             const CURSOR_DEFAULTS = JSON.parse(JSON.stringify(CURSOR));
             // 군집 물고기 화면비례 계수: 토리이 상승 물고기(sizeScale=torH/116)와 같은 축.
@@ -2253,16 +2516,21 @@
                         if (isFinite(tw.x) && isFinite(tw.y)) { twx = tw.x; twy = tw.y; }
                     } catch (e) { /* 변환 실패 시 현상 유지 */ }
                 }
-                if (!cursorInit && W > 0 && H > 0) {
-                    cursorWX = twx; cursorWY = twy; cursorInit = true;
-                } else {
-                    const k = 1 - Math.exp(-10 * Math.max(0, dt));
-                    cursorWX += (twx - cursorWX) * k;
-                    cursorWY += (twy - cursorWY) * k;
-                }
                 const o = CURSOR;
                 const cs = cursorSizeScale();
                 const Rs = Math.max(20, H * o.swR);
+                if (!cursorInit && W > 0 && H > 0) {
+                    cursorWX = twx; cursorWY = twy; cursorInit = true;
+                } else {
+                    // 거리 적응 평활: 멀면 빠르게 따라붙고, 가까우면 부드럽게 안착(작은 떨림 흡수).
+                    const dx = twx - cursorWX, dy = twy - cursorWY;
+                    const far = Math.min(1, Math.hypot(dx, dy) / (Rs * 3));
+                    const base = Math.max(1, o.follow);
+                    const rate = lerp(base, base * Math.max(1, o.followFar), far);
+                    const k = 1 - Math.exp(-rate * Math.max(0, dt));
+                    cursorWX += dx * k;
+                    cursorWY += dy * k;
+                }
                 const histLen = Math.max(0, Math.round(o.trail)) * 2 + 1;
                 const dirS = o.swirl >= 0 ? 1 : -1;
                 for (const f of cursorFish) {
@@ -2283,8 +2551,9 @@
                     f.scaleMul = sphScale * f.sk;
                     f.alphaMul = sp.z < 0 ? lerp(0.38, 0.68, sp.z + 1) : lerp(0.84, 1.0, sp.z);
                     if (f.L > 0 && histLen > 1 && cursorA > 0.01) {
+                        // 궤적은 군집 중심 기준 상대좌표로 저장: 중심 이동으로 잔상이 끌리지 않고 소용돌이 회전만 남는다.
                         f.hist.push({
-                            x: f.x, y: f.y, hd: f.hd,
+                            x: f.x - cursorWX, y: f.y - cursorWY, hd: f.hd,
                             sz: o.size * f.scaleMul * cs,
                             ph: f.ph, bend: f.bend,
                             aspectMul: f.aspectMul,
@@ -2459,7 +2728,8 @@
                         for (let k = 1; k <= nTrail; k++) {
                             const hi = f.hist.length - 1 - k * 2;
                             if (hi < 0) break;
-                            const hst = f.hist[hi];
+                            const hr = f.hist[hi];
+                            const hst = { ...hr, x: cursorWX + hr.x, y: cursorWY + hr.y };
                             if (Math.hypot(hst.x - f.x, hst.y - f.y) > 140 * cs) break;
                             inst.ghosts.push({
                                 out: M.outline.map(([u, y]) => fsMapPoint(u, y, hst, o)),
@@ -5202,6 +5472,7 @@ void main() {
                     drawLanterns(r0, r1, structA, 'back');
                     if (fishScene) { zf = zpNow(); drawFishPass('back', fishScene, fishNightA); zpAdd('fishBack', zf); }
                     drawTorii(r0, r1, 1);
+                    if (fishScene) { zf = zpNow(); drawToriiLight(fishScene, fishNightA); zpAdd('fishLight', zf); }
                     drawLanterns(r0, r1, structA, 'front');
                     if (fishScene) { zf = zpNow(); drawFishPass('front', fishScene, fishNightA); zpAdd('fishFront', zf); }
                     // 물고기 군집 배치: 밤 페이드와 모드 페이드(cursorA)를 함께 적용해 최전경에 그린다
@@ -5377,7 +5648,8 @@ void main() {
             const dragPts = new Map();   // pointerId -> { x, y, t } (anchor of last spawned ripple)
             const DRAG_MIN_DIST = 24;    // css px between spawned ripples
             const DRAG_MIN_DT = 0.06;    // seconds between spawned ripples
-            const overUI = t => (t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad,.focus-ui');
+            const overUI = t => document.body.hasAttribute('data-world-busy') ||
+                ((t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad,#worldMount'));
 
             window.addEventListener('pointerdown', e => {
                 if (!gl || RM.matches || e.button > 0) return;
@@ -5796,70 +6068,6 @@ void main() {
             if (elCursorTrack) elCursorTrack.addEventListener('click', e => { e.stopPropagation(); cursorPick(1); });
             if (elCursorMoon) elCursorMoon.addEventListener('click', e => { e.stopPropagation(); cursorPick(2); });
 
-            // ---------- 배경화면 감상 모드 (단독 토글, 기본값 감상 모드) ----------
-            // 시간대 버튼그룹과 별도. 기본은 감상 모드로 클릭 인디케이터 및 텍스트(랜드마크 핀)를 숨긴다.
-            // 버튼은 반대로 동작: 토글 활성화(.on) 시 감상 모드를 끄고 랜드마크 인디케이터를 보인다.
-            // .on이면 접힘 상태에서도 표시된다(CSS).
-            const elWallpaper = document.getElementById('btnWallpaper');
-            let wallpaperMode = true;
-            function setWallpaper(on) {
-                wallpaperMode = !!on;
-                try {
-                    if (wallpaperMode) document.body.setAttribute('data-wallpaper', 'on');
-                    else document.body.removeAttribute('data-wallpaper');
-                } catch (e) { /* body 미지원 환경 무시 */ }
-                if (elWallpaper) {
-                    elWallpaper.classList.toggle('on', !wallpaperMode);
-                    elWallpaper.setAttribute('aria-pressed', wallpaperMode ? 'false' : 'true');
-                }
-            }
-            setWallpaper(wallpaperMode);
-            // 홀드 경로: 버튼을 길게 누르면 디버그 패널을 토글한다 (감상 모드 토글은 클릭 그대로, 홀드 직후 click은 무시).
-            let wallpaperHoldTimer = 0;
-            let wallpaperHeld = false;
-            const WALLPAPER_HOLD_MS = 600;
-            function cancelWallpaperHold() {
-                clearTimeout(wallpaperHoldTimer);
-                wallpaperHoldTimer = 0;
-            }
-            if (elWallpaper) {
-                elWallpaper.addEventListener('pointerdown', e => {
-                    if (e.button !== undefined && e.button !== 0) return;
-                    wallpaperHeld = false;
-                    cancelWallpaperHold();
-                    wallpaperHoldTimer = setTimeout(() => {
-                        wallpaperHoldTimer = 0;
-                        wallpaperHeld = true;
-                        const dbg = window.__TSUKUYOMI_DEBUG__;
-                        if (dbg && dbg.toggle) dbg.toggle();
-                    }, WALLPAPER_HOLD_MS);
-                });
-                ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev =>
-                    elWallpaper.addEventListener(ev, cancelWallpaperHold));
-                elWallpaper.addEventListener('contextmenu', e => {
-                    if (wallpaperHeld) e.preventDefault();
-                });
-            }
-            if (elWallpaper) elWallpaper.addEventListener('click', e => {
-                e.stopPropagation();
-                if (wallpaperHeld) { wallpaperHeld = false; return; }
-                // 터치 UI에서 접힌 채로 눌릴 수 없으므로(버튼 숨김), 펼친 상태에서만 토글된다.
-                // 만약을 위해 미펼침이면 먼저 펼치고 토글한다.
-                if (TOUCH_UI && elPanel && !elPanel.classList.contains('expanded')) {
-                    elPanel.classList.add('expanded');
-                    moveThumb();
-                }
-                setWallpaper(!wallpaperMode);
-                if (TOUCH_UI && elPanel) {
-                    // 선택 피드백이 보이도록 잠시 펼침 유지 후 접기 (.on이면 토글만 남는다)
-                    clearTimeout(collapseTimer);
-                    collapseTimer = setTimeout(() => {
-                        elPanel.classList.remove('expanded');
-                        moveThumb();
-                    }, 900);
-                }
-            });
-
             // ---------- debug bridge (F12 패널용) ----------
             // tsukuyomi.debug.js가 이 객체를 통해 모든 파라미터를 수동 조절한다.
             // CFG(수치) + 팔레트(색) + 상태(p/phi/state) + 재빌드 액션을 노출.
@@ -5888,7 +6096,6 @@ void main() {
                     }
                 },
                 get mode() { return activeOf(); }, set mode(v) { goTo(v); },
-                get wallpaper() { return wallpaperMode; }, set wallpaper(v) { setWallpaper(v); },
                 // 공백 장면 토글 (하단 btnStars/btnDark과 동일, Wallpaper Engine 일반 옵션에서 쓴다)
                 get dayStars() { return dsOn; }, set dayStars(v) { setDayStars(!!v); },
                 get dayDark() { return dnOn; }, set dayDark(v) { setDayDark(!!v); },
@@ -5901,15 +6108,18 @@ void main() {
                 get W() { return W; }, get H() { return H; }, get HZ() { return HZ; }, get dpr() { return dpr; },
                 // 구름 오버레이(편집기 tsukuyomi.cloudlayers.js가 같은 문서를 직접 고친다), 카메라 확대 중인지
                 cloudOverlay: cloudOv,
-                get camOn() { return camOn(); },
-                // 인-캔버스 카메라 (tsukuyomi.focus.js가 구동). CSS transform 대신 장면을 직접 다시 그린다.
+                // 다른 세계(山)가 화면을 덮고 있는 동안 렌더 루프를 멈춘다 (tsukuyomi.worlds.js).
+                get suspended() { return suspended; },
+                suspend() { suspended = true; },
+                resume() { resumeLoop(); },
+                // 인-캔버스 카메라 (tsukuyomi.worlds.js의 토리이 포털 전환이 구동). CSS transform 대신 장면을 직접 다시 그린다.
                 setCamView(f, m, s, res, path) { setCamView(f, m, s, res, path); },
                 clearCam() { clearCam(); },
                 getCamView() { return CAM.on ? { f: { x: CAM.fx, y: CAM.fy }, m: { x: CAM.mx, y: CAM.my }, s: CAM.s } : null; },
                 worldToScreen(x, y) { return camW2S(x, y); },
                 screenToWorld(x, y) { return camS2W(x, y); },
                 get camOn() { return camOn(); },
-                // 줌 프로파일러: focus.js가 begin/end로 확대·복귀 구간을 감싼다 (요약은 last, 콘솔은 log)
+                // 줌 프로파일러: worlds.js가 begin/end로 포털 확대 구간을 감싼다 (요약은 last, 콘솔은 log)
                 zoomProf: {
                     begin(label) { zpBegin(label); },
                     end() { return zpEnd(); },
@@ -5929,7 +6139,7 @@ void main() {
                     get log() { return ZP.log; }, set log(v) { ZP.log = !!v; },
                     get noOcc() { return ZP.noOcc; }, set noOcc(v) { ZP.noOcc = !!v; },
                 },
-                // 포커스 오버레이(tsukuyomi.focus.js)용 랜드마크 화면 좌표 (css px)
+                // 랜드마크 월드 좌표 (css px, 카메라 적용 전).
                 get torii() {
                     return {
                         x: torX, y: torY, w: torW, h: torH,
@@ -5963,6 +6173,8 @@ void main() {
                 get fishDefaults() { return FISH_DEFAULTS; },
                 get fishActive() { return fishActive; },
                 get fishCount() { return fishList.length; },
+                // 토리이 반사광 진단: gl 준비 여부, 실패 여부, 광원 상한, 직전 프레임 광원 수/세기 합
+                get toriiLight() { return { gl: !!tlG, bad: tlBad, max: tlMax, n: tlLastN, sumI: +tlLastI.toFixed(3) }; },
                 get cursorFx() { return CURSOR; },
                 get cursorDefaults() { return CURSOR_DEFAULTS; },
                 get cursorActive() { return cursorMode !== 0 && cursorA > 0.01; },
@@ -6063,7 +6275,16 @@ void main() {
 
             // ---------- loop ----------
             let lastT = performance.now();
+            // suspended: 루프 자체를 세운다(rAF 미예약). resume 시 lastT를 새로 잡아 dt 점프 없이 이어 간다.
+            let suspended = false, looping = false;
+            function resumeLoop() {
+                suspended = false;
+                if (looping) return;
+                looping = true;
+                requestAnimationFrame(t => { lastT = t; frame(t); });
+            }
             function frame(now) {
+                if (suspended) { looping = false; return; }
                 const gap = now - lastT;
                 const dt = Math.min(0.05, Math.max(0, gap / 1000));
                 lastT = now;
@@ -6104,6 +6325,6 @@ void main() {
             loadLanternSprite();
             resize();
             if (cloudOv) cloudOv.load();
-            requestAnimationFrame(t => { lastT = t; frame(t); });
+            resumeLoop();
         })();
     

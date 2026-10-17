@@ -27,6 +27,7 @@ body {
 }
 
 #scene,
-#fg {
+#fg,
+#mountScene {
     pointer-events: none;
 }

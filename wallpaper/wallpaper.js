@@ -2,7 +2,12 @@
  *
  * 역할:
  *  - 하단 시간대 UI 숨김 -> WE 옵션 `a00_scene` 콤보로 장면 선택 (기본값: 밤)
- *    (공백 1 / 황혼 2 / 밤 3 / 밤(미러볼) 4 — 웹 하단 UI 4버튼과 동일)
+ *    (표시 순서: 산 5 / 산(노을) 6 / 공백 1 / 황혼 2 / 밤 3 / 밤(미러볼) 4.
+ *     1~4는 웹 하단 UI 4버튼, 5·6은 웹 산 세계(#mount)의 땅거미/노을 2버튼과 동일)
+ *  - 산 계열(5·6)은 두 번째 세계(vendor/tsukuyomi.mount.js, 처음 필요할 때 로드)로
+ *    단순 페이드 전환한다 (웹 tsukuyomi.worlds.js와 같은 방식). 산에 있는 동안 月 루프는 멈춘다.
+ *  - 물고기 (토리이 수면 상승) 고급 그룹 `a16_fish_*` -> __TSUKUYOMI__.fish 위임
+ *    (토리이 반사광 켜기 `a16_fish_tlOn` 체크 포함, 웹 디버그 패널 물고기 섹션과 동일)
  *  - 디버그 패널 미포함 -> WE 고급 옵션(12개 그룹 + `aNN_*` 슬라이더/체크)이
  *    window.__TSUKUYOMI__ 브릿지로 위임
  *  - 공백 장면 토글 2종은 일반 옵션으로 공백 선택 시 노출 (고급 표시와 무관):
@@ -29,22 +34,27 @@
     // 어떤 이벤트 안에 넣으면 초기값을 놓친다.
     window.wallpaperPropertyListener = { applyUserProperties, applyGeneralProperties };
 
-    // WE 콤보값은 정수(1/2/3/4)로 정의하지만, 문자열("1"/"day" 등)로 와도 동작한다.
-    function sceneOf(v) {        if (v === 1 || v === '1' || v === 'day') return 'day';
-        if (v === 2 || v === '2' || v === 'dusk') return 'dusk';
-        if (v === 3 || v === '3' || v === 'night') return 'night';
-        if (v === 4 || v === '4' || v === 'mirror') return 'mirror';
+    // WE 콤보값은 정수(1~6)로 정의하지만, 문자열("1"/"day" 등)로 와도 동작한다.
+    // 장면 id: day/dusk/night/mirror (月), mount/mountSunset (山: 땅거미/노을)
+    const SCENE_BY_NUM = { 1: 'day', 2: 'dusk', 3: 'night', 4: 'mirror', 5: 'mount', 6: 'mountSunset' };
+    const SCENE_ALIAS = {
+        day: 'day', dusk: 'dusk', night: 'night', mirror: 'mirror',
+        mount: 'mount', mountdusk: 'mount', 'mount-dusk': 'mount',
+        mountsunset: 'mountSunset', 'mount-sunset': 'mountSunset', sunset: 'mountSunset',
+    };
+    function sceneOf(v) {
+        if (typeof v === 'number') return SCENE_BY_NUM[v] || null;
         if (typeof v === 'string') {
             const s = v.trim().toLowerCase();
-            if (s === 'day' || s === 'dusk' || s === 'night' || s === 'mirror') return s;
+            if (SCENE_ALIAS[s]) return SCENE_ALIAS[s];
             const n = Number(s);
-            if (n === 1) return 'day';
-            if (n === 2) return 'dusk';
-            if (n === 3) return 'night';
-            if (n === 4) return 'mirror';
+            if (s !== '' && SCENE_BY_NUM[n]) return SCENE_BY_NUM[n];
         }
         return null;
     }
+    // 山 장면 id -> tsukuyomi.mount.js 장면 키
+    const MOUNT_SCENE = { mount: 'dusk', mountSunset: 'sunset' };
+    const isMountScene = s => Object.prototype.hasOwnProperty.call(MOUNT_SCENE, s);
     // project.json 키 규칙 (tools/generate-project-json.py):
     //   a00_scene, a01_intro, a01_fish(밤 계열 노출 콤보), a01_daystars, a01_daydark,
     //   a02_show_advanced, a03_snapshot_json (그룹 미소속, 고급 토글과 무관(공백 선택 시 노출))
@@ -58,9 +68,12 @@
     const KEY_DAYDARK = 'a01_daydark';
     const KEY_SNAPSHOT = 'a03_snapshot_json';
     const MEMBER_RE = /^(?:[A-Za-z]\d\d_|\d\d_|cfg_)(.+)$/;
+    // 물고기 (토리이 수면 상승) 그룹 멤버: a16_fish_<FISH키> -> __TSUKUYOMI__.fish[FISH키]
+    const FISH_RE = /^[A-Za-z]\d\d_fish_(.+)$/;
     const GENERAL_SKIP = new Set([KEY_FISH, KEY_DAYSTARS, KEY_DAYDARK, 'fish', 'cursor', 'cursorMode', 'cursormode', 'daystars', 'daydark']);
     const desired = { scene: 'night', intro: true, fish: 0, dayStars: false, dayDark: false };
     const pendingCfg = new Map(); // CFG키 -> 마지막 값 (브릿지 대기분)
+    const pendingFish = new Map(); // FISH키 -> 마지막 값 (브릿지 대기분)
     let pendingSnapshot = null;   // snapshot_json 원문 (브릿지 대기분)
     let initialized = false;      // 첫 장면 적용 여부
     let weFps = 0;
@@ -133,6 +146,119 @@
         if (!isFinite(num)) return;
         b.cfg[key] = num;
         queueRebuild(REBUILD[key]);
+    }
+
+    // 물고기 값: 숫자/체크는 수치로, 색은 WE color("r g b", 0~1)를 '#rrggbb'로 바꿔 넣는다.
+    // FISH는 발사·프레임마다 읽히므로 재빌드가 필요 없다 (tlOn=0이면 반사광 패스를 건너뛴다).
+    function applyFishValue(b, key, value) {
+        const f = b && b.fish;
+        if (!f || !(key in f)) return;
+        if (typeof f[key] === 'string') {
+            const s = String(value).trim();
+            if (/^#[0-9a-f]{6}$/i.test(s)) { f[key] = s; return; }
+            const c = s.split(/[\s,]+/).map(Number);
+            if (c.length < 3 || !c.slice(0, 3).every(isFinite)) return;
+            f[key] = '#' + c.slice(0, 3)
+                .map(v => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0'))
+                .join('');
+            return;
+        }
+        const num = typeof value === 'boolean' ? (value ? 1 : 0) : Number(value);
+        if (isFinite(num)) f[key] = num;
+    }
+
+    // ---------- 두 세계: 月(수면, vendor/tsukuyomi.js) ↔ 山(산정, vendor/tsukuyomi.mount.js) ----------
+    // 웹 tsukuyomi.worlds.js와 같은 단순 페이드. 해시 경로·하단 버튼 없이 WE 장면 옵션만 따른다.
+    const moonEl = document.getElementById('worldMoon');
+    const mountEl = document.getElementById('worldMount');
+    const FADE_MS = 1100;
+    let world = 'moon';        // 화면에 안착한 세계
+    let worldTarget = 'moon';  // 마지막으로 요청한 세계 (동기 판단용)
+    let worldQueue = Promise.resolve();
+    let mountP = null;
+    function loadMount() {
+        if (!mountP) {
+            mountP = new Promise((resolve, reject) => {
+                if (window.TsukuyomiMount) { resolve(window.TsukuyomiMount); return; }
+                const s = document.createElement('script');
+                s.src = 'vendor/tsukuyomi.mount.js';
+                s.onload = () => window.TsukuyomiMount ? resolve(window.TsukuyomiMount) : reject(new Error('TsukuyomiMount 없음'));
+                s.onerror = () => reject(new Error('tsukuyomi.mount.js 로드 실패'));
+                document.head.appendChild(s);
+            }).catch(e => { mountP = null; throw e; });
+        }
+        return mountP;
+    }
+    const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()));
+    // B를 위에 올려 불투명도만 올린다 (둘 다 계속 그린다)
+    function fadeIn(el) {
+        el.style.opacity = '0';
+        el.style.zIndex = '1';
+        el.hidden = false;
+        return new Promise(resolve => {
+            const t0 = performance.now();
+            const tick = now => {
+                const u = Math.min(1, (now - t0) / FADE_MS);
+                el.style.opacity = String(u * u * (3 - 2 * u));
+                if (u < 1) requestAnimationFrame(tick);
+                else resolve();
+            };
+            requestAnimationFrame(tick);
+        });
+    }
+    const clearFx = el => { el.style.opacity = ''; el.style.zIndex = ''; };
+
+    async function switchWorld(instant) {
+        // 큐에서 실행되는 시점의 최신 요청을 따른다 (빠른 연속 변경은 마지막 값으로 수렴)
+        const target = worldTarget;
+        if (!moonEl || !mountEl) return;
+        if (target === 'mount') {
+            const M = await loadMount();
+            if (worldTarget !== 'mount') return;   // 로드 중 月로 되돌렸으면 다음 작업에 맡긴다
+            const id = MOUNT_SCENE[desired.scene];
+            if (id && M.scene !== id) M.setScene(id);   // 산에 있는 중이면 크로스페이드
+            if (world === 'mount') return;
+            M.start();
+            const b = bridge();
+            if (instant) {
+                if (b) b.suspend();
+                mountEl.hidden = false;
+            } else {
+                document.body.setAttribute('data-world-busy', '');
+                await nextFrame();   // 첫 프레임이 캔버스에 올라간 다음부터 보여 준다
+                await fadeIn(mountEl);
+                if (b) b.suspend();
+            }
+            moonEl.hidden = true;
+            world = 'mount';
+        } else {
+            if (world === 'moon') return;
+            const b = bridge();
+            if (b) b.resume();
+            document.body.setAttribute('data-world-busy', '');
+            await nextFrame();
+            await fadeIn(moonEl);
+            if (window.TsukuyomiMount) window.TsukuyomiMount.stop();
+            mountEl.hidden = true;
+            world = 'moon';
+        }
+        clearFx(moonEl); clearFx(mountEl);
+        document.body.removeAttribute('data-world-busy');
+    }
+    function syncWorld(instant) {
+        worldTarget = isMountScene(desired.scene) ? 'mount' : 'moon';
+        worldQueue = worldQueue.then(() => switchWorld(instant)).catch(e => {
+            console.warn('[tsukuyomi wallpaper] 세계 전환 실패:', e);
+            clearFx(moonEl); clearFx(mountEl);
+            document.body.removeAttribute('data-world-busy');
+            // 산을 띄우지 못했으면 月를 다시 돌린다
+            if (world === 'moon') {
+                const b = bridge();
+                if (b) b.resume();
+                if (moonEl) moonEl.hidden = false;
+                if (mountEl) mountEl.hidden = true;
+            }
+        });
     }
 
     // 스냅샷(JSON): 웹 디버그 패널의 "내보내기" 결과를 그대로 붙여넣는 탈출구.
@@ -234,6 +360,9 @@
             if (first) b.state = 'dusk';
             else b.actions.toDusk();
         }
+    }
+
+    function applyLanternAvoid(b) {
         // UI 숨김 상태에서는 컨트롤 패널 회피가 무의미하므로 WE 전용으로 끈다.
         // (웹 기본값 1은 그대로 두고, 월페이퍼에서만 호출로 덮는다.)
         if (b.cfg.LANTERN_CARD_AVOID !== 0) {
@@ -265,6 +394,8 @@
     function applyPending(b, first) {
         for (const [key, value] of pendingCfg) applyCfgValue(b, key, value);
         pendingCfg.clear();
+        for (const [key, value] of pendingFish) applyFishValue(b, key, value);
+        pendingFish.clear();
         if (pendingSnapshot) {
             const s = pendingSnapshot;
             pendingSnapshot = null;
@@ -281,7 +412,12 @@
             if ('cursorMode' in b) b.cursorMode = desired.fish;
             else if (b.actions && typeof b.actions.cursorPlace === 'function') b.actions.cursorPlace(desired.fish);
         } catch (e) { /* 브릿지 경합 시 현상 유지 */ }
-        applyScene(b, first);
+        applyLanternAvoid(b);
+        // 山에서 月로 돌아올 때는 月가 화면 밖이었으므로 첫 진입과 같이 처리한다
+        // (공백·황혼은 즉시 idle, 밤 계열은 인트로 설정을 따름).
+        const enteringMoon = worldTarget === 'mount' && !isMountScene(desired.scene);
+        syncWorld(first);
+        if (!isMountScene(desired.scene)) applyScene(b, first || enteringMoon);
     }
 
     function applyUserProperties(properties) {
@@ -310,6 +446,12 @@
         }
         for (const name of Object.keys(properties)) {
             if (GENERAL_SKIP.has(name)) continue;
+            const fm = FISH_RE.exec(name);
+            if (fm) {
+                const entry = properties[name];
+                if (entry && entry.value !== undefined && entry.value !== '') pendingFish.set(fm[1], entry.value);
+                continue;
+            }
             const m = MEMBER_RE.exec(name);
             if (!m) continue;
             const entry = properties[name];
@@ -349,13 +491,14 @@
         }, 50);
     }
 
-    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=day&dusk&night&mirror&intro=0&fish=0/1/2&stars=1&dark=1
+    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=mount|mount-sunset|day|dusk|night|mirror(또는 1~6)&intro=0&fish=0/1/2&stars=1&dark=1
+    // 예: wallpaper.html?scene=mount , wallpaper.html?scene=mount-sunset
     // 예: wallpaper.html?scene=day&stars=1 , wallpaper.html?scene=day&dark=1 , wallpaper.html?scene=night&intro=0 , wallpaper.html?scene=night&fish=1 , wallpaper.html?scene=mirror&fish=2
     function applyQueryOverride() {
         try {
             const q = new URLSearchParams(location.search);
-            const s = (q.get('scene') || '').toLowerCase();
-            if (s === 'day' || s === 'dusk' || s === 'night' || s === 'mirror') desired.scene = s;
+            const s = sceneOf(q.get('scene') || '');
+            if (s) desired.scene = s;
             const intro = q.get('intro');
             if (intro === '0' || intro === 'false' || intro === 'off') desired.intro = false;
             if (intro === '1' || intro === 'true' || intro === 'on') desired.intro = true;
@@ -389,5 +532,6 @@
         get dayDark() { return desired.dayDark; },
         get fps() { return weFps; },
         get ready() { return !!bridge(); },
+        get world() { return world; },
     };
 })();

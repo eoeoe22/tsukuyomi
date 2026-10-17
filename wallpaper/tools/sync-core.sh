@@ -12,5 +12,6 @@ cp public/cloud-overlay.js wallpaper/vendor/cloud-overlay.js
 cp public/clouds/day-overlay.json wallpaper/vendor/clouds/day-overlay.json
 cp public/lantern-front.svg wallpaper/vendor/lantern-front.svg
 cp public/assets/icons/icon.svg wallpaper/vendor/assets/icons/icon.svg
+cp public/tsukuyomi.mount.js wallpaper/vendor/tsukuyomi.mount.js
 python3 wallpaper/tools/generate-project-json.py
 python3 wallpaper/tools/verify-wallpaper.py
