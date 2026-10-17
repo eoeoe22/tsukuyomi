@@ -1319,7 +1319,7 @@
                 seed: 17,
                 // 토리이 반사광(WebGL): tlOn 켜기(1)/끄기(0), tlGain 세기, tlReach 광원 도달 거리 배율,
                 // tlRim 뒤 광원 가장자리 림라이트 비중, tlRefl 수면 반사상에 얹는 비율
-                tlOn: 1, tlGain: 1.0, tlReach: 1.0, tlRim: 0.9, tlRefl: 0.3,
+                tlOn: 1, tlGain: 2.0, tlReach: 1.5, tlRim: 0.5, tlRefl: 0.3,
                 c0: '#ff6ad5', c1: '#52f2ff', c2: '#f4f255', c3: '#ffaa5c', c4: '#6aaeff', c5: '#6bf5a8'
             };
             const FISH_DEFAULTS = JSON.parse(JSON.stringify(FISH));
@@ -2173,6 +2173,7 @@ void main() {
             const tlC = document.createElement('canvas');
             const tlAlb = document.createElement('canvas'), tlAG = tlAlb.getContext('2d');
             const tlRef = document.createElement('canvas'), tlRG = tlRef.getContext('2d');
+            const tlRefW = document.createElement('canvas'), tlWG = tlRefW.getContext('2d');
             let tlG = null, tlU = null, tlTex = null, tlMax = 0, tlBad = false, tlAlbKey = '', tlTexKey = '', tlLp = null, tlLc = null;
             let tlLastN = 0, tlLastI = 0;   // 진단용: 직전 프레임 광원 수 / 세기 합
             function tlInitGL() {
@@ -2350,6 +2351,12 @@ void main() {
                     if (RM.matches) {
                         ctx.drawImage(tlRef, torX, top, torW, torH);
                     } else {
+                        // 띠를 lighter로 바로 겹쳐 그리면 이음새 겹침(+0.5px)이 두 번 더해져 가로 줄무늬가 생긴다.
+                        // 오프스크린 버퍼에 source-over로 띠를 조립한 뒤 한 번만 lighter로 얹는다.
+                        const padX = Math.ceil((CFG.REFL_AMP0 + CFG.REFL_AMP1 + 1) * kx) + 2;
+                        fitCanvas(tlRefW, bw + padX * 2, bh);
+                        tlWG.setTransform(1, 0, 0, 1, 0, 0);
+                        tlWG.clearRect(0, 0, bw + padX * 2, bh);
                         const step = effReflStep(reflH);
                         for (let r = 0; r < torH; r += step) {
                             const sh = Math.min(step, torH - r);
@@ -2358,8 +2365,11 @@ void main() {
                             const d = y - HZ, kk = d / reflH;
                             const amp = CFG.REFL_AMP0 + CFG.REFL_AMP1 * kk * kk;
                             const dx = amp * (0.7 * Math.sin(d * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(d * CFG.SL_F2 - clock * CFG.SL_F3));
-                            ctx.drawImage(tlRef, 0, r * ky, bw, sh * ky, torX + dx, y, torW, sh + 0.5);
+                            const sy = r * ky, sH = Math.min(bh - sy, (sh + 0.5) * ky);
+                            if (sH > 0) tlWG.drawImage(tlRef, 0, sy, bw, sH, padX + dx * kx, sy, bw, sH);
                         }
+                        const pw = padX / kx;
+                        ctx.drawImage(tlRefW, torX - pw, top, torW + pw * 2, torH);
                     }
                     ctx.restore();
                 }
