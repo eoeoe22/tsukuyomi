@@ -1,7 +1,6 @@
 /* 산정 토리이 장면 (reference-images/mount.mp4). 움직이는 건 구름뿐이다.
  * tsukuyomi.html의 두 번째 세계(#worldMount, 경로 #mount)로, tsukuyomi.worlds.js가 처음 필요할 때 로드한다.
  * 로드 즉시 그리지 않고 배치 + 유휴 구름 생성만 해 둔다. 화면에 올릴 때 start(), 내릴 때 stop().
- * 카메라(setCam/clearCam)는 토리이 포털 전환 전용이다(평소엔 고정).
  * 두 버전을 하단 아이콘 그룹(#mountDock)으로 전환한다(tsukuyomi.css의 dock/icongroup 재사용, 스냅샷 크로스페이드):
  *   - dusk(구버전, 미통합): 영상 후반 숏. 땅거미 하늘 + 뒤쪽 운해 벽 + 바위 능선 + 토리이.
  *   - sunset(통합): 영상 두 숏을 한 장면으로. 운해 수평선에 걸린 노을 태양 + 원근 운해 + 역광 능선·토리이.
@@ -939,12 +938,6 @@ void main(){
         window.addEventListener('resize', () => moveThumb(false));
     }
 
-    // ---------- 카메라 (포털 전환 전용): screen = m + s * (world - f) ----------
-    // 모든 레이어를 같은 변환으로 다시 그린다(벡터는 원해상도, 구운 스프라이트·셰이더 버퍼는 확대).
-    let CAM = null;
-    function setCam(f, m, s) { CAM = { fx: f.x, fy: f.y, mx: m.x, my: m.y, s: Math.max(1, s) }; }
-    function clearCam() { CAM = null; }
-
     // ---------- 시작: 배치 + 유휴 생성만. 그리기는 start()부터 ----------
     resize();
     for (const el of btns) el.style.transition = 'none';
@@ -958,8 +951,7 @@ void main(){
     function drawFrame(now, dt) {
         t += dt;
         if (LIVE_OK) cloudLive.tick(t, now, RM.matches ? Object.assign({}, CL, { CL_RATE: 0.15 }) : CL);
-        if (CAM) ctx.setTransform(dpr * CAM.s, 0, 0, dpr * CAM.s, dpr * (CAM.mx - CAM.s * CAM.fx), dpr * (CAM.my - CAM.s * CAM.fy));
-        else ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         cur.draw(t, now);
         if (fadeT > 0) {
             const a = fadeT * fadeT * (3 - 2 * fadeT);
@@ -997,7 +989,7 @@ void main(){
     }
 
     window.TsukuyomiMount = {
-        start, stop, setCam, clearCam, torii, setScene, syncUI: () => syncUI(),
+        start, stop, torii, setScene, syncUI: () => syncUI(),
         get running() { return running; },
         get scene() { return cur.id; },
         get bg() { return cur.bg; },

@@ -571,7 +571,7 @@
             display: block;
         }
 
-        /* 황혼 토리이 위: 포털 입구라 손가락 커서 */
+        /* 황혼 토리이 위: 산 입구라 손가락 커서 */
         body[data-torii-hover] {
             cursor: pointer;
         }
