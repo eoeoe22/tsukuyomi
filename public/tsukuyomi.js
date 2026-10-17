@@ -2120,7 +2120,8 @@
                 motif: 0, size: 24, aspect: 1.0, wag: 0.085, patA: 0.88, winD: 0.58, fillA: 0.72,
                 nMid: 48, nNear: 6, nFar: 8,
                 spd: 1.15, swR: 0.06, tilt: -24, swirl: 1.25, trail: 2, trailA: 0.22,
-                glow: 0.85, glowR: 9, spark: 12, seed: 11, fade: 0.45, refl: 0.55
+                glow: 0.85, glowR: 9, spark: 12, seed: 11, fade: 0.45, refl: 0.55,
+                follow: 18, followFar: 2.5   // 중심 추적 속도(1/s), 커서가 멀 때(Rs×3 이상) 배율
             };
             const CURSOR_DEFAULTS = JSON.parse(JSON.stringify(CURSOR));
             // 군집 물고기 화면비례 계수: 토리이 상승 물고기(sizeScale=torH/116)와 같은 축.
@@ -2252,16 +2253,21 @@
                         if (isFinite(tw.x) && isFinite(tw.y)) { twx = tw.x; twy = tw.y; }
                     } catch (e) { /* 변환 실패 시 현상 유지 */ }
                 }
-                if (!cursorInit && W > 0 && H > 0) {
-                    cursorWX = twx; cursorWY = twy; cursorInit = true;
-                } else {
-                    const k = 1 - Math.exp(-10 * Math.max(0, dt));
-                    cursorWX += (twx - cursorWX) * k;
-                    cursorWY += (twy - cursorWY) * k;
-                }
                 const o = CURSOR;
                 const cs = cursorSizeScale();
                 const Rs = Math.max(20, H * o.swR);
+                if (!cursorInit && W > 0 && H > 0) {
+                    cursorWX = twx; cursorWY = twy; cursorInit = true;
+                } else {
+                    // 거리 적응 평활: 멀면 빠르게 따라붙고, 가까우면 부드럽게 안착(작은 떨림 흡수).
+                    const dx = twx - cursorWX, dy = twy - cursorWY;
+                    const far = Math.min(1, Math.hypot(dx, dy) / (Rs * 3));
+                    const base = Math.max(1, o.follow);
+                    const rate = lerp(base, base * Math.max(1, o.followFar), far);
+                    const k = 1 - Math.exp(-rate * Math.max(0, dt));
+                    cursorWX += dx * k;
+                    cursorWY += dy * k;
+                }
                 const histLen = Math.max(0, Math.round(o.trail)) * 2 + 1;
                 const dirS = o.swirl >= 0 ? 1 : -1;
                 for (const f of cursorFish) {
@@ -2282,8 +2288,9 @@
                     f.scaleMul = sphScale * f.sk;
                     f.alphaMul = sp.z < 0 ? lerp(0.38, 0.68, sp.z + 1) : lerp(0.84, 1.0, sp.z);
                     if (f.L > 0 && histLen > 1 && cursorA > 0.01) {
+                        // 궤적은 군집 중심 기준 상대좌표로 저장: 중심 이동으로 잔상이 끌리지 않고 소용돌이 회전만 남는다.
                         f.hist.push({
-                            x: f.x, y: f.y, hd: f.hd,
+                            x: f.x - cursorWX, y: f.y - cursorWY, hd: f.hd,
                             sz: o.size * f.scaleMul * cs,
                             ph: f.ph, bend: f.bend,
                             aspectMul: f.aspectMul,
@@ -2458,7 +2465,8 @@
                         for (let k = 1; k <= nTrail; k++) {
                             const hi = f.hist.length - 1 - k * 2;
                             if (hi < 0) break;
-                            const hst = f.hist[hi];
+                            const hr = f.hist[hi];
+                            const hst = { ...hr, x: cursorWX + hr.x, y: cursorWY + hr.y };
                             if (Math.hypot(hst.x - f.x, hst.y - f.y) > 140 * cs) break;
                             inst.ghosts.push({
                                 out: M.outline.map(([u, y]) => fsMapPoint(u, y, hst, o)),
