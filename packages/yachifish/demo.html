@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>yachifish demo (로컬 dist)</title>
+<style>body{margin:20px;font-family:system-ui,sans-serif}#fx{width:min(800px,94vw)}button{margin:8px 4px 0 0}</style>
+</head>
+<body>
+<div id="fx"></div>
+<div id="modes"></div>
+<button id="fire">폭발 / 파동 발사</button>
+<button id="bg">배경 토글</button>
+<button id="play">일시 정지</button>
+<button id="svg">SVG 복사</button>
+<script src="./dist/yachifish.umd.js"></script>
+<script>
+  const fx = yachifish('#fx', { mode: 'sphere' });
+  for (const m of yachifish.MODES) {
+    const b = document.createElement('button');
+    b.textContent = m;
+    b.onclick = () => fx.set({ mode: m });
+    document.getElementById('modes').appendChild(b);
+  }
+  document.getElementById('fire').onclick = () => fx.fire();
+  document.getElementById('bg').onclick = () => fx.set({ background: !fx.get().background });
+  document.getElementById('play').onclick = e => { e.target.textContent = fx.toggle() ? '일시 정지' : '재생'; };
+  document.getElementById('svg').onclick = async () => {
+    const svg = fx.toSVG();
+    try { await navigator.clipboard.writeText(svg); alert('복사됨'); }
+    catch { console.log(svg); }
+  };
+</script>
+</body>
+</html>
