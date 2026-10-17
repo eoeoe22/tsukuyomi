@@ -707,6 +707,9 @@
             ['glow', 0, 1.6, 0.02], ['glowR', 2, 28, 0.5], ['spark', 0, 80, 1],
             ['aurora', 0, 1, 0.02], ['refl', 0, 1, 0.02],
         ]},
+        { title: '토리이 반사광 (WebGL)', check: ['tlOn', '토리이 반사광 켜기 (WebGL 필요)'], keys: [
+            ['tlGain', 0, 3, 0.05], ['tlReach', 0.3, 3, 0.05], ['tlRim', 0, 2, 0.05], ['tlRefl', 0, 1, 0.02],
+        ]},
     ];
     const FISH_COLORS = [
         ['c0', '분홍'], ['c1', '청록'], ['c2', '노랑'], ['c3', '살구'], ['c4', '하늘'], ['c5', '연두'],
@@ -738,6 +741,19 @@
             sub.className = 'tsd-sub';
             sub.textContent = g.title;
             host.appendChild(sub);
+            if (g.check) {
+                const [key, label] = g.check;
+                const lbl = document.createElement('label');
+                lbl.className = 'tsd-check';
+                lbl.title = '기본값 ' + (b.fishDefaults[key] ? '켜짐' : '꺼짐');
+                const chk = document.createElement('input');
+                chk.type = 'checkbox'; chk.checked = !!b.fish[key];
+                chk.addEventListener('change', () => { b.fish[key] = chk.checked ? 1 : 0; });
+                lbl.appendChild(chk);
+                lbl.appendChild(document.createTextNode(label));
+                host.appendChild(lbl);
+                fishRowRefs.push({ key, range: chk, num: chk, kind: 'check' });
+            }
             for (const [key, min, max, step] of g.keys) {
                 const row = document.createElement('div');
                 row.className = 'tsd-row';
@@ -824,6 +840,7 @@
                 if (document.activeElement !== r.range) r.range.value = b.fish[r.key];
                 continue;
             }
+            if (r.kind === 'check') { r.range.checked = !!b.fish[r.key]; continue; }
             if (document.activeElement !== r.range) r.range.value = String(b.fish[r.key]);
             if (r.num !== r.range && document.activeElement !== r.num) r.num.value = String(b.fish[r.key]);
         }
@@ -987,7 +1004,7 @@
 
     // 물고기/군집 하위 구간 (avg/max ms). 계측 중 개체가 없었으면 생략.
     function fishLine(z) {
-        const keys = ['fishUpd', 'fishScene', 'fishBack', 'fishFront', 'curUpd', 'curDraw'];
+        const keys = ['fishUpd', 'fishScene', 'fishBack', 'fishLight', 'fishFront', 'curUpd', 'curDraw'];
         if (!(z.max.nFish > 0 || z.max.nCur > 0)) return '';
         return '\n  fish ' + keys.map(k => k + '=' + (z.avg[k] || 0) + '/' + (z.max[k] || 0)).join(' ') +
             '  n=' + (z.avg.nFish || 0) + '/' + (z.max.nFish || 0) + ' cur=' + (z.avg.nCur || 0) + '/' + (z.max.nCur || 0);

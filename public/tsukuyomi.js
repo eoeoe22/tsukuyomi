@@ -393,11 +393,11 @@
             const ZP = { on: false, label: '', t0: 0, acc: null, frames: [], last: null, log: /[?&]zprof\b/.test(location.search), noOcc: false };
             // noOcc: A/B 계측 전용 — 달 배치 모드의 달 가림(뒤 물고기 별도 버퍼 + destination-out) 경로를 끈다.
             // sdir: 별 직접 그리기 프레임이면 1 (avg = 직접 그리기 비율). mbBody: 미러볼 본체 재굽기 JS 시간.
-            // 물고기 계측(하위 구간, 상위 합계와 중복 집계): fishUpd/curUpd ⊂ update, fishScene/fishBack/fishFront/curDraw ⊂ fg.
+            // 물고기 계측(하위 구간, 상위 합계와 중복 집계): fishUpd/curUpd ⊂ update, fishScene/fishBack/fishLight/fishFront/curDraw ⊂ fg.
             // nFish/nCur: 프레임별 개체 수(물고기+오브 / 군집 물고기+오브), avg/max로 부하 규모를 같이 본다.
             const ZP_KEYS = ['update', 'live', 'sky', 'clouds', 'stars', 'moon', 'mbBody', 'refl', 'water', 'fg', 'ripple', 'cam', 'sdir',
-                'fishUpd', 'fishScene', 'fishBack', 'fishFront', 'curUpd', 'curDraw', 'nFish', 'nCur'];
-            const ZP_FISH = ['fishUpd', 'fishScene', 'fishBack', 'fishFront', 'curUpd', 'curDraw'];
+                'fishUpd', 'fishScene', 'fishBack', 'fishLight', 'fishFront', 'curUpd', 'curDraw', 'nFish', 'nCur'];
+            const ZP_FISH = ['fishUpd', 'fishScene', 'fishBack', 'fishLight', 'fishFront', 'curUpd', 'curDraw'];
             const zpNow = () => ZP.on ? performance.now() : 0;
             function zpAdd(k, t0) { if (ZP.on) ZP.acc[k] = (ZP.acc[k] || 0) + (performance.now() - t0); }
             function zpEv(k) { if (ZP.on) (ZP.acc.ev || (ZP.acc.ev = [])).push(k); }
@@ -1317,6 +1317,9 @@
                 spd: 1.0, swirl: 0.8, trail: 3, trailA: 0.25,
                 glow: 0.75, glowR: 9, spark: 23, aurora: 0.25, refl: 0.65,
                 seed: 17,
+                // 토리이 반사광(WebGL): tlOn 켜기(1)/끄기(0), tlGain 세기, tlReach 광원 도달 거리 배율,
+                // tlRim 뒤 광원 가장자리 림라이트 비중, tlRefl 수면 반사상에 얹는 비율
+                tlOn: 1, tlGain: 1.0, tlReach: 1.0, tlRim: 0.9, tlRefl: 0.3,
                 c0: '#ff6ad5', c1: '#52f2ff', c2: '#f4f255', c3: '#ffaa5c', c4: '#6aaeff', c5: '#6bf5a8'
             };
             const FISH_DEFAULTS = JSON.parse(JSON.stringify(FISH));
@@ -2110,6 +2113,256 @@
                     for (const ob of orbs) fsDrawOrbOrStar(FG, ob, layerAlpha);
                 }
                 FG.restore();
+            }
+
+            // ---------- 토리이 물고기 조명 (WebGL 전용) ----------
+            // 상승 물고기·빛방울을 점광원으로 삼아 토리이 표면에 반사광을 더한다. 2D 폴백 없음(WebGL 실패 시 그냥 꺼짐).
+            // 토리이 실루엣 알파의 기울기로 가장자리 법선을 근사해, 앞(z>0) 광원은 면 전체를 확산광으로,
+            // 뒤(z<0) 광원은 광원 쪽 가장자리만 림라이트로 밝힌다. 결과는 FG/수면 반사에 'lighter'로 더한다.
+            // 끄기: FISH.tlOn = 0 (디버그 패널 체크박스, 월페이퍼 옵션은 __TSUKUYOMI__.fish.tlOn 으로 제어)
+            const TL_RES = 0.5;   // 조명 버퍼 해상도(토리이 스프라이트 대비). 반사광은 부드러워 절반으로 충분
+            const TL_VS = `attribute vec2 aP;
+varying vec2 vUv;
+void main() { vUv = vec2(aP.x * 0.5 + 0.5, 0.5 - aP.y * 0.5); gl_Position = vec4(aP, 0.0, 1.0); }`;
+            const tlFS = n => `#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+#define TL_MAX ${n}
+varying vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2 uSize;
+uniform float uNr, uRim, uSheen;
+uniform int uN;
+uniform vec4 uLp[TL_MAX];
+uniform vec4 uLc[TL_MAX];
+void main() {
+  vec4 t = texture2D(uTex, vUv);
+  if (t.a < 0.004) { gl_FragColor = vec4(0.0); return; }
+  vec2 px = vUv * uSize;
+  vec2 o1 = vec2(uNr) / uSize, o2 = o1 * 0.5;
+  vec2 g = vec2(texture2D(uTex, vUv + vec2(o1.x, 0.0)).a - texture2D(uTex, vUv - vec2(o1.x, 0.0)).a,
+                texture2D(uTex, vUv + vec2(0.0, o1.y)).a - texture2D(uTex, vUv - vec2(0.0, o1.y)).a)
+         + vec2(texture2D(uTex, vUv + vec2(o2.x, 0.0)).a - texture2D(uTex, vUv - vec2(o2.x, 0.0)).a,
+                texture2D(uTex, vUv + vec2(0.0, o2.y)).a - texture2D(uTex, vUv - vec2(0.0, o2.y)).a);
+  vec2 nOut = -g * 0.5;
+  float edge = clamp(length(nOut), 0.0, 1.0);
+  vec2 nDir = edge > 0.001 ? nOut / length(nOut) : vec2(0.0);
+  vec3 N = normalize(vec3(nOut * 1.6, 1.0));
+  vec3 acc = vec3(0.0);
+  for (int i = 0; i < TL_MAX; i++) {
+    if (i >= uN) break;
+    vec4 lp = uLp[i], lc = uLc[i];
+    vec3 L = vec3(lp.xy - px, lp.z);
+    float d2 = dot(L, L);
+    float r2 = lp.w * lp.w;
+    float f = max(0.0, r2 / (r2 + d2) - 0.05) * 1.0526;
+    float att = lc.a * f * f;
+    vec3 Ld = L * inversesqrt(d2 + 1.0);
+    float diff = max(dot(N, Ld), 0.0);
+    float rim = edge * max(dot(nDir, normalize(L.xy + vec2(0.001))), 0.0) * (0.35 + 0.65 * clamp(-Ld.z * 1.5, 0.0, 1.0));
+    acc += lc.rgb * att * (diff + rim * uRim);
+  }
+  vec3 alb = t.rgb / max(t.a, 0.001);
+  // 도료색 반사 + 옻칠 광택(광원색 그대로)을 섞어 물고기 색이 토리이 위에 남게 한다
+  vec3 c = 1.0 - exp(-acc * (alb * 0.8 + vec3(uSheen)));
+  c *= t.a;
+  gl_FragColor = vec4(c, max(c.r, max(c.g, c.b)));
+}`;
+            const tlC = document.createElement('canvas');
+            const tlAlb = document.createElement('canvas'), tlAG = tlAlb.getContext('2d');
+            const tlRef = document.createElement('canvas'), tlRG = tlRef.getContext('2d');
+            let tlG = null, tlU = null, tlTex = null, tlMax = 0, tlBad = false, tlAlbKey = '', tlTexKey = '', tlLp = null, tlLc = null;
+            let tlLastN = 0, tlLastI = 0;   // 진단용: 직전 프레임 광원 수 / 세기 합
+            function tlInitGL() {
+                tlG = null; tlTexKey = '';
+                let g = null;
+                try {
+                    g = tlC.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
+                } catch (e) { g = null; }
+                if (!g) { tlBad = true; return; }
+                try {
+                    // 광원 배열 크기: 프래그먼트 uniform 한도 안에서 최대 48개
+                    const maxVec = g.getParameter(g.MAX_FRAGMENT_UNIFORM_VECTORS) || 64;
+                    tlMax = clamp(Math.floor((maxVec - 12) / 2), 8, 48);
+                    const sh = (type, src) => {
+                        const s = g.createShader(type);
+                        g.shaderSource(s, src);
+                        g.compileShader(s);
+                        if (!g.getShaderParameter(s, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(s));
+                        return s;
+                    };
+                    const prog = g.createProgram();
+                    g.attachShader(prog, sh(g.VERTEX_SHADER, TL_VS));
+                    g.attachShader(prog, sh(g.FRAGMENT_SHADER, tlFS(tlMax)));
+                    g.linkProgram(prog);
+                    if (!g.getProgramParameter(prog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(prog));
+                    g.useProgram(prog);
+                    const buf = g.createBuffer();
+                    g.bindBuffer(g.ARRAY_BUFFER, buf);
+                    g.bufferData(g.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), g.STATIC_DRAW);
+                    const aP = g.getAttribLocation(prog, 'aP');
+                    g.enableVertexAttribArray(aP);
+                    g.vertexAttribPointer(aP, 2, g.FLOAT, false, 0, 0);
+                    tlU = {};
+                    for (const k of ['uTex', 'uSize', 'uNr', 'uRim', 'uSheen', 'uN']) tlU[k] = g.getUniformLocation(prog, k);
+                    tlU.uLp = g.getUniformLocation(prog, 'uLp[0]');
+                    tlU.uLc = g.getUniformLocation(prog, 'uLc[0]');
+                    tlTex = g.createTexture();
+                    g.activeTexture(g.TEXTURE0);
+                    g.bindTexture(g.TEXTURE_2D, tlTex);
+                    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR);
+                    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+                    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE);
+                    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE);
+                    g.pixelStorei(g.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+                    g.uniform1i(tlU.uTex, 0);
+                    g.disable(g.BLEND);
+                    g.clearColor(0, 0, 0, 0);
+                    tlLp = new Float32Array(tlMax * 4);
+                    tlLc = new Float32Array(tlMax * 4);
+                    tlG = g;
+                } catch (e) {
+                    console.warn('WebGL torii light disabled:', e);
+                    tlBad = true;
+                }
+            }
+            tlC.addEventListener('webglcontextlost', e => { e.preventDefault(); tlG = null; });
+            tlC.addEventListener('webglcontextrestored', () => { tlBad = false; tlInitGL(); });
+
+            // 조명 알베도 스프라이트: 밤 팔레트(어두움)가 아닌 낮 기준 도료색으로 그려야 반사광 색이 살아난다.
+            function tlBuildAlbedo(bw, bh, k) {
+                const key = bw + 'x' + bh + '|' + k.toFixed(4);
+                if (key === tlAlbKey) return false;
+                tlAlbKey = key;
+                fitCanvas(tlAlb, bw, bh);
+                const [red, blk] = keyed(TORII, 0);
+                tlAG.setTransform(1, 0, 0, 1, 0, 0);
+                tlAG.clearRect(0, 0, bw, bh);
+                tlAG.setTransform(k, 0, 0, k, -TB.x * k, -TB.y * k);
+                tlAG.fillStyle = rgba(red); tlAG.fill(TORII_RED);
+                tlAG.fillStyle = rgba(blk); tlAG.fill(TORII_BLK);
+                return true;
+            }
+
+            // fishScene의 물고기·빛방울에서 토리이에 영향이 큰 순으로 tlMax개 광원을 고른다 (월드 css px).
+            function tlCollect(Sc, sceneAlpha) {
+                const o = FISH;
+                const out = [];
+                const cx0 = torX, cx1 = torX + torW, cy0 = torY, cy1 = torBase;
+                // 깊이(z)는 앞/뒤 방향 판정용: 토리이가 얇아 실제 궤도 깊이만큼 띄우면 빛이 거의 닿지 않는다
+                const zK = torW * 0.2;
+                const push = (x, y, z, R, col, I) => {
+                    if (I <= 0.01 || R <= 0.5) return;
+                    const dx = x < cx0 ? cx0 - x : x > cx1 ? x - cx1 : 0;
+                    const dy = y < cy0 ? cy0 - y : y > cy1 ? y - cy1 : 0;
+                    const r2 = R * R;
+                    const score = I * r2 / (r2 + dx * dx + dy * dy + z * z * 0.25);
+                    if (score < 0.012) return;
+                    out.push({ x, y, z, R, col, I, score });
+                };
+                const fishI = o.tlGain * sceneAlpha;
+                for (const list of [Sc.backList, Sc.frontList]) {
+                    for (const it of list) {
+                        const sz = it.st.sz;
+                        const R = sz * 1.15 * o.tlReach;
+                        let z = (it.z || 0) * zK;
+                        z += (z >= 0 ? 1 : -1) * R * 0.25;   // 토리이 평면 위에 딱 붙은 광원도 앞/뒤 한쪽을 비추게
+                        push(it.f.x, it.f.y, z, R, fsMixW(it.col, 0.2), it.alpha * fishI * (it.f.L === 2 ? 0.9 : 0.6));
+                    }
+                }
+                for (const list of [Sc.backOrbs, Sc.frontOrbs]) {
+                    for (const ob of list) {
+                        const R = ob.rNow * 4 * o.tlReach;
+                        push(ob.x, ob.y, ob.z * zK + (ob.z >= 0 ? R : -R) * 0.25, R, fsMixW(ob.col, 0.5), ob.a * fishI * 0.45);
+                    }
+                }
+                if (out.length > tlMax) {
+                    out.sort((a, b) => b.score - a.score);
+                    out.length = tlMax;
+                }
+                return out;
+            }
+
+            // FG 토리이 본체 위에 반사광을 더한다. drawTorii 직후(앞 랜턴·앞 물고기 이전)에 호출.
+            function drawToriiLight(Sc, sceneAlpha) {
+                tlLastN = 0; tlLastI = 0;
+                const o = FISH;
+                if (!Sc || !o.tlOn || o.tlGain <= 0.01 || sceneAlpha <= 0.01 || torW < 2 || torH < 2) return;
+                if (!tlG && !tlBad) tlInitGL();
+                const g = tlG;
+                if (!g || g.isContextLost()) return;
+                const lights = tlCollect(Sc, sceneAlpha);
+                if (!lights.length) return;
+                const cs = camRK();
+                const bw = Math.max(1, Math.ceil(torW * dpr * cs * TL_RES));
+                const bh = Math.max(1, Math.ceil(torH * dpr * cs * TL_RES));
+                const k = torS * dpr * cs * TL_RES;
+                if (tlBuildAlbedo(bw, bh, k) || tlTexKey !== tlAlbKey) {
+                    tlTexKey = tlAlbKey;
+                    g.bindTexture(g.TEXTURE_2D, tlTex);
+                    g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, tlAlb);
+                }
+                if (tlC.width !== bw || tlC.height !== bh) { tlC.width = bw; tlC.height = bh; }
+                // 월드 → 조명 버퍼 px
+                const kx = bw / torW, ky = bh / torH;
+                const n = lights.length;
+                for (let i = 0; i < n; i++) {
+                    const L = lights[i], j = i * 4;
+                    tlLp[j] = (L.x - torX) * kx; tlLp[j + 1] = (L.y - torY) * ky; tlLp[j + 2] = L.z * kx; tlLp[j + 3] = L.R * kx;
+                    tlLc[j] = L.col[0] / 255; tlLc[j + 1] = L.col[1] / 255; tlLc[j + 2] = L.col[2] / 255; tlLc[j + 3] = L.I;
+                }
+                g.viewport(0, 0, bw, bh);
+                g.clear(g.COLOR_BUFFER_BIT);
+                g.uniform2f(tlU.uSize, bw, bh);
+                g.uniform1f(tlU.uNr, Math.max(1.5, bw * 0.014));
+                g.uniform1f(tlU.uRim, o.tlRim);
+                g.uniform1f(tlU.uSheen, 0.28);
+                g.uniform1i(tlU.uN, n);
+                g.uniform4fv(tlU.uLp, tlLp);
+                g.uniform4fv(tlU.uLc, tlLc);
+                g.drawArrays(g.TRIANGLES, 0, 6);
+                tlLastN = n;
+                tlLastI = lights.reduce((a, L) => a + L.I, 0);
+
+                FG.save();
+                camSet(FG);
+                FG.globalCompositeOperation = 'lighter';
+                FG.globalAlpha = 1;
+                FG.drawImage(tlC, torX, torY, torW, torH);
+                FG.restore();
+
+                // 수면의 토리이 반사상에도 같은 반사광을 뒤집어 물결 띠로 얹는다 (drawTorii 반사와 같은 띠 변위)
+                if (o.tlRefl > 0.01 && camFlatOn()) {
+                    fitCanvas(tlRef, bw, bh);
+                    tlRG.setTransform(1, 0, 0, 1, 0, 0);
+                    tlRG.clearRect(0, 0, bw, bh);
+                    tlRG.setTransform(1, 0, 0, -1, 0, bh);
+                    tlRG.drawImage(tlC, 0, 0);
+                    const reflH = H - HZ;
+                    const pad = (TB.y + TB.h - TB.base) * torS;
+                    const top = torBase - pad;
+                    ctx.save();
+                    camSet(ctx);
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.globalAlpha = Math.min(1, o.tlRefl);
+                    if (RM.matches) {
+                        ctx.drawImage(tlRef, torX, top, torW, torH);
+                    } else {
+                        const step = effReflStep(reflH);
+                        for (let r = 0; r < torH; r += step) {
+                            const sh = Math.min(step, torH - r);
+                            const y = top + r;
+                            if (y > H) break;
+                            const d = y - HZ, kk = d / reflH;
+                            const amp = CFG.REFL_AMP0 + CFG.REFL_AMP1 * kk * kk;
+                            const dx = amp * (0.7 * Math.sin(d * CFG.SL_F0 + clock * CFG.SL_F1) + 0.3 * Math.sin(d * CFG.SL_F2 - clock * CFG.SL_F3));
+                            ctx.drawImage(tlRef, 0, r * ky, bw, sh * ky, torX + dx, y, torW, sh + 0.5);
+                        }
+                    }
+                    ctx.restore();
+                }
             }
 
             // ---------- 물고기 군집 배치 옵션 (물고기 이펙트 초안 Argon.html sphere 모드 이식) ----------
@@ -5209,6 +5462,7 @@ void main() {
                     drawLanterns(r0, r1, structA, 'back');
                     if (fishScene) { zf = zpNow(); drawFishPass('back', fishScene, fishNightA); zpAdd('fishBack', zf); }
                     drawTorii(r0, r1, 1);
+                    if (fishScene) { zf = zpNow(); drawToriiLight(fishScene, fishNightA); zpAdd('fishLight', zf); }
                     drawLanterns(r0, r1, structA, 'front');
                     if (fishScene) { zf = zpNow(); drawFishPass('front', fishScene, fishNightA); zpAdd('fishFront', zf); }
                     // 물고기 군집 배치: 밤 페이드와 모드 페이드(cursorA)를 함께 적용해 최전경에 그린다
@@ -5909,6 +6163,8 @@ void main() {
                 get fishDefaults() { return FISH_DEFAULTS; },
                 get fishActive() { return fishActive; },
                 get fishCount() { return fishList.length; },
+                // 토리이 반사광 진단: gl 준비 여부, 실패 여부, 광원 상한, 직전 프레임 광원 수/세기 합
+                get toriiLight() { return { gl: !!tlG, bad: tlBad, max: tlMax, n: tlLastN, sumI: +tlLastI.toFixed(3) }; },
                 get cursorFx() { return CURSOR; },
                 get cursorDefaults() { return CURSOR_DEFAULTS; },
                 get cursorActive() { return cursorMode !== 0 && cursorA > 0.01; },
