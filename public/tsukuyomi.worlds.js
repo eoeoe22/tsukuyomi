@@ -2,10 +2,7 @@
  * 경로는 tsukuyomi.html 하나로 통합하고 산은 해시 #mount로 연다(정적 호스팅이라 경로 리라이트 없이).
  *
  * 진입 / 복귀 (전환은 모두 단순 페이드)
- *   - 황혼 장면(state === 'dusk')의 토리이 클릭 → 산
- *   - 산 장면의 토리이 클릭 → 수면
- *   - 산 버튼(#btnToMount / #btnToMoon): 백업 수단.
- *     길게 누르면 디버그 패널 토글(예전 card-text 버튼의 홀드 동작을 이어받음).
+ *   - 산 버튼(#btnToMount / #btnToMoon). 길게 누르면 디버그 패널 토글(예전 card-text 버튼의 홀드 동작을 이어받음).
  *   - 브라우저 뒤로/앞으로·해시 직접 수정도 같은 규칙으로 전환한다.
  */
 (() => {
@@ -48,25 +45,18 @@
     }
     return mountP;
   }
-  // 의도가 보이면(산 버튼 근처, 황혼 토리이 위) 미리 받아 배치·구름 생성을 유휴 시간에 시작해 둔다
+  // 의도가 보이면(산 버튼 근처) 미리 받아 배치·구름 생성을 유휴 시간에 시작해 둔다
   const prewarm = () => { loadMount().catch(e => console.warn('[tsukuyomi] 산 장면 미리 로드 실패:', e)); };
 
-  // ---------- 세계 어댑터: 토리이 배치(torii.svg 좌표 X → 화면 ox + X·k), 시작/정지 ----------
+  // ---------- 세계 어댑터: 시작/정지 ----------
   const moon = {
     id: 'moon', el: moonEl, dock: moonDock, toggle: btnToMount,
-    torii() {
-      const t = T() && T().torii;
-      if (!t || !(t.w > 2)) return null;
-      const k = t.w / 432;   // TB.w
-      return { ox: t.x - 124 * k, oy: t.y - 62 * k, k };   // TB.x, TB.y
-    },
     start() { try { T().resume(); } catch (e) { /* 무시 */ } return Promise.resolve(); },
     stop() { try { T().suspend(); } catch (e) { /* 무시 */ } },
   };
   const mount = {
     id: 'mount', el: mountEl, dock: mountDock, toggle: btnToMoon,
     M: null,
-    torii() { return this.M ? this.M.torii() : null; },
     start() {
       return loadMount().then(M => { this.M = M; M.start(); });
     },
@@ -74,25 +64,14 @@
   };
   const WORLDS = { moon, mount };
 
-  // 토리이 전체(지붕 끝 ~ 발) 사각형: 클릭 판정
-  function toriiBox(w) {
-    const tm = w.torii();
-    if (!tm) return null;
-    return { x0: tm.ox + 124 * tm.k, x1: tm.ox + 556 * tm.k, y0: tm.oy + 62 * tm.k, y1: tm.oy + 420 * tm.k };
-  }
-
   // ---------- 상태 ----------
   let world = 'moon';
   let busy = false;
-  const isDusk = () => { const t = T(); return !!(t && t.state === 'dusk'); };
 
   function setBusy(on) {
     busy = on;
-    if (on) {
-      document.body.setAttribute('data-world-busy', '');
-      document.body.removeAttribute('data-torii-hover');
-      hoverOn = false;
-    } else document.body.removeAttribute('data-world-busy');
+    if (on) document.body.setAttribute('data-world-busy', '');
+    else document.body.removeAttribute('data-world-busy');
   }
   function clearFx(w) {
     const st = w.el.style;
@@ -187,50 +166,7 @@
   function onRoute() { go(hashWorld()); }
   window.addEventListener('hashchange', onRoute);
 
-  // ---------- 토리이 클릭 / 호버 ----------
-  const overUI = t => (t instanceof Element) && !!t.closest('.panel,.dock,.tsd-panel,#tsdFab,.tsce-pad,.tcl-panel');
-  function hitTorii(w, x, y) {
-    const b = toriiBox(w);
-    if (!b) return false;
-    const pad = Math.max(6, (b.x1 - b.x0) * 0.04);
-    return x >= b.x0 - pad && x <= b.x1 + pad && y >= b.y0 - pad && y <= b.y1 + pad;
-  }
-  // 지금 토리이가 문 역할을 하는가: 月는 황혼일 때만, 山은 항상
-  function doorAt(x, y) {
-    if (busy) return null;
-    if (world === 'moon') {
-      const t = T();
-      if (!isDusk() || !t || t.camOn || !(t.torii && t.torii.visible)) return null;
-      return hitTorii(moon, x, y) ? 'mount' : null;
-    }
-    if (world === 'mount' && mount.M) return hitTorii(mount, x, y) ? 'moon' : null;
-    return null;
-  }
-  let down = null;
-  window.addEventListener('pointerdown', e => {
-    down = (e.button > 0 || overUI(e.target)) ? null : { x: e.clientX, y: e.clientY, id: e.pointerId };
-  }, true);
-  window.addEventListener('pointerup', e => {
-    const d = down; down = null;
-    if (!d || d.id !== e.pointerId || overUI(e.target)) return;
-    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) return;   // 드래그(물결 긋기)는 제외
-    const target = doorAt(e.clientX, e.clientY);
-    if (!target) return;
-    navigate(target);
-  });
-  let hoverOn = false;
-  window.addEventListener('pointermove', e => {
-    if (e.pointerType === 'touch') return;
-    const on = !overUI(e.target) && !!doorAt(e.clientX, e.clientY);
-    if (on && world === 'moon') prewarm();
-    if (on !== hoverOn) {
-      hoverOn = on;
-      if (on) document.body.setAttribute('data-torii-hover', '');
-      else document.body.removeAttribute('data-torii-hover');
-    }
-  }, { passive: true });
-
-  // ---------- 산 버튼 (백업 전환 + 길게 눌러 디버그 패널) ----------
+  // ---------- 산 버튼 (전환 + 길게 눌러 디버그 패널) ----------
   const HOLD_MS = 600;
   function wireToggle(btn, target) {
     if (!btn) return;

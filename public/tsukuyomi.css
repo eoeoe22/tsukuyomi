@@ -571,11 +571,6 @@
             display: block;
         }
 
-        /* 황혼 토리이 위: 산 입구라 손가락 커서 */
-        body[data-torii-hover] {
-            cursor: pointer;
-        }
-
         @media (prefers-reduced-motion: reduce) {
             .dock,
             body[data-world-busy] .dock {

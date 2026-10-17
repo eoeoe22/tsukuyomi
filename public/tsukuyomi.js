@@ -5875,7 +5875,7 @@ void main() {
                     get log() { return ZP.log; }, set log(v) { ZP.log = !!v; },
                     get noOcc() { return ZP.noOcc; }, set noOcc(v) { ZP.noOcc = !!v; },
                 },
-                // 랜드마크 월드 좌표 (css px, 카메라 적용 전). 토리이 포털(tsukuyomi.worlds.js)이 쓴다.
+                // 랜드마크 월드 좌표 (css px, 카메라 적용 전).
                 get torii() {
                     return {
                         x: torX, y: torY, w: torW, h: torH,

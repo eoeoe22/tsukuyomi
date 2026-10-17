@@ -982,14 +982,8 @@ void main(){
     }
     function stop() { running = false; }
 
-    // 토리이 배치: torii.svg 좌표 X → 화면 ox + X * k (카메라 적용 전)
-    function torii() {
-        const { tw, tx, floorY } = cur.L, k = tw / TB.w;
-        return { ox: tx - TB.cx * k, oy: floorY + tw * 0.012 - TB.base * k, k };
-    }
-
     window.TsukuyomiMount = {
-        start, stop, torii, setScene, syncUI: () => syncUI(),
+        start, stop, setScene, syncUI: () => syncUI(),
         get running() { return running; },
         get scene() { return cur.id; },
         get bg() { return cur.bg; },
