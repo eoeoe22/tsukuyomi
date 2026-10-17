@@ -10,10 +10,9 @@
  *
  * 포털 (A → B)
  *   A는 인-캔버스 카메라로 토리이 아래 개구부(기둥 사이 · 누키 아래)를 향해 원해상도로 확대해 들어간다.
- *   카메라는 A의 개구부 중심을 B의 개구부가 놓인 화면 위치로 데려간다.
- *   B는 A 위에 올라와 그 개구부 모양 마스크 안으로만 보인다. B는 축소된 채 자기 개구부 중심을 A의 개구부
- *   중심에 붙이고(문 너머의 문), A보다 느리게 커지며(먼 풍경 시차) 제자리(항등)로 돌아온다.
- *   후반에는 개구부가 화면 밖으로 넓어지며 그 밖도 B가 서서히 덮어(페이드) 전환을 마무리한다.
+ *   카메라는 A의 개구부 중심을 B의 개구부가 놓인 화면 위치로 데려간다(山 → 月는 제자리에서 정면 직진).
+ *   개구부 안에 B를 미리 비추지 않고, 기둥이 화면 밖으로 빠져나가는(토리이를 통과하는) 순간부터
+ *   B가 A 위에서 화면 전체로 페이드 인한다.
  *   동작 줄이기 설정이면 포털 대신 짧은 페이드.
  */
 (() => {
@@ -42,8 +41,9 @@
     CAM_MAX: 8,         // 카메라 최대 배율(개구부가 화면을 다 덮기 전이라도 여기서 멈추고 페이드로 마무리)
     // 토리이 개구부(torii.svg 680×450 좌표): 기둥 안쪽 모서리(기울기 평균) 사이, 누키 아래 ~ 발 높이
     GATE: { x0: 246, x1: 434, y0: 212, y1: 410 },
-    INNER_FIT: 0.8,     // 시작 순간 B의 토리이가 A 개구부 폭에서 차지하는 비율
-    K0_MIN: 0.12, K0_MAX: 0.6,
+    PASS_AT: 0.55,      // 개구부가 화면을 덮는 배율의 이 비율에 이르면 '통과'로 보고 전체 페이드 시작
+    FADE_FROM_MIN: 0.45, FADE_FROM_MAX: 0.8,   // 페이드 시작 진행도(u) 범위
+    STRAIGHT_FROM: ['mount'],   // 이 세계에서 나가는 포털은 카메라가 개구부를 향해 정면 직진(옆 이동 없음)
     // 디버그: 0~1 숫자면 전환을 그 진행도에 멈춰 둔다(콘솔에서 __TSUKUYOMI_WORLDS__.cfg.SCRUB = 0.4). null이면 정상 재생
     SCRUB: null,
   };
@@ -191,23 +191,6 @@
     });
   }
 
-  // 마스크 세 층(합집합): 개구부 사각형(aIn) + 개구부에서 번져 나가는 부드러운 타원(iris) + 마지막 전체(aAll).
-  // 좌표는 .world(변환 없음) 기준 = 화면 좌표.
-  const A_ = a => `rgba(0,0,0,${a.toFixed(3)})`;
-  function setMask(el, g, aIn, iris, aAll) {
-    const st = el.style;
-    const img = `linear-gradient(${A_(aIn)},${A_(aIn)}),` +
-      (iris ? `radial-gradient(${iris.rx.toFixed(1)}px ${iris.ry.toFixed(1)}px at ${iris.cx.toFixed(1)}px ${iris.cy.toFixed(1)}px,` +
-        `#000 0%,#000 ${iris.hard}%,rgba(0,0,0,0) 100%),` : '') +
-      `linear-gradient(${A_(aAll)},${A_(aAll)})`;
-    const size = `${g.w.toFixed(1)}px ${g.h.toFixed(1)}px,` + (iris ? '100% 100%,' : '') + '100% 100%';
-    const pos = `${g.x.toFixed(1)}px ${g.y.toFixed(1)}px,` + (iris ? '0 0,' : '') + '0 0';
-    st.maskImage = st.webkitMaskImage = img;
-    st.maskSize = st.webkitMaskSize = size;
-    st.maskPosition = st.webkitMaskPosition = pos;
-    st.maskRepeat = st.webkitMaskRepeat = 'no-repeat';
-  }
-
   function portal(A, B) {
     const gA = gateOf(A), gB = gateOf(B);
     if (!gA || !gB) return fade(A, B);
@@ -215,18 +198,19 @@
     const f = { x: gA.cx, y: gA.cy };
     const C = clamp(Math.max(W / gA.w, H / gA.h), 2, CFG.CAM_MAX);
     const lnC = Math.log(C);
-    // 카메라 목적지: B의 개구부 중심(B 항등 화면). 끝에서 A·B 개구부가 정확히 겹친다
-    const dest = { x: gB.cx, y: gB.cy };
-    // 시작 순간 B의 토리이(폭 432·kB)가 A 개구부 폭의 INNER_FIT만큼 차지하는 배율
-    const k0 = clamp(CFG.INNER_FIT * gA.w / (432 * gB.k), CFG.K0_MIN, CFG.K0_MAX);
-    const lnK0 = Math.log(k0);
-    const view = B.el.firstElementChild;
+    // 카메라 목적지: B의 개구부 중심(B 항등 화면). 페이드가 끝날 때 A·B 개구부가 같은 자리에 겹친다.
+    // 山에서 나갈 때는 개구부 중심을 화면에 고정해 옆으로 휘지 않고 정면으로 직진한다
+    const dest = CFG.STRAIGHT_FROM.includes(A.id) ? f : { x: gB.cx, y: gB.cy };
     const path = { m0: f, s0: 1, m1: dest, s1: C };
+    // 페이드 시작: 개구부가 화면을 덮는 배율(C)의 PASS_AT만큼 커진 순간 = 기둥이 화면 가장자리로 빠져나가기 시작할 때.
+    // 배율 s = C^z, z = easeInOutSine(u) 이므로 z를 u로 되돌린다
+    const zPass = clamp(Math.log(Math.max(1, C * CFG.PASS_AT)) / lnC, 0, 1);
+    const uPass = clamp(Math.acos(1 - 2 * zPass) / Math.PI, CFG.FADE_FROM_MIN, CFG.FADE_FROM_MAX);
     const prof = T() && T().zoomProf;
     if (A === moon && prof) { try { prof.begin('portal:in s=' + C.toFixed(2)); } catch (e) { /* 무시 */ } }
 
+    B.el.style.opacity = '0';
     B.el.style.zIndex = '1';
-    setMask(B.el, { x: 0, y: 0, w: 0, h: 0 }, 0, null, 0);
     B.el.hidden = false;
 
     return rafLoop(CFG.PORTAL_MS, u => {
@@ -236,24 +220,8 @@
       const m = { x: lerp(f.x, dest.x, w), y: lerp(f.y, dest.y, w) };
       const s = Math.max(Math.exp(lnC * z), coverScale(f, m) * 1.01);
       A.setCam(f, m, s, C, path);
-      // 화면상의 개구부 (f가 개구부 중심이라 그 중심은 곧 m)
-      const gw = gA.w * s, gh = gA.h * s;
-      const gx0 = m.x - gw / 2, gy0 = m.y - gh / 2;
-      // B: 자기 개구부 중심을 A 개구부 중심(m)에 붙인 축소 상태 → 같은 70% 지점에서 항등
-      const kB = Math.exp(lnK0 * (1 - clamp(z / 0.7, 0, 1)));
-      const tx = m.x - kB * gB.cx, ty = m.y - kB * gB.cy;
-      if (view) view.style.transform = `translate(${tx.toFixed(2)}px,${ty.toFixed(2)}px) scale(${kB.toFixed(5)})`;
-      // 마스크: 개구부 안이 먼저 B로 차오르고(aIn), 후반에는 개구부에서 부드러운 타원이 화면 밖까지 번진다(iris).
-      // 타원 반지름은 개구부 크기에서 화면 대각선 너머까지, 가장자리 띠는 반지름의 45%
-      const aIn = ss(0, 0.3, u);
-      const e = ss(0.6, 0.97, u);
-      const diag = Math.hypot(W, H);
-      const iris = e > 0 ? {
-        cx: m.x, cy: m.y,
-        rx: lerp(gw * 0.55, diag * 1.9, e * e), ry: lerp(gh * 0.55, diag * 1.9, e * e),
-        hard: 55,
-      } : null;
-      setMask(B.el, { x: gx0, y: gy0, w: gw, h: gh }, aIn, iris, ss(0.9, 1, u));
+      // B: 토리이를 지나는 순간부터 화면 전체가 B로 페이드
+      B.el.style.opacity = String(ss(uPass, 1, u));
     }).then(() => {
       if (A === moon && prof) { try { if (prof.on) prof.end(); } catch (e) { /* 무시 */ } }
     });
