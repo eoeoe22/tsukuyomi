@@ -121,8 +121,10 @@
     });
   }
 
-  // 단순 페이드: B를 A 위에 올려 불투명도만 올린다(둘 다 계속 그린다)
+  // 단순 페이드: B를 A 위에 올려 불투명도만 올린다.
+  // A는 페이드를 시작할 때 멈춘다: 캔버스에 마지막 화면이 그대로 남아 정지 화면으로 걷히고, 두 세계를 함께 그리지 않는다
   function fade(A, B) {
+    A.stop();
     B.el.style.opacity = '0';
     B.el.style.zIndex = '1';
     B.el.hidden = false;
@@ -148,6 +150,7 @@
     } catch (e) {
       console.warn('[tsukuyomi] 세계 전환 실패:', e);
       clearFx(B);
+      WORLDS[world].start().catch(() => { /* 무시 */ });   // fade()가 멈췄을 수 있다
       if (B !== WORLDS[world]) { B.stop(); B.el.hidden = true; }
       // 주소를 실제로 남은 세계에 맞춘다(뒤로 가기 기록은 건드리지 않음)
       if (ROUTE && hashWorld() !== world) history.replaceState(null, '', world === 'mount' ? '#mount' : location.pathname + location.search);
