@@ -861,16 +861,21 @@ void main(){
     let rzT = 0;
     window.addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(resize, 120); });
 
-    function setScene(id) {
+    // o.instant: 크로스페이드 없이 바로 바꾼다(화면에 없을 때 미리 맞춰 둘 때)
+    // o.persist === false: 선택을 저장하지 않는다(랜딩이 연출용으로 고정할 때)
+    function setScene(id, o) {
         const sc = SCENES[id];
         if (!sc || sc === cur) return;
-        snap.width = cv.width; snap.height = cv.height;
-        SN.drawImage(cv, 0, 0);
-        fadeT = RM.matches ? 0 : 1;
+        const instant = RM.matches || !!(o && o.instant);
+        if (!instant) {
+            snap.width = cv.width; snap.height = cv.height;
+            SN.drawImage(cv, 0, 0);
+        }
+        fadeT = instant ? 0 : 1;
         cur = sc;
         finish(cur);
         ensureLayout(cur);
-        store.set(id);
+        if (!(o && o.persist === false)) store.set(id);
         syncUI();
         startPump();
     }

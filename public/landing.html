@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ko" data-worlds-route="off" data-phase="day">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Cloudwiki | 서버 없이 띄우는 위키</title>
+    <meta name="description" content="Cloudflare Workers 위에서 작게 시작해 끝까지 가는 위키, Cloudwiki.">
+    <link rel="icon" href="/assets/icons/icon.svg" type="image/x-icon">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="tsukuyomi.css">
+    <link rel="stylesheet" href="landing.css">
+</head>
+
+<body class="landing">
+    <!-- 月: 수면 토리이 장면 (tsukuyomi.js) -->
+    <div class="world" id="worldMoon">
+        <div class="world-view">
+            <canvas id="scene" aria-hidden="true"></canvas>
+            <canvas id="ripple" aria-hidden="true"></canvas>
+            <canvas id="fg" aria-hidden="true"></canvas>
+        </div>
+    </div>
+    <!-- 山: 산정 토리이 장면 (tsukuyomi.mount.js, 마지막 섹션에서 로드) -->
+    <div class="world" id="worldMount" hidden>
+        <div class="world-view">
+            <canvas id="mountScene" aria-hidden="true"></canvas>
+        </div>
+    </div>
+
+    <!-- 엔진이 찾는 기존 조절 패널. 랜딩에서는 CSS로 숨기고(크기 0 → 랜턴 회피도 꺼짐) 스크롤이 장면을 고른다 -->
+    <div class="dock" aria-hidden="true">
+        <section class="panel intro-hidden" id="panel" aria-label="장면 전환">
+            <div class="icongroup" id="icongroup" role="group">
+                <span class="thumb" id="thumb"></span>
+                <button type="button" id="btnDay" tabindex="-1">공백</button>
+                <button type="button" id="btnDusk" class="on" tabindex="-1">황혼</button>
+                <button type="button" id="btnNight" tabindex="-1">밤</button>
+                <button type="button" id="btnMirror" tabindex="-1">미러볼</button>
+            </div>
+            <button type="button" id="btnStars" class="wallpaper-toggle stars-toggle" tabindex="-1">별 궤적</button>
+            <button type="button" id="btnDark" class="wallpaper-toggle stars-toggle" tabindex="-1">공백 밤</button>
+            <span class="cursor-group" id="cursorGroup" role="group">
+                <button type="button" id="btnCursorOff" class="on" tabindex="-1">숨김</button>
+                <button type="button" id="btnCursorTrack" tabindex="-1">커서 추적</button>
+                <button type="button" id="btnCursorMoon" tabindex="-1">달 배치</button>
+            </span>
+            <button type="button" id="btnToMount" class="wallpaper-toggle world-toggle" tabindex="-1">산</button>
+            <!-- 엔진이 장면 이름을 쓰는 자리. 랜딩에서는 live region을 꺼서 전환을 읽지 않는다 -->
+            <span id="status" hidden></span>
+        </section>
+    </div>
+    <div class="dock" id="mountDock" hidden aria-hidden="true">
+        <section class="panel" id="mountPanel">
+            <div class="icongroup" id="mountGroup" role="group">
+                <span class="thumb" id="mountThumb"></span>
+                <button type="button" data-scene="dusk" tabindex="-1">땅거미</button>
+                <button type="button" data-scene="sunset" tabindex="-1">노을</button>
+            </div>
+            <button type="button" id="btnToMoon" class="wallpaper-toggle world-toggle on" tabindex="-1">수면</button>
+        </section>
+    </div>
+
+    <!-- 스크롤 레이어: 캔버스(touch-action: none) 위를 덮어야 터치 스크롤이 된다.
+         엔진 포인터 리스너는 window에 있어 리플·토리이·미러볼 클릭은 그대로 전달된다. -->
+    <main id="landing" tabindex="-1">
+        <nav class="l-nav" aria-label="섹션 이동">
+            <a href="#s0" data-to="s0" aria-label="처음"></a>
+            <a href="#s1" data-to="s1" aria-label="프리티어 셀프호스팅"></a>
+            <a href="#s2" data-to="s2" aria-label="컴포넌트 조립식 문서"></a>
+            <a href="#s3" data-to="s3" aria-label="MCP 외장 지식 저장소"></a>
+            <a href="#s4" data-to="s4" aria-label="세부 기능"></a>
+            <a href="#s5" data-to="s5" aria-label="빠른 시작"></a>
+        </nav>
+
+        <section class="l-sec l-hero" id="s0" data-scene="day" data-side="left" aria-labelledby="s0-title">
+            <div class="l-copy">
+                <p class="l-eyebrow">Self-hosted wiki on Cloudflare</p>
+                <h1 id="s0-title" class="l-title">Cloudwiki</h1>
+                <p class="l-lead">서버 없이 띄우는 위키.<br>Cloudflare Workers 위에서, 작게 시작해 끝까지.</p>
+                <div class="l-cta">
+                    <a class="l-btn l-btn-primary" href="#s5" data-to="s5">시작하기</a>
+                    <a class="l-btn" href="https://wiki.vialinks.xyz" target="_blank" rel="noopener">문서 보기 <span aria-hidden="true">→</span></a>
+                </div>
+            </div>
+            <a class="l-scroll" href="#s1" data-to="s1"><span>Scroll</span><i aria-hidden="true"></i></a>
+        </section>
+
+        <section class="l-sec" id="s1" data-scene="dusk" data-side="right" aria-labelledby="s1-title">
+            <div class="l-copy">
+                <p class="l-eyebrow">01 · Free tier</p>
+                <h2 id="s1-title" class="l-title">프리티어<br>셀프호스팅</h2>
+                <p class="l-body">Workers · D1 · R2 · KV만으로 동작합니다.
+                    <span class="l-detail">소규모라면 무료 한도로 충분하고, 트래픽이 늘어도 서버 증설 없이 Paid 요금제 전환만으로 대응합니다.</span></p>
+                <p class="l-hint">수면을 눌러 보세요</p>
+            </div>
+        </section>
+
+        <section class="l-sec" id="s2" data-scene="night" data-side="left" aria-labelledby="s2-title">
+            <div class="l-copy">
+                <p class="l-eyebrow">02 · Components</p>
+                <h2 id="s2-title" class="l-title">컴포넌트<br>조립식 문서</h2>
+                <p class="l-body">마크다운에 확장 문법을 더했습니다.
+                    <span class="l-detail">위키 링크와 틀(트랜스클루전) 위에 카드 · 그리드 · 탭 · 콜아웃 · 진행도 바를 조립해, 문서 한 장을 페이지처럼 구성합니다.</span></p>
+                <p class="l-hint">토리이를 눌러 보세요</p>
+            </div>
+        </section>
+
+        <section class="l-sec l-climax" id="s3" data-scene="mirror" data-side="right" aria-labelledby="s3-title">
+            <div class="l-copy">
+                <p class="l-eyebrow">03 · MCP</p>
+                <h2 id="s3-title" class="l-title">MCP<br>외장 지식 저장소</h2>
+                <p class="l-body">MCP 서버를 내장했습니다. AI 에이전트가 브라우저 없이 위키를 검색 · 열람 · 편집합니다.
+                    <span class="l-detail">편집은 draft로 쌓였다가 승인 후 리비전이 되고, 모든 기록에는 <code>[MCP]</code> 표시가 남습니다.</span></p>
+                <p class="l-hint">미러볼을 눌러 보세요</p>
+            </div>
+        </section>
+
+        <section class="l-sec" id="s4" data-scene="mirror" data-side="left" data-prewarm aria-labelledby="s4-title">
+            <div class="l-copy l-copy-wide">
+                <p class="l-eyebrow">04 · Features</p>
+                <h2 id="s4-title" class="l-title">그리고 위키에<br>필요한 나머지</h2>
+                <ul class="l-grid">
+                    <li><b>전문 검색</b><span>본문 하이라이트와 목차 위치까지</span></li>
+                    <li><b>맵 · 그래프</b><span>문서 간 연결을 한눈에</span></li>
+                    <li><b>ACL 권한</b><span>문서·카테고리 단위 공개 범위</span></li>
+                    <li><b>편집 요청</b><span>검토 후 반영</span></li>
+                    <li><b>문서 주시 · 푸시 알림</b><span>바뀌면 바로 알림</span></li>
+                    <li><b>웹훅 · Analytics Engine</b><span>외부 연동과 통계</span></li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="l-sec l-last" id="s5" data-scene="mount" data-side="left" aria-labelledby="s5-title">
+            <div class="l-copy l-copy-wide">
+                <p class="l-eyebrow">05 · Quick start</p>
+                <h2 id="s5-title" class="l-title">빠른 시작</h2>
+                <ol class="l-steps">
+                    <li><b>저장소 준비</b><span><code>cloudwiki-public</code>을 클론</span></li>
+                    <li><b>리소스 생성</b><span>D1 · R2 · KV와 OAuth 설정</span></li>
+                    <li><b>배포</b><span>Workers에 GitHub 연결</span></li>
+                </ol>
+                <div class="l-cta">
+                    <a class="l-btn l-btn-primary" href="https://wiki.vialinks.xyz" target="_blank" rel="noopener">설정 가이드</a>
+                </div>
+            </div>
+            <footer class="l-foot">
+                <span>MIT License</span>
+                <span aria-hidden="true">·</span>
+                <a href="mailto:eoe@vialinks.xyz">eoe@vialinks.xyz</a>
+            </footer>
+        </section>
+    </main>
+
+    <script src="cloud-live.js"></script>
+    <script src="cloud-overlay.js"></script>
+    <script src="tsukuyomi.js"></script>
+    <!-- 동기 실행: 엔진 초기화 직후, 첫 프레임 전에 낮으로 스냅한다. 나머지는 DOMContentLoaded에서 -->
+    <script src="landing.js"></script>
+    <script src="tsukuyomi.worlds.js" defer></script>
+</body>
+
+</html>
