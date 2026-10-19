@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>회전하는 죽순</title>
+<style>
+  :root { --bg: #f3f1ee; color-scheme: light; box-sizing: border-box;
+          padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #1b1a1c; color-scheme: dark; } }
+  :root[data-theme="dark"] { --bg: #1b1a1c; color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); display: grid; place-items: center; }
+  canvas { width: 300px; height: 440px; max-width: 100%; }
+</style>
+</head>
+<body>
+<canvas id="shoot"></canvas>
+<script>
+// 죽순 SVG 외곽선을 회전체(세로축 기준) 단면으로 보고,
+// 껍질 선을 표면 좌표(높이 y, 둘레 각도 θ)로 정의해 회전시키며 정사영.
+// 세로축 회전 + 정사영이라 실루엣은 항상 원래 외곽선과 같고, 선도 그 안에만 그려짐.
+const SHAPE = `M150 20 C 172 20, 192 85, 222 175 C 252 265, 264 330, 256 368
+  C 247 404, 210 420, 150 420 C 90 420, 53 404, 44 368 C 36 330, 48 265, 78 175
+  C 108 85, 128 20, 150 20 Z`;
+const W = 300, H = 440, CX = 150;
+const COL = { body: '#6e625f', outline: '#2b2230', line: '#1e1a1c' };
+const PERIOD = 12;   // 1회전 초
+
+// 껍질: top = 뾰족한 끝 높이, th = 끝이 향한 둘레 각도. 아래 껍질이 위 껍질을 덮음
+// 같은 간격(GAP)으로 촘촘하게, 끝 방향은 120°씩 돌아감
+const COUNT = 9, TOP0 = 45, GAP = 40, DROP = 150, TURN = Math.PI * 2 / 3;
+const SHEATHS = Array.from({ length: COUNT }, (_, i) => ({ top: TOP0 + i * GAP, th: i * TURN }));
+
+const cv = document.getElementById('shoot');
+const ctx = cv.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+cv.width = W * dpr; cv.height = H * dpr;
+ctx.scale(dpr, dpr);
+const body = new Path2D(SHAPE);
+
+// 오른쪽 절반 베지어를 샘플링해 높이별 반지름 표 생성
+const R_LUT = new Float32Array(H + 1);
+{
+  const segs = [
+    [[150, 20], [172, 20], [192, 85], [222, 175]],
+    [[222, 175], [252, 265], [264, 330], [256, 368]],
+    [[256, 368], [247, 404], [210, 420], [150, 420]],
+  ];
+  const pts = [];
+  for (const s of segs) for (let i = 0; i <= 400; i++) {
+    const t = i / 400, u = 1 - t;
+    const a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+    pts.push([a * s[0][1] + b * s[1][1] + c * s[2][1] + d * s[3][1],
+              a * s[0][0] + b * s[1][0] + c * s[2][0] + d * s[3][0] - CX]);
+  }
+  let k = 0;
+  for (let y = 0; y <= H; y++) {
+    while (k < pts.length - 2 && pts[k + 1][0] < y) k++;
+    const [y0, r0] = pts[k], [y1, r1] = pts[k + 1];
+    R_LUT[y] = y <= 20 ? 0 : y >= 420 ? 0 : (y1 > y0 ? r0 + (r1 - r0) * (y - y0) / (y1 - y0) : r1);
+  }
+}
+function rAt(y) {
+  const i = Math.max(0, Math.min(H - 1, Math.floor(y))), f = y - i;
+  return R_LUT[i] + (R_LUT[i + 1] - R_LUT[i]) * f;
+}
+
+const TAU = Math.PI * 2;
+const wrap = a => ((a + Math.PI) % TAU + TAU) % TAU - Math.PI;
+
+// 껍질 가장자리 높이: 끝에서 한쪽은 길고 완만하게, 반대쪽은 짧고 가파르게 내려감
+function edgeY(k, th) {
+  const s = SHEATHS[k], p = wrap(th - s.th);
+  // 끝을 기준으로 좌우 대칭, 반대편 가장 낮은 지점은 부드럽게 이어지도록 (1-g)^n 형태
+  const g = Math.abs(p) / Math.PI;
+  return s.top + DROP * (1 - Math.pow(1 - g, 1.6));   // 끝 부근은 거의 직선, 아래 껍질에 덮여 짧은 ∧만 보임
+}
+// 더 아래(바깥) 껍질에 덮였는지
+function covered(k, th, y) {
+  for (let j = k + 1; j < SHEATHS.length; j++) if (y > edgeY(j, th) + 0.5) return true;
+  return false;
+}
+
+let rot = 0, last = performance.now();
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function project(th, y) {
+  const a = th + rot;
+  return { x: CX + rAt(y) * Math.sin(a), y, front: Math.cos(a) > 0 };
+}
+
+function strokeRun(run) {
+  if (run.length < 2) return;
+  ctx.moveTo(run[0].x, run[0].y);
+  for (let i = 1; i < run.length; i++) ctx.lineTo(run[i].x, run[i].y);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = COL.body;
+  ctx.fill(body);
+
+  ctx.save();
+  ctx.clip(body);
+  ctx.strokeStyle = COL.line;
+  ctx.lineWidth = 3.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  const N = 720;
+  SHEATHS.forEach((s, k) => {
+    // 가장자리
+    let run = [];
+    for (let i = 0; i <= N; i++) {
+      const th = i / N * TAU, y = edgeY(k, th), p = project(th, y);
+      if (p.front && !covered(k, th, y)) run.push(p);
+      else { strokeRun(run); run = []; }
+    }
+    strokeRun(run);
+  });
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.strokeStyle = COL.outline;
+  ctx.lineWidth = 3;
+  ctx.stroke(body);
+}
+
+function loop(t) {
+  const dt = (t - last) / 1000; last = t;
+  if (!reduce) rot = (rot + dt * TAU / PERIOD) % TAU;
+  draw();
+  requestAnimationFrame(loop);
+}
+draw();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
