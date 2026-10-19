@@ -4,8 +4,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>Cloudwiki | 서버 없이 띄우는 위키</title>
-    <meta name="description" content="Cloudflare Workers 위에서 작게 시작해 끝까지 가는 위키, Cloudwiki.">
+    <title>Tsukuyomi | 수면 위 토리이</title>
+    <meta name="description" content="수면 위 토리이와 하늘을 비추는 물. 공백, 황혼, 밤, 미러볼, 그리고 산정의 노을.">
     <link rel="icon" href="/assets/icons/icon.svg" type="image/x-icon">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -69,22 +69,22 @@
          엔진 포인터 리스너는 window에 있어 리플·토리이·미러볼 클릭은 그대로 전달된다. -->
     <main id="landing" tabindex="-1">
         <nav class="l-nav" aria-label="섹션 이동">
-            <a href="#s0" data-to="s0" aria-label="처음"></a>
-            <a href="#s1" data-to="s1" aria-label="프리티어 셀프호스팅"></a>
-            <a href="#s2" data-to="s2" aria-label="컴포넌트 조립식 문서"></a>
-            <a href="#s3" data-to="s3" aria-label="MCP 외장 지식 저장소"></a>
-            <a href="#s4" data-to="s4" aria-label="세부 기능"></a>
-            <a href="#s5" data-to="s5" aria-label="빠른 시작"></a>
+            <a href="#s0" data-to="s0" aria-label="공백"></a>
+            <a href="#s1" data-to="s1" aria-label="황혼"></a>
+            <a href="#s2" data-to="s2" aria-label="밤"></a>
+            <a href="#s3" data-to="s3" aria-label="미러볼"></a>
+            <a href="#s4" data-to="s4" aria-label="장면 속 장치"></a>
+            <a href="#s5" data-to="s5" aria-label="산정"></a>
         </nav>
 
         <section class="l-sec l-hero" id="s0" data-scene="day" data-side="left" aria-labelledby="s0-title">
             <div class="l-copy">
-                <p class="l-eyebrow">Self-hosted wiki on Cloudflare</p>
-                <h1 id="s0-title" class="l-title">Cloudwiki</h1>
-                <p class="l-lead">서버 없이 띄우는 위키.<br>Cloudflare Workers 위에서, 작게 시작해 끝까지.</p>
+                <p class="l-eyebrow">Torii on still water</p>
+                <h1 id="s0-title" class="l-title">Tsukuyomi</h1>
+                <p class="l-lead">수면 위 토리이 하나, 하늘을 비추는 물.<br>낮의 공백에서 달이 뜨는 밤까지.</p>
                 <div class="l-cta">
-                    <a class="l-btn l-btn-primary" href="#s5" data-to="s5">시작하기</a>
-                    <a class="l-btn" href="https://wiki.vialinks.xyz" target="_blank" rel="noopener">문서 보기 <span aria-hidden="true">→</span></a>
+                    <a class="l-btn l-btn-primary" href="#s1" data-to="s1">내려가기</a>
+                    <a class="l-btn" href="tsukuyomi.html">장면 열기 <span aria-hidden="true">→</span></a>
                 </div>
             </div>
             <a class="l-scroll" href="#s1" data-to="s1"><span>Scroll</span><i aria-hidden="true"></i></a>
@@ -92,64 +92,61 @@
 
         <section class="l-sec" id="s1" data-scene="dusk" data-side="right" aria-labelledby="s1-title">
             <div class="l-copy">
-                <p class="l-eyebrow">01 · Free tier</p>
-                <h2 id="s1-title" class="l-title">프리티어<br>셀프호스팅</h2>
-                <p class="l-body">Workers · D1 · R2 · KV만으로 동작합니다.
-                    <span class="l-detail">소규모라면 무료 한도로 충분하고, 트래픽이 늘어도 서버 증설 없이 Paid 요금제 전환만으로 대응합니다.</span></p>
+                <p class="l-eyebrow">01 · Dusk</p>
+                <h2 id="s1-title" class="l-title">황혼</h2>
+                <p class="l-body">코발트에서 라벤더, 핑크를 지나 수평선의 자주까지.
+                    <span class="l-detail">매직아워의 하늘 아래 적운 띠와 적란운이 천천히 흐르고, 구름은 GPU에서 쉬지 않고 다시 그려집니다.</span></p>
                 <p class="l-hint">수면을 눌러 보세요</p>
             </div>
         </section>
 
         <section class="l-sec" id="s2" data-scene="night" data-side="left" aria-labelledby="s2-title">
             <div class="l-copy">
-                <p class="l-eyebrow">02 · Components</p>
-                <h2 id="s2-title" class="l-title">컴포넌트<br>조립식 문서</h2>
-                <p class="l-body">마크다운에 확장 문법을 더했습니다.
-                    <span class="l-detail">위키 링크와 틀(트랜스클루전) 위에 카드 · 그리드 · 탭 · 콜아웃 · 진행도 바를 조립해, 문서 한 장을 페이지처럼 구성합니다.</span></p>
+                <p class="l-eyebrow">02 · Night</p>
+                <h2 id="s2-title" class="l-title">밤</h2>
+                <p class="l-body">해가 지고, 달이 토리이 위로 떠오릅니다.
+                    <span class="l-detail">하늘에는 별 궤적이 자라나고, 수면에는 수많은 등롱이 수평선까지 떠 있습니다.</span></p>
                 <p class="l-hint">토리이를 눌러 보세요</p>
             </div>
         </section>
 
         <section class="l-sec l-climax" id="s3" data-scene="mirror" data-side="right" aria-labelledby="s3-title">
             <div class="l-copy">
-                <p class="l-eyebrow">03 · MCP</p>
-                <h2 id="s3-title" class="l-title">MCP<br>외장 지식 저장소</h2>
-                <p class="l-body">MCP 서버를 내장했습니다. AI 에이전트가 브라우저 없이 위키를 검색 · 열람 · 편집합니다.
-                    <span class="l-detail">편집은 draft로 쌓였다가 승인 후 리비전이 되고, 모든 기록에는 <code>[MCP]</code> 표시가 남습니다.</span></p>
+                <p class="l-eyebrow">03 · Mirror ball</p>
+                <h2 id="s3-title" class="l-title">미러볼</h2>
+                <p class="l-body">달이 미러볼이 되는 밤.
+                    <span class="l-detail">거울 조각 사이로 빛줄기가 흩어지고, 빛나는 물고기 무리가 달 곁을 맴돕니다.</span></p>
                 <p class="l-hint">미러볼을 눌러 보세요</p>
             </div>
         </section>
 
         <section class="l-sec" id="s4" data-scene="mirror" data-side="left" data-prewarm aria-labelledby="s4-title">
             <div class="l-copy l-copy-wide">
-                <p class="l-eyebrow">04 · Features</p>
-                <h2 id="s4-title" class="l-title">그리고 위키에<br>필요한 나머지</h2>
+                <p class="l-eyebrow">04 · Details</p>
+                <h2 id="s4-title" class="l-title">장면 속<br>작은 장치들</h2>
                 <ul class="l-grid">
-                    <li><b>전문 검색</b><span>본문 하이라이트와 목차 위치까지</span></li>
-                    <li><b>맵 · 그래프</b><span>문서 간 연결을 한눈에</span></li>
-                    <li><b>ACL 권한</b><span>문서·카테고리 단위 공개 범위</span></li>
-                    <li><b>편집 요청</b><span>검토 후 반영</span></li>
-                    <li><b>문서 주시 · 푸시 알림</b><span>바뀌면 바로 알림</span></li>
-                    <li><b>웹훅 · Analytics Engine</b><span>외부 연동과 통계</span></li>
+                    <li><b>수면 리플</b><span>누르거나 끌면 물결이 번집니다</span></li>
+                    <li><b>하늘 반사</b><span>물에 비친 하늘과 토리이만 일렁입니다</span></li>
+                    <li><b>별 궤적</b><span>공백 하늘의 구름 뒤로도 켤 수 있습니다</span></li>
+                    <li><b>공백 밤</b><span>낮의 구름이 짙은 남색 실루엣으로</span></li>
+                    <li><b>커서 물고기</b><span>커서를 따라오거나 달 곁에 머뭅니다</span></li>
+                    <li><b>절차적 구름</b><span>타임랩스처럼 끓어오르는 구름</span></li>
                 </ul>
             </div>
         </section>
 
         <section class="l-sec l-last" id="s5" data-scene="mount" data-side="left" aria-labelledby="s5-title">
             <div class="l-copy l-copy-wide">
-                <p class="l-eyebrow">05 · Quick start</p>
-                <h2 id="s5-title" class="l-title">빠른 시작</h2>
-                <ol class="l-steps">
-                    <li><b>저장소 준비</b><span><code>cloudwiki-public</code>을 클론</span></li>
-                    <li><b>리소스 생성</b><span>D1 · R2 · KV와 OAuth 설정</span></li>
-                    <li><b>배포</b><span>Workers에 GitHub 연결</span></li>
-                </ol>
+                <p class="l-eyebrow">05 · Summit</p>
+                <h2 id="s5-title" class="l-title">산정</h2>
+                <p class="l-body">물을 떠나 산 위의 토리이로.
+                    <span class="l-detail">운해 수평선에 걸린 노을 태양 아래, 역광의 바위 능선과 토리이. 움직이는 것은 흘러가는 구름뿐입니다.</span></p>
                 <div class="l-cta">
-                    <a class="l-btn l-btn-primary" href="https://wiki.vialinks.xyz" target="_blank" rel="noopener">설정 가이드</a>
+                    <a class="l-btn l-btn-primary" href="tsukuyomi.html">장면 열기</a>
                 </div>
             </div>
             <footer class="l-foot">
-                <span>MIT License</span>
+                <span>Tsukuyomi</span>
                 <span aria-hidden="true">·</span>
                 <a href="mailto:eoe@vialinks.xyz">eoe@vialinks.xyz</a>
             </footer>
