@@ -3705,9 +3705,15 @@ void main() {
                 }, 350);
             }
             // 스프라이트는 유휴 시간에 하나씩 굽는다(첫 화면 지연 방지). 낮이 먼저 필요해지면 ensureDay2가 남은 것을 즉시 굽는다.
+            // 구름 오버레이가 있으면 문서를 읽을 때까지 기다렸다가 기본 레이어 형태 고치기부터 넘긴다(cloudOv.warm).
+            // 그러면 덩어리를 고친 형태로 한 번만 굽고, 처음 공백을 그리는 프레임에서 큰 덩어리를 다시 굽지 않는다.
+            // 덩어리를 먼저 구운 뒤 문서가 바뀌면(편집기 저장 등) 다시 굽기도 여기서 유휴 시간에 하나씩 한다.
+            let day2OvReady = !cloudOv;
             function scheduleDay2() {
                 clearTimeout(day2Timer);
                 const next = () => {
+                    if (!day2OvReady) { day2Timer = setTimeout(next, 100); return; }
+                    if (cloudOv && cloudOv.warm(W, HZ)) { day2Timer = setTimeout(next, 30); return; }
                     const c = day2Clouds.find(c => !c.spr);
                     if (!c) return;
                     buildDay2Sprite(c);
@@ -4471,6 +4477,7 @@ void main() {
                 return CFG.TORII_X;
             }
             function resize() {
+                xfStop();   // 크기가 바뀌면 떠 둔 화면이 맞지 않으므로 크로스페이드를 끝낸다
                 W = window.innerWidth; H = window.innerHeight;
                 // 레이아웃 전환 시 랜턴 기본값 추종: 사용자가 N을 직접 바꾸지 않은 경우에만 전환.
                 const mob = isMobileLayout();
@@ -5831,6 +5838,82 @@ void main() {
             const activeOf = () => { const t = targetOf(state); return t === 'night' && moonTarget === 'mirror' ? 'mirror' : t; };
             // 아이콘 클릭 → 현재 p에서 목표까지 자연스럽게 전환 (전환 중 재클릭도 현재 p에서 다시 시작)
             // 'night' = 밤 + 일반 달, 'mirror' = 밤 + 미러볼 달(일반 달 → 미러볼 전환 연출, 밤이 아니면 밤 도착 후 실행)
+            // ---------- 공백 ↔ 황혼 스냅샷 크로스페이드 ----------
+            // 두 장면을 매 프레임 함께 그리며 파라미터를 보간하면(구름 세트 2벌·블룸 2번) 전환 내내 무겁다.
+            // 대신 전환 순간의 화면(장면 + 물결 + 전경)을 오버레이 캔버스에 떠 두고, 장면은 바로 목표 상태로 바꿔 혼자 그린다.
+            // 오버레이는 CSS opacity 전환으로 걷혀(합성기에서 돌아 메인 스레드가 바빠도 매끄럽다) 새 장면이 그 아래서 드러난다.
+            // 진행 중에 다시 누르면 지금 보이는 화면(오버레이 + 장면)을 다시 떠서 이어 간다. 캔버스 2장을 번갈아 쓴다.
+            const xfEls = [0, 1].map(() => {
+                const c = document.createElement('canvas');
+                c.setAttribute('aria-hidden', 'true');
+                Object.assign(c.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', pointerEvents: 'none', display: 'none' });
+                fg.parentNode.insertBefore(c, fg.nextSibling);
+                return c;
+            });
+            const XF = { cur: null, want: null, go: false };
+            const xfOK = () => !suspended && !camOn() && cv.width > 0 && (state === 'day' || state === 'dusk' || state === 'toDay' || state === 'toDusk');
+            // 목표 정지 상태로 바로 맞춘다(디버그 state 설정·전환 도착과 같은 값)
+            function snapIdle(v) {
+                const day = v === 'day';
+                state = v; tState = 0;
+                p = day ? CFG.P_DAY : CFG.P_DUSK; transFrom = p; transTo = p; transTarget = v;
+                duskW = duskFrom = duskTo = day ? 0 : 1; structW = structFrom = duskW;
+                nk = nkFrom = nkTo = 0;
+                sunVis = svFrom = svTo = day ? 1 : 0;
+                phi = 0; phiTail = null; omega = 0;
+                moonTarget = 'plain'; mbMix = 0; mbPending = false;
+                fishClear();
+            }
+            function xfHide(c) {
+                clearTimeout(c._t);
+                c.style.transition = 'none';
+                c.style.display = 'none';
+                c.width = c.height = 1;   // 화면 크기 버퍼를 바로 놓아준다
+                if (XF.cur === c) XF.cur = null;
+            }
+            function xfStop() { XF.want = null; XF.go = false; for (const c of xfEls) xfHide(c); }
+            // frame() 끝(그린 직후)에서 부른다: WebGL 물결 캔버스는 그린 프레임 안에서만 읽힌다
+            function xfCapture() {
+                const tgt = XF.want;
+                XF.want = null;
+                const prev = XF.cur, c = prev === xfEls[0] ? xfEls[1] : xfEls[0];
+                fitCanvas(c, cv.width, cv.height);
+                const g = c.getContext('2d');
+                g.setTransform(1, 0, 0, 1, 0, 0);
+                g.globalAlpha = 1;
+                g.globalCompositeOperation = 'copy';
+                g.drawImage(cv, 0, 0);
+                g.globalCompositeOperation = 'source-over';
+                if (glOn) g.drawImage(glc, 0, floorTop);
+                g.drawImage(fg, 0, 0);
+                if (prev) {
+                    const o = parseFloat(getComputedStyle(prev).opacity) || 0;
+                    if (o > 0.003) { g.globalAlpha = o; g.drawImage(prev, 0, 0); g.globalAlpha = 1; }
+                }
+                c.style.transition = 'none';
+                c.style.opacity = '1';
+                c.style.display = 'block';
+                if (prev) xfHide(prev);
+                XF.cur = c;
+                snapIdle(tgt);
+                XF.go = true;   // 새 장면이 한 번 그려진 다음 프레임에 걷기 시작
+            }
+            function xfGo() {
+                XF.go = false;
+                const c = XF.cur;
+                if (!c) return;
+                const sec = Math.max(0.05, CFG.T_DAY);
+                void c.offsetWidth;   // opacity 1을 먼저 확정해야 전환이 걸린다
+                c.style.transition = `opacity ${sec}s cubic-bezier(0.45, 0, 0.55, 1)`;
+                c.style.opacity = '0';
+                // 다 걷히면(transitionend) 내린다. 이벤트가 안 오는 경우(탭 숨김 등)를 위해 넉넉한 예비 타이머
+                clearTimeout(c._t);
+                c._t = setTimeout(() => xfHide(c), sec * 1000 + 1500);
+            }
+            for (const c of xfEls) c.addEventListener('transitionend', e => {
+                if (e.propertyName === 'opacity' && c.style.opacity === '0' && c.style.display !== 'none') xfHide(c);
+            });
+
             function goTo(target) {
                 if (target !== 'day' && target !== 'dusk' && target !== 'night' && target !== 'mirror') return;
                 if (target === 'night' || target === 'mirror') {
@@ -5847,7 +5930,13 @@ void main() {
                     // 밤 도착 전에 낮/황혼으로 돌아가면 예약된 연출 취소
                     if (mbPending) { mbPending = false; moonTarget = 'plain'; }
                 }
+                if (XF.want) {
+                    // 아직 뜨기 전(같은 프레임 안 연속 입력): 목표만 바꾸고, 원래 장면으로 돌아오면 취소
+                    if (target === 'day' || target === 'dusk') { XF.want = targetOf(state) === target ? null : target; return; }
+                    XF.want = null;
+                }
                 if (targetOf(state) === target) return;
+                if ((target === 'day' || target === 'dusk') && xfOK()) { XF.want = target; return; }
                 transFrom = p;
                 nkFrom = nk;
                 duskFrom = duskW;
@@ -6344,6 +6433,8 @@ void main() {
                 zp = zpNow();
                 drawRipples();
                 zpAdd('ripple', zp);
+                if (XF.go) xfGo();
+                if (XF.want) xfCapture();
                 tickReflGovernor(performance.now() - t0);
                 updateUI();
                 if (ZP.on) zpPush(now, gap, performance.now() - fz);
@@ -6366,7 +6457,10 @@ void main() {
             buildLanterns();
             loadLanternSprite();
             resize();
-            if (cloudOv) cloudOv.load();
+            if (cloudOv) {
+                cloudOv.on(what => { if (what === 'doc') scheduleDay2(); });
+                cloudOv.load().finally(() => { day2OvReady = true; });
+            }
             resumeLoop();
         })();
     
