@@ -3705,9 +3705,15 @@ void main() {
                 }, 350);
             }
             // 스프라이트는 유휴 시간에 하나씩 굽는다(첫 화면 지연 방지). 낮이 먼저 필요해지면 ensureDay2가 남은 것을 즉시 굽는다.
+            // 구름 오버레이가 있으면 문서를 읽을 때까지 기다렸다가 기본 레이어 형태 고치기부터 넘긴다(cloudOv.warm).
+            // 그러면 덩어리를 고친 형태로 한 번만 굽고, 처음 공백을 그리는 프레임에서 큰 덩어리를 다시 굽지 않는다.
+            // 덩어리를 먼저 구운 뒤 문서가 바뀌면(편집기 저장 등) 다시 굽기도 여기서 유휴 시간에 하나씩 한다.
+            let day2OvReady = !cloudOv;
             function scheduleDay2() {
                 clearTimeout(day2Timer);
                 const next = () => {
+                    if (!day2OvReady) { day2Timer = setTimeout(next, 100); return; }
+                    if (cloudOv && cloudOv.warm(W, HZ)) { day2Timer = setTimeout(next, 30); return; }
                     const c = day2Clouds.find(c => !c.spr);
                     if (!c) return;
                     buildDay2Sprite(c);
@@ -6366,7 +6372,10 @@ void main() {
             buildLanterns();
             loadLanternSprite();
             resize();
-            if (cloudOv) cloudOv.load();
+            if (cloudOv) {
+                cloudOv.on(what => { if (what === 'doc') scheduleDay2(); });
+                cloudOv.load().finally(() => { day2OvReady = true; });
+            }
             resumeLoop();
         })();
     

@@ -542,6 +542,27 @@
                 if (!scopeSelf) mods(env.CL, env.cloudLayer);
             }
         }
+        // 그리기 프레임 밖(유휴 시간)에서 형태 굽기를 한 레이어씩 미리 끝낸다: 기본 레이어는 덩어리 형태 고치기를 넘기고,
+        // 손으로 그린 레이어는 스프라이트를 굽는다. 처음 그리는 프레임에서 큰 덩어리를 한꺼번에 다시 굽지 않게.
+        // 아직 그리지 않았으면 W/HZ로 화면 크기를 맞춘다. 한 레이어를 처리했으면 true(더 남았을 수 있음), 없으면 false
+        function warm(W, HZ) {
+            if (W > 0 && HZ > 0 && !(ov.W > 0 && ov.HZ > 0)) { ov.W = W; ov.HZ = HZ; }
+            checkCfg();   // 처음 그릴 때 장면 값 확인이 미리 구운 스프라이트를 다시 굽지 않게 여기서 먼저 맞춘다
+            for (const L of ov.doc.layers) {
+                if (L._live || !L._dirty) continue;
+                if (L.base) {
+                    if (!L._dirty.s) continue;
+                    ensureBase(L);
+                    return true;
+                }
+                if (!(ov.W > 0 && ov.HZ > 0)) continue;
+                if (L._spr && L._sq !== stretchQ()) L._dirty.s = true;
+                if (!L._dirty.s) continue;
+                buildSprite(L);
+                return true;
+            }
+            return false;
+        }
         // skipBase: 기본 레이어(기존 구름)는 빼고
         function draw(stage, env, skipBase) {
             ov.W = env.W; ov.HZ = env.HZ; ov.clock = env.clock || 0;
@@ -667,7 +688,7 @@
 
         mergeBase(ov.doc);
         Object.assign(ov, {
-            draw, renderImage, thumb, flashLayer, setDoc, invalidate, removeLayer, resize, load, loadFile,
+            draw, warm, renderImage, thumb, flashLayer, setDoc, invalidate, removeLayer, resize, load, loadFile,
             saveLocal, hasLocal, clearLocal, frame, newLayer, canShape, edited,
             newBaseDoc: () => mergeBase(newDoc()),
             serialize: () => serialize(ov.doc),

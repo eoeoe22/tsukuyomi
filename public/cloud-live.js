@@ -278,6 +278,9 @@ void main(){
         }
 
         const sprites = [];
+        // 놓아줬다가 다시 화면에 쓰이는 스프라이트: touch()는 줄만 세우고 tick()이 프레임당 몇 장씩 되살린다
+        // (장면 전환 첫 프레임에 텍스처 십여 장을 한꺼번에 올리면 그 프레임이 크게 끊긴다)
+        const revive = [];
         let perFrame = 3;
         const cfg = { CL_RATE: 1, CL_BOIL: 1, CL_WARP: 1, CL_RAND: 1, CL_HZ: 12, CL_UP: 0.9 };
 
@@ -352,7 +355,7 @@ void main(){
             const h = {
                 W, H, E2: smoothEnv(E, a.HL, W, H, 3), rampData, out, ctx: out.getContext('2d'),
                 tOff: (a.seed % 997) * 0.37, dir: (a.seed & 1) ? 1 : -1,
-                last: -1e9, seen: 0, dead: false,
+                last: -1e9, seen: 0, born: performance.now(), dead: false,
                 par: {
                     seed: a.seed % 100003, top: a.top, hh: a.hh, COV: a.COV, SHARP: a.SHARP, SOFT: a.SOFT, ABS: a.ABS,
                     UV: a.UV, UX: a.UX, SC: a.SC, live: 1.7 * (1 - 2.15),
@@ -373,26 +376,39 @@ void main(){
             return out;
         }
 
-        // 그리기 직전에 부른다: 이 스프라이트가 화면 세트에 있다는 표시. 오래 안 쓰여 놓아줬던 것이면 되살린다
+        // 그리기 직전에 부른다: 이 스프라이트가 화면 세트에 있다는 표시. 오래 안 쓰여 놓아줬던 것이면 되살리기 줄에 세운다
+        // (되살아나기 전까지는 캔버스에 남은 마지막 그림이 그대로 그려진다)
         function touch(c, now) {
             const h = c && c.__live;
             if (!h) return;
             h.seen = now;
-            if (h.dead && ok && !h.removed) {
+            if (h.dead && ok && !h.removed && !h.queued) { h.queued = true; revive.push(h); }
+        }
+        function reviveSome() {
+            const t0 = performance.now();
+            let n = 0;
+            while (revive.length && (n < 1 || (n < 3 && performance.now() - t0 < 3))) {
+                const h = revive.shift();
+                h.queued = false;
+                if (!h.dead || h.removed) continue;
                 try { upload(h); h.dead = false; sprites.push(h); } catch (e) { /* 마지막 그림 유지 */ }
+                n++;
             }
         }
 
         // 매 프레임: 최근에 쓰인 스프라이트만 CL_HZ 주기로, 프레임당 몇 장씩 돌아가며 다시 그린다.
         // t: 장면 시계(초), now: performance.now(), C: CFG(CL_* 키)
         function tick(t, now, C) {
-            if (!ok || !sprites.length) return;
+            if (!ok) return;
+            if (revive.length) reviveSome();
+            if (!sprites.length) return;
             for (const k in cfg) if (C && Number.isFinite(+C[k])) cfg[k] = +C[k];
             const minDt = 1 / Math.max(1, cfg.CL_HZ);
-            // 10초 넘게 안 그려진 세트(다른 장면)는 GPU 텍스처를 놓아준다. 캔버스엔 마지막 그림이 남는다
+            // 10초 넘게 안 그려진 세트(다른 장면)는 GPU 텍스처를 놓아준다. 캔버스엔 마지막 그림이 남는다.
+            // 한 번도 안 그려진 것(유휴 시간에 미리 구운 세트)은 만든 시각부터 센다. 안 그러면 만들자마자 놓아준다
             for (let i = sprites.length - 1; i >= 0; i--) {
                 const h = sprites[i];
-                if (now - h.seen > 10000) { release(h); h.dead = true; sprites.splice(i, 1); }
+                if (now - Math.max(h.seen, h.born) > 10000) { release(h); h.dead = true; sprites.splice(i, 1); }
             }
             if (!sprites.length) return;
             // 화면에 쓰이는 것 중 가장 오래 전에 그린 것부터(굶는 스프라이트 없게)
