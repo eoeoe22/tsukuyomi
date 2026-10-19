@@ -5,6 +5,7 @@
  * - 화면 중앙선을 지나는 섹션이 활성 섹션. 바뀌면 150ms 뒤 엔진 mode(goTo)를 부른다.
  *   goTo는 전환 도중 재호출돼도 현재 p에서 이어 가므로 역스크롤·빠른 통과에도 화면이 튀지 않는다.
  * - 마지막 섹션은 山(산 세계)로 페이드한다. 해시·기록은 건드리지 않는다(__TSUKUYOMI_WORLDS__.go(..., { history: false })).
+ * - 밤 섹션에 들어오면 토리이 물고기 상승을 1회 낸다. 미러볼에서는 커서 물고기를 끈다.
  * - 루트의 data-phase(day|dusk|night|mirror|mount)가 글자색·그림자를 고른다(landing.css).
  *
  * 이 파일은 tsukuyomi.js 바로 뒤에 동기 로드된다: 엔진 기본값(황혼)이 한 번도 그려지기 전에 낮으로 스냅.
@@ -59,17 +60,34 @@
 
     function setPhase(ph) { root.setAttribute('data-phase', ph); }
 
-    // 커서 물고기: 밤은 커서 추적(hover 가능한 기기만), 미러볼은 달 배치, 나머지는 숨김
+    // 커서 물고기: 밤은 커서 추적(hover 가능한 기기만), 나머지(미러볼 포함)는 숨김
     function cursorFor(scene) {
       if (scene === 'night') return HOVER.matches ? 1 : 0;
-      if (scene === 'mirror') return 2;
       return 0;
+    }
+
+    // 밤 섹션에 들어올 때마다 토리이 클릭 물고기 상승을 1회 낸다.
+    // 엔진은 하늘이 충분히 어두워진 뒤에만 받아 주므로(fishRise → false) 될 때까지 짧게 재시도하고,
+    // 그 사이 섹션을 떠나면 취소한다.
+    const FISH_POLL_MS = 200, FISH_GIVEUP_MS = 15000;
+    let fishT = 0;
+    function cancelFish() { clearInterval(fishT); fishT = 0; }
+    function fishOnEnter() {
+      cancelFish();
+      if (!T || typeof T.fishRise !== 'function' || RM.matches) return;
+      const t0 = performance.now();
+      fishT = setInterval(() => {
+        let ok = false;
+        try { ok = T.fishRise(); } catch (e) { ok = true; /* 엔진 오류: 더 시도하지 않음 */ }
+        if (ok || performance.now() - t0 > FISH_GIVEUP_MS) cancelFish();
+      }, FISH_POLL_MS);
     }
 
     function apply(sec) {
       if (!sec || sec === current) return;
       current = sec;
       const scene = sec.dataset.scene;
+      cancelFish();
       for (const a of dots) {
         if (a.dataset.to === sec.id) a.setAttribute('aria-current', 'true');
         else a.removeAttribute('aria-current');
@@ -90,6 +108,7 @@
           T.cursorMode = cursorFor(scene);
         } catch (e) { /* 엔진 없음 */ }
       }
+      if (scene === 'night') fishOnEnter();
       setPhase(scene);
     }
 
