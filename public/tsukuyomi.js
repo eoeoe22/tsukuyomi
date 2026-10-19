@@ -133,7 +133,8 @@
                 DY_F0: 0.2, DY_F1: 0.5,
                 DY_BAND_N: 7, DY_SP: 0.0035, DY_SWAY: 0.01,
                 // DY_REF_AR: 큰 덩어리·구름 오버레이(clouds/day-overlay.json)를 맞춘 기준 화면비(너비 / 수평선 높이).
-                // 이보다 넓은 화면에서는 가로로만 (W / HZ) / DY_REF_AR 배 늘려 배치 그대로 화면을 채운다(오른쪽 끝 잘림·하늘 노출 방지)
+                // 이보다 넓은 화면에서는 덩어리를 (W / HZ) / DY_REF_AR 배 넓게 다시 구워 배치 그대로 화면을 채운다(오른쪽 끝 잘림·하늘 노출 방지).
+                // 그린 뒤 가로로 늘리지 않으므로 혹 비율은 화면비와 무관하게 그대로다
                 DY_REF_AR: 2.3,
                 DY_COV: 0.6, DY_SCALE: 8.0, DY_ABSORB: 1.9,
                 DY_VLIFT: 0.15, DY_SKYBOT: 0.7, DY_UPK: 0.45,
@@ -3114,7 +3115,7 @@ void main() {
                 const eL = 0.35 / SC * 0.5;            // 혹 크기에 비례한 미분 간격 (uv)
                 const dU = 0.02 / UV;                   // 윗면/아랫면 판정 간격 (격자 px)
                 const lit = o.lit, shade = o.shade;
-                const lax = (PAD + w0 * (o.lx ?? 0.1)) * RS, lay = top + hh * (o.ly ?? 0), ldiag = Math.hypot(w0, h0) * RS;
+                const lax = ((m.padX ?? PAD) + w0 * (o.lx ?? 0.1)) * RS, lay = top + hh * (o.ly ?? 0), ldiag = Math.hypot(w0, h0) * RS;
                 const glow = o.glow ? [o.glow[0] * RS, o.glow[1] * RS, o.glow[2] * RS] : null;
                 const [GD0, GD1] = o.gd ?? [1.2, 0.62];
                 const RC_ = o.rimC ?? [255, 217, 178], GC_ = o.glowC ?? [255, 250, 236];
@@ -3199,16 +3200,17 @@ void main() {
                 lo.getContext('2d').putImageData(img, 0, 0);
                 const c = document.createElement('canvas');
                 c.width = m.width; c.height = m.height;
-                c.w0 = w0; c.h0 = h0; c.pad = PAD;
+                c.w0 = w0; c.h0 = h0; c.pad = PAD; c.padX = m.padX ?? PAD;
                 const g = c.getContext('2d');
                 g.imageSmoothingQuality = 'high';
                 g.drawImage(lo, 0, 0, c.width, c.height);
                 return c;
             }
-            function duskMask(w0, h0, PAD) {
+            // PADX: 좌우 여백(기본 = PAD). 넓게 구운 새 낮 덩어리는 여백도 같은 배율로 넓혀 둘레 혹이 잘리지 않게 한다
+            function duskMask(w0, h0, PAD, PADX = PAD) {
                 const m = document.createElement('canvas');
-                m.width = w0 + PAD * 2; m.height = h0 + PAD * 2;
-                m.w0 = w0; m.h0 = h0; m.pad = PAD;
+                m.width = w0 + PADX * 2; m.height = h0 + PAD * 2;
+                m.w0 = w0; m.h0 = h0; m.pad = PAD; m.padX = PADX;
                 return m;
             }
             // 큰 뭉게 덩어리 하나 + 윗둘레의 중간 덩어리들: 엔벨로프(큰 형태)만 잡고 잔 혹은 duskRender의 빌로우 노이즈가 만든다
@@ -3376,9 +3378,12 @@ void main() {
             const DY_SHADE_DARK = [[0, [68, 84, 126]], [0.5, [52, 66, 106]], [1, [40, 52, 88]]];
             // spec.prof: 윗면 프로파일 [[u, top], ...] (u = 가로 비율, top = 콘텐츠 상단으로부터의 높이 비율)
             // ex(선택): { eMod, eKeep, t0 } — 구름 레이어 편집기가 이 덩어리의 형태를 고칠 때(duskRender 참고)
-            function makeDay2MassSprite(lr, spec, ex) {
-                const { w0, h0 } = spec, PAD = 180;
-                const m = duskMask(w0, h0, PAD);
+            // sx(≥ 1): 넓은 화면 가로 배율. 그려진 뒤 가로로 늘리지 않고 덩어리 자체를 sx배 넓게(열 수도 sx배) 구워
+            // 혹 크기·비율은 그대로 둔다. 프로파일·구멍·핫스팟은 가로 비율(u)이라 같이 넓어진다
+            function makeDay2MassSprite(lr, spec0, ex, sx = 1) {
+                const spec = sx > 1 ? Object.assign({}, spec0, { w0: Math.round(spec0.w0 * sx), cols: Math.max(1, Math.round(spec0.cols * sx)) }) : spec0;
+                const { w0, h0 } = spec, PAD = 180, PADX = Math.round(PAD * sx);
+                const m = duskMask(w0, h0, PAD, PADX);
                 const P = [];
                 const prof = spec.prof;
                 const topAt = u => {
@@ -3393,7 +3398,7 @@ void main() {
                     const u = (i + 0.15 + lr() * 0.7) / NC;
                     const tp = topAt(u) + (lr() - 0.5) * 0.03;
                     const R0 = clamp(colW * (0.7 + lr() * 0.35), 26, 110);
-                    const x = PAD + w0 * u;
+                    const x = PADX + w0 * u;
                     let y = PAD + h0 * tp + R0 * 0.8;
                     // 윗면 덩어리: 윗둘레 잔 덩어리가 많아 콜리플라워 실루엣
                     duskBillow(P, lr, x, y, R0, 1 + lr() * 0.25, 0.85 + lr() * 0.15, 3 + ((lr() * 3) | 0));
@@ -3413,11 +3418,11 @@ void main() {
                     const u = 0.06 + lr() * 0.88;
                     const tp = topAt(u);
                     const R = 18 + lr() * 30;
-                    const x = PAD + w0 * u + (lr() - 0.5) * w0 * 0.06;
+                    const x = PADX + w0 * u + (lr() - 0.5) * w0 * 0.06;
                     const y = Math.max(PAD * 0.45, PAD + h0 * tp - R * (1.0 + lr() * 0.9));
                     duskBillow(P, lr, x, y, R, 1 + lr() * 0.35, 0.75 + lr() * 0.2, 1 + ((lr() * 2) | 0));
                 }
-                const holes = CFG.DY_HOLE > 0 ? day2Holes(lr, spec, PAD, topAt) : null;
+                const holes = CFG.DY_HOLE > 0 ? day2Holes(lr, spec, PAD, topAt, PADX) : null;
                 const gl = spec.glow;
                 const isFront = spec.layer === 'front';
                 return duskRender(m, P, {
@@ -3427,7 +3432,7 @@ void main() {
                     holeC: isFront ? [228, 236, 250] : [246, 250, 255], holeC2: isFront ? [128, 146, 186] : [150, 170, 210],
                     lit: spec.lit ?? (isFront ? DY_LIT_FRONT : DY_LIT_BACK),
                     shade: spec.shade ?? (isFront ? DY_SHADE_FRONT : DY_SHADE_BACK),
-                    glow: gl ? [PAD + w0 * gl[0], PAD + h0 * gl[1], w0 * gl[2]] : null,
+                    glow: gl ? [PADX + w0 * gl[0], PAD + h0 * gl[1], spec0.w0 * gl[2]] : null,
                     fade: spec.fade ?? 0.9, ax: 1, seed: (lr() * 1e6) | 0,
                     sun: spec.sun, lx: spec.lx, ly: spec.ly, gd: spec.gd ?? (isFront ? [1.25, 0.5] : [1.4, 0.42]),
                     cov: spec.cov ?? (isFront ? Math.min(0.8, CFG.DY_COV + 0.02) : CFG.DY_COV),
@@ -3443,7 +3448,7 @@ void main() {
             // 구멍 묶음: spec.holes [[u, v, s], ...] (u 가로 비율, v 콘텐츠 상단으로부터의 높이 비율, s 크기 = h0 비율)
             // + DY_HOLE_N개 무작위 구멍. 구멍 하나는 가로로 긴 주 타원 + 둘레로 삐져나간 작은 타원 3~6개라 윤곽이 들쭉날쭉하고,
             // 윗둘레 가까운 것은 바깥 하늘과 이어져 깊게 파인 골이 된다. 반환: [x, y, rx, ry] (스프라이트 px)
-            function day2Holes(lr, spec, PAD, topAt) {
+            function day2Holes(lr, spec, PAD, topAt, PADX = PAD) {
                 const { w0, h0 } = spec, out = [];
                 const list = (spec.holes || []).map(h => h.slice());
                 const nr = Math.max(0, Math.round(spec.nHole ?? CFG.DY_HOLE_N));
@@ -3456,7 +3461,7 @@ void main() {
                     const R = s0 * h0 * SZ;
                     // 틈은 둥근 구멍이 아니라 비스듬히 갈라진 골: 가운데서 양쪽으로 걸어가며 크기가 들쭉날쭉한 타원을 잇는다
                     const dir = (lr() - 0.5) * 1.2;
-                    const cx = PAD + w0 * u, cy = PAD + h0 * v;
+                    const cx = PADX + w0 * u, cy = PAD + h0 * v;
                     out.push([cx, cy, R * (1.0 + lr() * 0.4), R * (0.7 + lr() * 0.3)]);
                     for (const sg of [-1, 1]) {
                         let x = cx, y = cy, a = dir + (sg < 0 ? Math.PI : 0), r = R;
@@ -3606,7 +3611,9 @@ void main() {
                         const c = day2Clouds.find(c => c.kind === 'mass' && c.spec.id === ref);
                         if (!c || !c.spr) return null;
                         const G = day2Geom(c, 1);
-                        return { dx: G.dx, dy: G.dy, k: G.tw / c.spr.width, ky: G.th / c.spr.height };
+                        // sx: 스프라이트를 넓게 구운 배율(편집 맵은 덩어리를 따라 가로로 그만큼 늘어난다)
+                        const k = G.tw / c.spr.width;
+                        return { dx: G.dx, dy: G.dy, k, ky: G.th / c.spr.height, sx: c.spr.w0 / c.spec.w0, cx: G.dx + c.spr.width / 2 * k };
                     },
                     items(ref) {
                         return ref === 'band' ? day2Clouds.filter(c => c.kind === 'band') : day2Clouds.filter(c => c.kind === 'mass' && c.spec.id === ref);
@@ -3671,8 +3678,31 @@ void main() {
                 const lr = mulberry32(c.seed);
                 const mod = c.kind === 'mass' && day2Mods[c.spec.id];
                 // 고친 덩어리는 퍼프 엔벨로프를 c에 남겨 둔다(다시 고칠 때 퍼프 계산 생략). t0 = 끓음 위상 이어 가기
-                c.spr = c.kind === 'mass' ? makeDay2MassSprite(lr, c.spec, mod ? { eMod: mod, eKeep: c, t0: clock } : null) : makeDay2BandSprite(lr);
+                if (c.kind === 'mass') {
+                    const sx = day2SXq();
+                    if (c.sx !== sx) delete c.E0;   // 격자 크기가 바뀌면 퍼프 엔벨로프 캐시도 새로
+                    c.sx = sx;
+                    c.spr = makeDay2MassSprite(lr, c.spec, mod ? { eMod: mod, eKeep: c, t0: clock } : null, sx);
+                } else c.spr = makeDay2BandSprite(lr);
                 day2Builds++;
+            }
+            // 화면비가 바뀌어 가로 배율 단계(day2SXq)가 달라지면 덩어리를 그 배율로 다시 굽는다.
+            // 창 크기를 끄는 동안은 기다렸다가(그 사이엔 옛 스프라이트를 조금 늘려 그린다) 유휴 시간에 하나씩 바꾼다
+            let day2SxTimer = 0, day2SxSeen = 0;
+            function day2CheckSX() {
+                clearTimeout(day2SxTimer);
+                day2SxTimer = setTimeout(() => {
+                    const sx = day2SXq();
+                    const next = () => {
+                        const c = day2Clouds.find(c => c.kind === 'mass' && c.spr && c.sx !== sx);
+                        if (!c || day2SXq() !== sx) return;
+                        const old = c.spr;
+                        buildDay2Sprite(c);
+                        if (cloudLive && cloudLive.remove && old !== c.spr) cloudLive.remove(old);
+                        day2SxTimer = setTimeout(next, 30);
+                    };
+                    next();
+                }, 350);
             }
             // 스프라이트는 유휴 시간에 하나씩 굽는다(첫 화면 지연 방지). 낮이 먼저 필요해지면 ensureDay2가 남은 것을 즉시 굽는다.
             function scheduleDay2() {
@@ -3690,16 +3720,20 @@ void main() {
             }
             // 넓은 화면 가로 늘림 배율: 덩어리 크기는 수평선 높이를, 자리는 화면 너비를 따르므로 기준 화면비보다 넓으면
             // 덩어리 사이·화면 끝이 벌어져 하늘이 드러난다 → 기준보다 넓은 만큼 가로로만 늘려 기준 화면비의 배치를 유지한다
+            // 덩어리는 이 배율만큼 넓게 구워 혹 비율을 지키고(makeDay2MassSprite), 다시 굽기를 줄이려 0.1 단위로 끊는다(day2SXq).
+            // 끊고 남은 차이(5% 이내)만 그릴 때 가로로 맞춘다
             const day2SX = () => HZ > 0 ? Math.max(1, W / HZ / Math.max(0.5, CFG.DY_REF_AR || 2.3)) : 1;
+            const day2SXq = () => Math.max(1, Math.round(day2SX() * 10) / 10);
             function day2Geom(c, base) {
-                const sp = c.spr, pad = sp.pad, w0 = sp.w0, h0 = sp.h0;
+                const sp = c.spr, pad = sp.pad, padX = sp.padX ?? pad, w0 = sp.w0, h0 = sp.h0;
                 if (c.kind === 'mass') {
                     const S = c.spec;
                     // 가운데 덩어리는 좁은 화면에서 틈을 다 덮지 않게 너비로도 제한 (양옆 벽은 화면 밖으로 밀어낸다)
                     let k = S.hh * HZ / h0;
-                    if (S.al === 0.5) k = Math.min(k, 2 * S.wmax * W / w0);
-                    const kx = k * day2SX();
-                    const cw = w0 * kx, ch = h0 * k, pdx = pad * kx, pdy = pad * k;
+                    if (S.al === 0.5) k = Math.min(k, 2 * S.wmax * W / S.w0);
+                    // 스프라이트가 이미 c.sx배 넓으므로 남은 차이만 가로로 맞춘다(배치 폭 = 원래 너비 × day2SX)
+                    const kx = k * day2SX() * S.w0 / w0;
+                    const cw = w0 * kx, ch = h0 * k, pdx = padX * kx, pdy = pad * k;
                     const over = Math.max(0, cw - S.wmax * W);
                     // 앞턱은 더 크게 흔들려 시차(parallax)가 생긴다. 뒷벽은 거의 고정.
                     const swayK = S.swayK ?? 1;
@@ -4465,6 +4499,7 @@ void main() {
                 pole = { x: W * CFG.POLE_X, y: HZ * CFG.POLE_Y };
                 placeDuskCb();
                 if (cloudOv) cloudOv.resize();
+                day2CheckSX();
                 const m = Math.min(W, H);
                 sunR = clamp(m * CFG.SUN_F, CFG.SUN_MIN, CFG.SUN_MAX);
                 moonR = clamp(m * CFG.MOON_F, CFG.MOON_MIN, CFG.MOON_MAX) * (CFG.MOON_SIZE ?? 1);
@@ -4818,6 +4853,8 @@ void main() {
                         }
                     } else if (set === day2Clouds) {
                         ensureDay2();
+                        // 기준 화면비(DY_REF_AR)를 패널에서 바꿔도 덩어리를 새 배율로 다시 굽게
+                        if (day2SXq() !== day2SxSeen) { day2SxSeen = day2SXq(); day2CheckSX(); }
                         // 2층 합성: 먼 띠 + 뒷층(림층) 먼저 → 틈 라이트 → 앞턱(음영층) 나중에. 앞이 뒤를 가려 깊이가 생긴다
                         const isFront = c => c.kind === 'mass' && c.spec.layer === 'front';
                         // 구름 오버레이(레이어 문서)가 있으면 기존 덩어리도 그 순서대로 그린다: 뒷층 단('back') → 틈 림라이트 →

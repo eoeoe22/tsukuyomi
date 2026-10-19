@@ -348,7 +348,7 @@ void main(){
             }
             const out = document.createElement('canvas');
             out.width = m.width; out.height = m.height;
-            out.w0 = m.w0; out.h0 = m.h0; out.pad = m.pad;
+            out.w0 = m.w0; out.h0 = m.h0; out.pad = m.pad; out.padX = m.padX ?? m.pad;
             const h = {
                 W, H, E2: smoothEnv(E, a.HL, W, H, 3), rampData, out, ctx: out.getContext('2d'),
                 tOff: (a.seed % 997) * 0.37, dir: (a.seed & 1) ? 1 : -1,
@@ -357,7 +357,7 @@ void main(){
                     seed: a.seed % 100003, top: a.top, hh: a.hh, COV: a.COV, SHARP: a.SHARP, SOFT: a.SOFT, ABS: a.ABS,
                     UV: a.UV, UX: a.UX, SC: a.SC, live: 1.7 * (1 - 2.15),
                     Lx: Math.cos(sa), Ly: -Math.sin(sa),
-                    lax: (m.pad + m.w0 * (o.lx ?? 0.1)) * RS, lay: a.top + a.hh * (o.ly ?? 0), ldiag: Math.hypot(m.w0, m.h0) * RS,
+                    lax: ((m.padX ?? m.pad) + m.w0 * (o.lx ?? 0.1)) * RS, lay: a.top + a.hh * (o.ly ?? 0), ldiag: Math.hypot(m.w0, m.h0) * RS,
                     glow, GD0, GD1, rimC, glowC, rimK: o.rimK ?? 0.45, fade: o.fade ?? 1,
                     skyBot: o.skyBot ?? 0.55, vLift: o.vLift ?? 0.35, upK: o.upK ?? 1,
                     lobeMin: o.lobeMin ?? 0.18, crease: o.crease ?? 0.72, lobeW: o.lobeW ?? 1,
