@@ -1,12 +1,30 @@
 // 프로덕션 배포용 정적파일(에셋 바인딩) 전용 Worker.
 // 로컬 wrangler dev와 Workers Builds 프리뷰가 같은 파일을 공용한다.
-// "/" 로 접속해도 tsukuyomi.html이 열리도록 매핑하고,
+// 경로 매핑:
+//   "/"        → tsukuyomi.html (일반 월페이퍼)
+//   "/landing" → landing.html  (랜딩페이지, "/landing/"은 "/landing"으로 리디렉션)
 // 나머지는 정적 에셋 그대로 서빙한다. API/SSR 없음.
+// 에셋 바인딩의 html_handling(auto-trailing-slash)은 "/x.html" 요청을 "/x"로 리디렉션하므로
+// 확장자 없는 경로로 리라이트한다("/landing"은 에셋이 landing.html로 바로 서빙).
+const ROUTES = {
+	"/": "/tsukuyomi",
+	"/index.html": "/tsukuyomi",
+	"/landing": "/landing",
+};
+
 export default {
 	async fetch(request, env) {
 		const url = new URL(request.url);
-		if (url.pathname === "/" || url.pathname === "/index.html") {
-			const rewritten = new Request(new URL("/tsukuyomi.html", url), request);
+
+		// 끝 슬래시가 붙으면 상대 경로 에셋(tsukuyomi.css 등)이 /landing/ 아래로 잡히므로 정규화
+		if (url.pathname === "/landing/") {
+			url.pathname = "/landing";
+			return Response.redirect(url.toString(), 301);
+		}
+
+		const target = ROUTES[url.pathname];
+		if (target) {
+			const rewritten = new Request(new URL(target, url), request);
 			const res = await env.ASSETS.fetch(rewritten);
 			// HTML은 항상 최신(프로덕션 재배포 즉시 반영)
 			const headers = new Headers(res.headers);

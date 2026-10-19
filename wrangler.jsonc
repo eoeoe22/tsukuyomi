@@ -9,8 +9,10 @@
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS",
-		// "/" 요청도 Worker를 먼저 거쳐 tsukuyomi.html로 매핑하기 위해 필요
-		"run_worker_first": true
+		// "/" → tsukuyomi.html, "/landing" → landing.html 매핑을 Worker가 먼저 처리하기 위해 필요
+		"run_worker_first": true,
+		// "/landing" → landing.html 처럼 확장자 없는 경로를 서빙 (preview-worker.js가 의존)
+		"html_handling": "auto-trailing-slash"
 	},
 	"dev": {
 		"port": 8787

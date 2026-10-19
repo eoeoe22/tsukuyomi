@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ko" data-worlds-route="off" data-phase="day">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Tsukuyomi</title>
+    <meta name="description" content="태양이 지고, 밤이 찾아옵니다.">
+    <link rel="icon" href="/assets/icons/icon.svg" type="image/x-icon">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="tsukuyomi.css">
+    <link rel="stylesheet" href="landing.css">
+</head>
+
+<body class="landing">
+    <!-- 月: 수면 토리이 장면 (tsukuyomi.js) -->
+    <div class="world" id="worldMoon">
+        <div class="world-view">
+            <canvas id="scene" aria-hidden="true"></canvas>
+            <canvas id="ripple" aria-hidden="true"></canvas>
+            <canvas id="fg" aria-hidden="true"></canvas>
+        </div>
+    </div>
+    <!-- 山: 산정 토리이 장면 (tsukuyomi.mount.js, 마지막 섹션에서 로드) -->
+    <div class="world" id="worldMount" hidden>
+        <div class="world-view">
+            <canvas id="mountScene" aria-hidden="true"></canvas>
+        </div>
+    </div>
+
+    <!-- 엔진이 찾는 기존 조절 패널. 랜딩에서는 CSS로 숨기고(크기 0 → 랜턴 회피도 꺼짐) 스크롤이 장면을 고른다 -->
+    <div class="dock" aria-hidden="true">
+        <section class="panel intro-hidden" id="panel" aria-label="장면 전환">
+            <div class="icongroup" id="icongroup" role="group">
+                <span class="thumb" id="thumb"></span>
+                <button type="button" id="btnDay" tabindex="-1">공백</button>
+                <button type="button" id="btnDusk" class="on" tabindex="-1">황혼</button>
+                <button type="button" id="btnNight" tabindex="-1">밤</button>
+                <button type="button" id="btnMirror" tabindex="-1">미러볼</button>
+            </div>
+            <button type="button" id="btnStars" class="wallpaper-toggle stars-toggle" tabindex="-1">별 궤적</button>
+            <button type="button" id="btnDark" class="wallpaper-toggle stars-toggle" tabindex="-1">공백 밤</button>
+            <span class="cursor-group" id="cursorGroup" role="group">
+                <button type="button" id="btnCursorOff" class="on" tabindex="-1">숨김</button>
+                <button type="button" id="btnCursorTrack" tabindex="-1">커서 추적</button>
+                <button type="button" id="btnCursorMoon" tabindex="-1">달 배치</button>
+            </span>
+            <button type="button" id="btnToMount" class="wallpaper-toggle world-toggle" tabindex="-1">산</button>
+            <!-- 엔진이 장면 이름을 쓰는 자리. 랜딩에서는 live region을 꺼서 전환을 읽지 않는다 -->
+            <span id="status" hidden></span>
+        </section>
+    </div>
+    <div class="dock" id="mountDock" hidden aria-hidden="true">
+        <section class="panel" id="mountPanel">
+            <div class="icongroup" id="mountGroup" role="group">
+                <span class="thumb" id="mountThumb"></span>
+                <button type="button" data-scene="dusk" tabindex="-1">땅거미</button>
+                <button type="button" data-scene="sunset" tabindex="-1">노을</button>
+            </div>
+            <button type="button" id="btnToMoon" class="wallpaper-toggle world-toggle on" tabindex="-1">수면</button>
+        </section>
+    </div>
+
+    <!-- 스크롤 레이어: 캔버스(touch-action: none) 위를 덮어야 터치 스크롤이 된다.
+         엔진 포인터 리스너는 window에 있어 리플·토리이·미러볼 클릭은 그대로 전달된다. -->
+    <main id="landing" tabindex="-1">
+        <nav class="l-nav" aria-label="섹션 이동">
+            <a href="#s0" data-to="s0" aria-label="공백"></a>
+            <a href="#s1" data-to="s1" aria-label="황혼"></a>
+            <a href="#s2" data-to="s2" aria-label="밤"></a>
+            <a href="#s3" data-to="s3" aria-label="미러볼"></a>
+            <a href="#s4" data-to="s4" aria-label="장면 속 장치"></a>
+            <a href="#s5" data-to="s5" aria-label="산정"></a>
+        </nav>
+
+        <section class="l-sec l-hero" id="s0" data-scene="day" data-side="left" aria-labelledby="s0-title">
+            <div class="l-copy">
+                <p class="l-eyebrow">Torii on still water</p>
+                <h1 id="s0-title" class="l-title">Tsukuyomi</h1>
+                <p class="l-lead">수면 위 토리이 하나, 하늘을 비추는 물.<br>낮의 공백에서 달이 뜨는 밤까지.</p>
+                <div class="l-cta">
+                    <a class="l-btn l-btn-primary" href="#s1" data-to="s1">내려가기</a>
+                    <a class="l-btn" href="/">장면 열기 <span aria-hidden="true">→</span></a>
+                </div>
+            </div>
+            <a class="l-scroll" href="#s1" data-to="s1"><span>Scroll</span><i aria-hidden="true"></i></a>
+        </section>
+
+        <section class="l-sec" id="s1" data-scene="dusk" data-side="right" aria-labelledby="s1-title">
+            <div class="l-copy">
+                <p class="l-eyebrow">01 · Dusk</p>
+                <h2 id="s1-title" class="l-title">황혼</h2>
+                <p class="l-body">코발트에서 라벤더, 핑크를 지나 수평선의 자주까지.<br>
+                    <span class="l-detail">매직아워의 하늘 아래 적운 띠와 적란운이 천천히 흐르고, 구름은 쉬지 않고 다시 그려집니다.</span></p>
+                <p class="l-hint">수면을 눌러 보세요</p>
+            </div>
+        </section>
+
+        <section class="l-sec" id="s2" data-scene="night" data-side="left" aria-labelledby="s2-title">
+            <div class="l-copy">
+                <p class="l-eyebrow">02 · Night</p>
+                <h2 id="s2-title" class="l-title">밤</h2>
+                <p class="l-body">태양이 지고, 밤이 찾아옵니다.
+                    <span class="l-detail">하늘에는 별 궤적이 자라나고, 수면에는 수많은 등롱이 수평선까지 떠 있습니다.</span></p>
+                <p class="l-hint">토리이를 눌러 보세요</p>
+            </div>
+        </section>
+
+        <section class="l-sec l-climax" id="s3" data-scene="mirror" data-side="right" aria-labelledby="s3-title">
+            <div class="l-copy">
+                <p class="l-eyebrow">03 · Mirror ball</p>
+                <h2 id="s3-title" class="l-title">미러볼</h2>
+                <p class="l-body">달이 미러볼이 되는 밤.
+                    <span class="l-detail">거울 조각 사이로 빛줄기가 흩어지고, 빛나는 물고기 무리가 달 곁을 맴돕니다.</span></p>
+                <p class="l-hint">미러볼을 눌러 보세요</p>
+            </div>
+        </section>
+
+        <section class="l-sec" id="s4" data-scene="mirror" data-side="left" data-prewarm aria-labelledby="s4-title">
+            <div class="l-copy l-copy-wide">
+                <p class="l-eyebrow">04 · Details</p>
+                <h2 id="s4-title" class="l-title">장면 속<br>작은 장치들</h2>
+                <ul class="l-grid">
+                    <li><b>수면 리플</b><span>수면 클릭 시 물결이 번집니다</span></li>
+                    <li><b>하늘 반사</b><span>물에 비친 하늘과 토리이가 일렁입니다</span></li>
+                    <li><b>별 궤적</b><span>공백 하늘의 구름 뒤로도 켤 수 있습니다</span></li>
+                    <li><b>공백 밤</b><span>낮의 구름이 짙은 남색 실루엣으로</span></li>
+                    <li><b>커서 물고기</b><span>커서를 따라오거나 달 곁에 머뭅니다</span></li>
+                    <li><b>절차적 구름</b><span>타임랩스처럼 끓어오르는 구름</span></li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="l-sec l-last" id="s5" data-scene="mount" data-side="left" aria-labelledby="s5-title">
+            <div class="l-copy l-copy-wide">
+                <p class="l-eyebrow">05 · Summit</p>
+                <h2 id="s5-title" class="l-title">산정</h2>
+                <p class="l-body">물을 떠나 산 위의 토리이로.
+                    <span class="l-detail">수평선에 걸린 노을 태양 아래, 역광의 바위 능선과 토리이.</span></p>
+                <div class="l-cta">
+                    <a class="l-btn l-btn-primary" href="/">장면 열기</a>
+                </div>
+            </div>
+            <footer class="l-foot">
+                <span>Tsukuyomi</span>
+            </footer>
+        </section>
+    </main>
+
+    <script src="cloud-live.js"></script>
+    <script src="cloud-overlay.js"></script>
+    <script src="tsukuyomi.js"></script>
+    <!-- 동기 실행: 엔진 초기화 직후, 첫 프레임 전에 낮으로 스냅한다. 나머지는 DOMContentLoaded에서 -->
+    <script src="landing.js"></script>
+    <script src="tsukuyomi.worlds.js" defer></script>
+</body>
+
+</html>

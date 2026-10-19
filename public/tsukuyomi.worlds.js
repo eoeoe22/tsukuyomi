@@ -4,6 +4,8 @@
  * 진입 / 복귀 (전환은 모두 단순 페이드)
  *   - 산 버튼(#btnToMount / #btnToMoon). 길게 누르면 디버그 패널 토글(예전 card-text 버튼의 홀드 동작을 이어받음).
  *   - 브라우저 뒤로/앞으로·해시 직접 수정도 같은 규칙으로 전환한다.
+ *   - 랜딩(landing.html)은 <html data-worlds-route="off">로 해시·기록·제목 연동을 끄고
+ *     __TSUKUYOMI_WORLDS__.go(target, { history: false, scene })로 직접 전환한다.
  */
 (() => {
   'use strict';
@@ -28,6 +30,8 @@
     // 디버그: 0~1 숫자면 전환을 그 진행도에 멈춰 둔다(콘솔에서 __TSUKUYOMI_WORLDS__.cfg.SCRUB = 0.4). null이면 정상 재생
     SCRUB: null,
   };
+  // 해시(#mount)·history·document.title 연동. 랜딩은 스크롤이 세계를 고르므로 끈다
+  const ROUTE = document.documentElement.getAttribute('data-worlds-route') !== 'off';
   const TITLES = { moon: '月 | ( ◠ ᗜ ◠ )', mount: '山 | ( ◠ ᗜ ◠ )' };
 
   // ---------- 山 엔진 지연 로드 ----------
@@ -57,8 +61,13 @@
   const mount = {
     id: 'mount', el: mountEl, dock: mountDock, toggle: btnToMoon,
     M: null,
-    start() {
-      return loadMount().then(M => { this.M = M; M.start(); });
+    // o.scene: 화면에 올리기 전에 산 장면을 바로(페이드 없이, 저장 없이) 맞춘다
+    start(o) {
+      return loadMount().then(M => {
+        this.M = M;
+        if (o && o.scene) M.setScene(o.scene, { instant: true, persist: false });
+        M.start();
+      });
     },
     stop() { if (this.M) this.M.stop(); },
   };
@@ -86,7 +95,7 @@
     B.dock.hidden = false;
     if (B === mount && mount.M) mount.M.syncUI();
     world = B.id;
-    document.title = TITLES[B.id];
+    if (ROUTE) document.title = TITLES[B.id];
   }
 
   function rafLoop(ms, step) {
@@ -112,8 +121,10 @@
     });
   }
 
-  // 단순 페이드: B를 A 위에 올려 불투명도만 올린다(둘 다 계속 그린다)
+  // 단순 페이드: B를 A 위에 올려 불투명도만 올린다.
+  // A는 페이드를 시작할 때 멈춘다: 캔버스에 마지막 화면이 그대로 남아 정지 화면으로 걷히고, 두 세계를 함께 그리지 않는다
   function fade(A, B) {
+    A.stop();
     B.el.style.opacity = '0';
     B.el.style.zIndex = '1';
     B.el.hidden = false;
@@ -123,15 +134,15 @@
   }
 
   // ---------- 전환 진입점 ----------
-  let wanted = null;   // 전환 중 들어온 마지막 요청(해시 변화 등)
-  async function go(target) {
+  let wanted = null, wantedOpts = null;   // 전환 중 들어온 마지막 요청(해시 변화 등)
+  async function go(target, opts) {
     if (!WORLDS[target]) return;
-    if (busy) { wanted = target; return; }
+    if (busy) { wanted = target; wantedOpts = opts || null; return; }
     if (target === world) return;
     const A = WORLDS[world], B = WORLDS[target];
     setBusy(true);
     try {
-      await B.start();
+      await B.start(opts);
       // 첫 프레임이 캔버스에 올라간 다음부터 보여 준다
       await new Promise(r => requestAnimationFrame(() => r()));
       await fade(A, B);
@@ -139,14 +150,15 @@
     } catch (e) {
       console.warn('[tsukuyomi] 세계 전환 실패:', e);
       clearFx(B);
+      WORLDS[world].start().catch(() => { /* 무시 */ });   // fade()가 멈췄을 수 있다
       if (B !== WORLDS[world]) { B.stop(); B.el.hidden = true; }
       // 주소를 실제로 남은 세계에 맞춘다(뒤로 가기 기록은 건드리지 않음)
-      if (hashWorld() !== world) history.replaceState(null, '', world === 'mount' ? '#mount' : location.pathname + location.search);
+      if (ROUTE && hashWorld() !== world) history.replaceState(null, '', world === 'mount' ? '#mount' : location.pathname + location.search);
     } finally {
       setBusy(false);
     }
-    if (wanted && wanted !== world) { const t = wanted; wanted = null; go(t); }
-    else wanted = null;
+    if (wanted && wanted !== world) { const t = wanted, o = wantedOpts; wanted = null; wantedOpts = null; await go(t, o); }
+    else { wanted = null; wantedOpts = null; }
   }
 
   // ---------- 경로(#mount)와 기록 ----------
@@ -164,7 +176,7 @@
     }
   }
   function onRoute() { go(hashWorld()); }
-  window.addEventListener('hashchange', onRoute);
+  if (ROUTE) window.addEventListener('hashchange', onRoute);
 
   // ---------- 산 버튼 (전환 + 길게 눌러 디버그 패널) ----------
   const HOLD_MS = 600;
@@ -211,7 +223,7 @@
   wireToggle(btnToMoon, 'moon');
 
   // ---------- 시작 ----------
-  if (hashWorld() === 'mount') {
+  if (ROUTE && hashWorld() === 'mount') {
     // #mount로 바로 들어오면 전환 연출 없이 산을 띄운다(月는 그 사이 멈춰 둔다)
     setBusy(true);
     mount.start().then(() => {
@@ -231,7 +243,10 @@
   window.__TSUKUYOMI_WORLDS__ = {
     get world() { return world; },
     get busy() { return busy; },
-    go: target => navigate(target),
+    // opts.history === false: 해시·뒤로 가기 기록을 남기지 않고 바로 전환한다(랜딩 스크롤용).
+    //   opts.scene: 산으로 갈 때 띄울 장면('dusk' | 'sunset'). 전환이 끝나면 resolve.
+    go: (target, opts) => (opts && opts.history === false) ? go(target, opts) : navigate(target),
+    prewarm,
     cfg: CFG,
   };
 })();

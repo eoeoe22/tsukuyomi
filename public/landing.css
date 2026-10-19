@@ -1,0 +1,471 @@
+/* 랜딩(landing.html): 月 장면 위 스크롤 레이어.
+ * 장면은 흐리거나 어둡게 하지 않는다. 가독성은 배치(빈 하늘)와 글자색·그림자만으로 만든다.
+ * 글자 처리는 루트의 data-phase(landing.js)가 고른다. backdrop-filter는 쓰지 않는다(성능). */
+
+:root {
+    --gut: max(24px, 6vw);
+    --col: clamp(320px, 38vw, 600px);
+    --l-dur: 1.5s;
+    /* day: 코발트 하늘 + 흰 구름 → 흰 글자 + 짙은 남색 그림자 2겹 */
+    --l-ink: #ffffff;
+    --l-deep: #14285c;
+    --l-sh: 0 1px 2px rgba(8, 20, 58, 0.62), 0 0 18px rgba(10, 24, 66, 0.42);
+}
+
+:root[data-phase="dusk"] {
+    /* 라벤더/핑크 → 짙은 자주 계열 그림자 */
+    --l-deep: #4a1840;
+    --l-sh: 0 1px 2px rgba(58, 14, 50, 0.66), 0 0 18px rgba(72, 20, 62, 0.42);
+}
+
+:root[data-phase="night"],
+:root[data-phase="mirror"] {
+    /* 밤: 아이보리 + 약한 발광 + 검정 1px */
+    --l-dur: 3s;
+    --l-ink: #f4efe4;
+    --l-deep: #1b1a33;
+    --l-sh: 0 1px 1px rgba(0, 0, 0, 0.7), 0 0 14px rgba(255, 236, 200, 0.22);
+}
+
+:root[data-phase="mount"] {
+    /* 노을 역광 → 적갈색 그림자 */
+    --l-ink: #fff8ee;
+    --l-deep: #4a1d10;
+    --l-sh: 0 1px 2px rgba(78, 26, 12, 0.66), 0 0 18px rgba(92, 32, 14, 0.42);
+}
+
+/* 엔진이 찾는 기존 조절 패널은 남겨 두고 숨긴다(크기 0 → measureCardZone이 null → 랜턴 회피 꺼짐) */
+body.landing .dock {
+    display: none !important;
+}
+
+/* ── 스크롤 레이어: 캔버스 위를 덮는다(캔버스는 touch-action: none) ── */
+#landing {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: y proximity;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+    outline: none;
+
+    font-family: var(--font-sans);
+    color: var(--l-ink);
+    text-shadow: var(--l-sh);
+    transition: color var(--l-dur) ease, text-shadow var(--l-dur) ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#landing ::selection {
+    background: rgba(255, 255, 255, 0.28);
+    color: inherit;
+}
+
+.l-sec {
+    position: relative;
+    min-height: 100vh;
+    min-height: 100dvh;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    /* 세로: 수평선(HZ ≈ 56%) 위 하늘 영역에서 시작 */
+    padding: calc(max(56px, 13vh) + env(safe-area-inset-top, 0px)) var(--gut) calc(48px + env(safe-area-inset-bottom, 0px));
+}
+
+.l-sec[data-place="right"] {
+    align-items: flex-end;
+}
+
+.l-copy {
+    width: var(--col);
+    max-width: 100%;
+}
+
+.l-copy-wide {
+    width: clamp(340px, 44vw, 680px);
+}
+
+/* ── 글자 ── */
+.l-eyebrow {
+    margin: 0 0 14px;
+    font-family: "Montserrat", var(--font-sans);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    opacity: 0.88;
+}
+
+.l-title {
+    margin: 0 0 22px;
+    font-size: clamp(40px, 5.4vw, 80px);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    word-break: keep-all;
+}
+
+.l-hero .l-title {
+    font-size: clamp(48px, 7vw, 88px);
+    line-height: 1;
+    margin-bottom: 20px;
+}
+
+.l-lead,
+.l-body {
+    margin: 0 0 18px;
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.75;
+    word-break: keep-all;
+}
+
+.l-lead {
+    font-size: clamp(18px, 1.6vw, 22px);
+}
+
+.l-detail {
+    display: inline;
+}
+
+.l-copy code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9em;
+    font-weight: 600;
+}
+
+.l-hint {
+    margin: 26px 0 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    opacity: 0.86;
+}
+
+.l-hint::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    box-shadow: 0 0 0 0 currentColor;
+    animation: l-ping 2.4s ease-out infinite;
+}
+
+@keyframes l-ping {
+    0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.55); }
+    70%, 100% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
+}
+
+/* ── 버튼(텍스트가 주인공: 테두리만, 주 버튼만 채움) ── */
+.l-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 30px;
+}
+
+.l-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 46px;
+    padding: 0 22px;
+    border-radius: var(--radius-pill, 999px);
+    border: 1.5px solid currentColor;
+    color: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-decoration: none;
+    transition: background-color var(--l-dur) ease, color var(--l-dur) ease, border-color var(--l-dur) ease, transform 0.2s ease;
+}
+
+.l-btn:hover {
+    transform: translateY(-1px);
+}
+
+.l-btn-primary {
+    background: var(--l-ink);
+    border-color: var(--l-ink);
+    color: var(--l-deep);
+    text-shadow: none;
+}
+
+#landing a:focus-visible,
+#landing [tabindex="-1"]:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 4px;
+    border-radius: 6px;
+}
+
+#landing .l-btn:focus-visible {
+    border-radius: var(--radius-pill, 999px);
+}
+
+#landing .l-btn-primary:focus-visible {
+    outline-color: var(--l-ink);
+}
+
+/* 제목 포커스(섹션 이동 시)는 링을 그리지 않는다 */
+#landing .l-title:focus {
+    outline: none;
+}
+
+/* ── 히어로 스크롤 안내 ── */
+.l-scroll {
+    position: absolute;
+    left: 50%;
+    bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: inherit;
+    font-family: "Montserrat", var(--font-sans);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    text-decoration: none;
+    opacity: 0.9;
+}
+
+.l-scroll i {
+    width: 12px;
+    height: 12px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    animation: l-bob 1.8s ease-in-out infinite;
+    filter: drop-shadow(0 1px 2px rgba(8, 20, 58, 0.5));
+}
+
+@keyframes l-bob {
+    0%, 100% { translate: 0 0; }
+    50% { translate: 0 6px; }
+}
+
+/* ── 세부 기능 그리드 ── */
+.l-grid {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 32px;
+}
+
+.l-grid li,
+.l-steps li {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 16px;
+    line-height: 1.55;
+    word-break: keep-all;
+}
+
+.l-grid b,
+.l-steps b {
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.l-grid span,
+.l-steps span {
+    font-weight: 500;
+    opacity: 0.92;
+}
+
+/* ── 빠른 시작 ── */
+.l-steps {
+    list-style: none;
+    counter-reset: l-step;
+    margin: 6px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 18px;
+}
+
+.l-steps li {
+    counter-increment: l-step;
+    position: relative;
+    padding-left: 46px;
+}
+
+.l-steps li::before {
+    content: counter(l-step, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 1px;
+    font-family: "Montserrat", var(--font-sans);
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    opacity: 0.8;
+}
+
+.l-foot {
+    margin-top: auto;
+    padding-top: 40px;
+    align-self: stretch;
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    opacity: 0.9;
+}
+
+.l-foot a {
+    color: inherit;
+}
+
+/* ── 섹션 내비 점 ── */
+.l-nav {
+    position: fixed;
+    right: max(14px, env(safe-area-inset-right, 0px));
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.l-nav a {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    color: inherit;
+}
+
+.l-nav a::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.35);
+    transition: background-color 0.3s ease, transform 0.3s ease;
+}
+
+.l-nav a[aria-current]::before {
+    background: currentColor;
+    transform: scale(1.25);
+}
+
+/* ── 모바일(엔진 isMobileLayout과 같은 기준: 토리이/달이 가운데) ──
+ * 하늘 상단 40% 안에서 가운데 정렬, 본문 최소화. 토리이와 겹치는 아래쪽은 비운다. */
+@media (max-width: 460px), (pointer: coarse) and (max-height: 500px) {
+    .l-sec,
+    .l-sec[data-place="right"] {
+        align-items: center;
+        text-align: center;
+        padding-top: calc(max(40px, 8dvh) + env(safe-area-inset-top, 0px));
+        padding-left: 20px;
+        padding-right: 20px;
+    }
+
+    .l-copy,
+    .l-copy-wide {
+        width: 100%;
+        max-width: 420px;
+    }
+
+    .l-eyebrow {
+        font-size: 11px;
+        margin-bottom: 10px;
+    }
+
+    .l-title,
+    .l-hero .l-title {
+        font-size: clamp(32px, 10vw, 46px);
+        margin-bottom: 14px;
+    }
+
+    .l-lead,
+    .l-body {
+        font-size: 16px;
+        line-height: 1.65;
+    }
+
+    .l-detail {
+        display: none;
+    }
+
+    .l-hint {
+        margin-top: 14px;
+        font-size: 13px;
+    }
+
+    .l-cta {
+        justify-content: center;
+        margin-top: 20px;
+    }
+
+    .l-grid {
+        gap: 10px 14px;
+    }
+
+    .l-grid span {
+        display: none;
+    }
+
+    .l-grid b,
+    .l-steps b {
+        font-size: 15px;
+    }
+
+    .l-steps {
+        gap: 10px;
+        text-align: left;
+        justify-self: center;
+        width: max-content;
+        max-width: 100%;
+        margin-inline: auto;
+    }
+
+    .l-steps li {
+        font-size: 14px;
+        padding-left: 36px;
+    }
+
+    .l-nav {
+        display: none;
+    }
+}
+
+/* 가로로 짧은 화면(모바일 가로)에서는 아래 여백을 줄여 한 화면에 들어오게 */
+@media (max-height: 500px) {
+    .l-sec {
+        padding-top: calc(28px + env(safe-area-inset-top, 0px));
+    }
+}
+
+/* ── 모션 줄이기: 엔진(리플·구름 정지)에 더해 글자색 전환·스냅·애니메이션을 끈다 ── */
+@media (prefers-reduced-motion: reduce) {
+    #landing {
+        scroll-snap-type: none;
+        scroll-behavior: auto;
+    }
+
+    #landing,
+    #landing *,
+    #landing *::before {
+        transition: none !important;
+        animation: none !important;
+    }
+}
