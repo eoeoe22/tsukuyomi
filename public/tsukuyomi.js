@@ -6105,6 +6105,8 @@ void main() {
                 // 밤 물고기 군집 배치 옵션 (하단 btnCursorOff/Track/Moon과 동일)
                 get cursor() { return cursorMode !== 0; }, set cursor(v) { setCursorMode(v ? 1 : 0); },
                 get cursorMode() { return cursorMode; }, set cursorMode(v) { setCursorMode(v); },
+                // 토리이 클릭과 같은 수면 상승 물고기 1회. 밤 계열 장면이 아니면(전환 초반 포함) false를 돌려준다
+                fishRise() { return fishFire(); },
                 get moonTarget() { return moonTarget; }, get mbMix() { return mbMix; }, get showT() { return showT; },
                 show: SHOW, showDefaults: SHOW_DEF,
                 get sunK() { return sunK(); },
