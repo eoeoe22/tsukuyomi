@@ -11,15 +11,26 @@
   :root[data-theme="dark"] { --bg: #1b1a1c; color-scheme: dark; }
   html, body { height: 100%; margin: 0; }
   body { background: var(--bg); display: grid; place-items: center; }
-  canvas { width: 300px; height: 440px; max-width: 100%; }
+  canvas { width: 300px; height: 440px; max-width: 100%; display: block; }
+  .ctl { width: 300px; max-width: 100%; margin: 12px auto 0; font: 13px system-ui, sans-serif; color: #8a8288; }
+  .ctl label { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .ctl b { color: CanvasText; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ctl input { width: 100%; accent-color: #6e625f; }
 </style>
 </head>
 <body>
-<canvas id="shoot"></canvas>
+<div>
+  <canvas id="shoot"></canvas>
+  <div class="ctl">
+    <label for="tilt">시점 기울기 (위↔아래) <b id="v-tilt"></b></label>
+    <input type="range" id="tilt" min="-90" max="90" step="1" value="0">
+  </div>
+</div>
 <script>
 // 죽순 SVG 외곽선을 회전체(세로축 기준) 단면으로 보고,
 // 껍질 선을 표면 좌표(높이 y, 둘레 각도 θ)로 정의해 회전시키며 정사영.
-// 세로축 회전 + 정사영이라 실루엣은 항상 원래 외곽선과 같고, 선도 그 안에만 그려짐.
+// 세로축 회전 후 시점 기울기(x축 회전)를 적용해 정사영. 기울기 0이면 실루엣은 원래 외곽선과 같음.
+// 원래 외곽선 (반지름 표의 출처)
 const SHAPE = `M150 20 C 172 20, 192 85, 222 175 C 252 265, 264 330, 256 368
   C 247 404, 210 420, 150 420 C 90 420, 53 404, 44 368 C 36 330, 48 265, 78 175
   C 108 85, 128 20, 150 20 Z`;
@@ -37,7 +48,6 @@ const ctx = cv.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
 cv.width = W * dpr; cv.height = H * dpr;
 ctx.scale(dpr, dpr);
-const body = new Path2D(SHAPE);
 
 // 오른쪽 절반 베지어를 샘플링해 높이별 반지름 표 생성
 const R_LUT = new Float32Array(H + 1);
@@ -82,12 +92,59 @@ function covered(k, th, y) {
   return false;
 }
 
+const rpAt = y => rAt(y + 0.5) - rAt(y - 0.5);   // dr/dy
+
+// 시점 기울기: 양수 = 위에서 내려다봄. 회전 중심은 높이 YC
+const YC = 220, Y0 = 20, Y1 = 420;
+let ct = 1, st = 0, OY = YC, body, bodyImg;
+// 어느 기울기에서도 캔버스(원래 높이 400)에 들어가도록 고정 배율
+const S = (() => {
+  let ext = 0;
+  for (let d = 0; d <= 90; d++) {
+    const c = Math.cos(d * Math.PI / 180), s = Math.sin(d * Math.PI / 180);
+    let lo = Infinity, hi = -Infinity;
+    for (let y = Y0; y <= Y1; y++) { const u = (YC - y) * c, h = rAt(y) * s; lo = Math.min(lo, u - h); hi = Math.max(hi, u + h); }
+    ext = Math.max(ext, hi - lo);
+  }
+  return Math.min(1, (Y1 - Y0) / ext);
+})();
+
+// 실루엣 = 높이별 단면 원(투영하면 타원)의 합집합. 회전해도 바뀌지 않으므로 기울기가 바뀔 때만 다시 구움
+function setTilt(deg) {
+  const T = deg * Math.PI / 180;
+  ct = Math.cos(T); st = Math.sin(T);
+  let lo = Infinity, hi = -Infinity;
+  for (let y = Y0; y <= Y1; y++) { const u = (YC - y) * ct, h = rAt(y) * Math.abs(st); lo = Math.min(lo, u - h); hi = Math.max(hi, u + h); }
+  OY = H / 2 + S * (lo + hi) / 2;
+  body = new Path2D();
+  for (let y = Y0; y <= Y1; y++) {
+    const rx = Math.max(0.01, S * rAt(y)), ry = Math.max(0.75, rx * Math.abs(st));
+    const cy = OY - S * (YC - y) * ct;
+    body.moveTo(CX + rx, cy);
+    body.ellipse(CX, cy, rx, ry, 0, 0, TAU);
+  }
+  if (!bodyImg) bodyImg = document.createElement('canvas');
+  bodyImg.width = W * dpr; bodyImg.height = H * dpr;
+  const b = bodyImg.getContext('2d');
+  b.scale(dpr, dpr);
+  b.lineJoin = 'round';
+  b.strokeStyle = COL.outline;
+  b.lineWidth = 6;           // 바깥쪽 절반(3px)만 남고 안쪽은 몸통 채움에 덮임
+  b.stroke(body);
+  b.fillStyle = COL.body;
+  b.fill(body);
+  document.getElementById('v-tilt').textContent = (deg > 0 ? '위에서 ' : deg < 0 ? '아래에서 ' : '정면 ') + Math.abs(deg) + '°';
+}
+
 let rot = 0, last = performance.now();
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function project(th, y) {
-  const a = th + rot;
-  return { x: CX + rAt(y) * Math.sin(a), y, front: Math.cos(a) > 0 };
+  const a = th + rot, r = rAt(y);
+  const x = r * Math.sin(a), z = r * Math.cos(a), u = YC - y;
+  // 볼록한 회전체라 법선이 시점 쪽을 향하면 보임
+  const front = y > Y0 && y < Y1 - 1 && rpAt(y) * st + Math.cos(a) * ct > 0;
+  return { x: CX + S * x, y: OY - S * (u * ct - z * st), front };
 }
 
 function strokeRun(run) {
@@ -98,8 +155,7 @@ function strokeRun(run) {
 
 function draw() {
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = COL.body;
-  ctx.fill(body);
+  ctx.drawImage(bodyImg, 0, 0, W, H);
 
   ctx.save();
   ctx.clip(body);
@@ -121,10 +177,6 @@ function draw() {
   });
   ctx.stroke();
   ctx.restore();
-
-  ctx.strokeStyle = COL.outline;
-  ctx.lineWidth = 3;
-  ctx.stroke(body);
 }
 
 function loop(t) {
@@ -133,6 +185,9 @@ function loop(t) {
   draw();
   requestAnimationFrame(loop);
 }
+const tiltEl = document.getElementById('tilt');
+tiltEl.addEventListener('input', () => { setTilt(+tiltEl.value); draw(); });
+setTilt(+tiltEl.value);
 draw();
 requestAnimationFrame(loop);
 </script>
