@@ -35,7 +35,7 @@
 </details>
 <script>
 // 역광 지구 + 죽순 장면 초안
-// - 지구/대기/별/렌즈플레어: 전체 화면 프래그먼트 셰이더 하나 (WebGL2)
+// - 지구/대기/렌즈플레어: 전체 화면 프래그먼트 셰이더 하나 (WebGL2)
 // - 죽순: 회전하는 죽순.html 로직을 오프스크린 캔버스로 그려 텍스처로 합성 (역광 실루엣 + 림라이트)
 // - 연출 변수는 태양이 지구 테두리 밖으로 나온 각도(δ) 하나. 가림 비율 vis가 섬광·음영 해제를 함께 끈다
 // URL: ?t=초 (시간 고정, 캡처용)  ?intro=0 (인트로 생략)
@@ -297,24 +297,6 @@ vec3 tkComposite(vec3 col, vec2 ps){
   return col * (1. - tk.a) + tk.a * shade + rimC;
 }
 
-vec3 stars(vec2 p){
-  vec3 c = vec3(0.);
-  for (int l = 0; l < 2; l++) {
-    float sc = l == 0 ? 40. : 110.;
-    float th = l == 0 ? .975 : .99;
-    vec2 g = p * sc, id = floor(g), f = fract(g) - .5;
-    float h = hash12(id + float(l) * 17.3);
-    if (h > th) {
-      vec2 off = vec2(hash12(id + 3.1), hash12(id + 7.7)) - .5;
-      float d = length(f - off * .7) / sc;                // 화면 좌표 거리
-      float px = 2. / uRes.y;
-      float b = pow((h - th) / (1. - th), 2.) * (.75 + .25 * sin(uTime * (.7 + h * 2.) + h * 60.));
-      c += b * exp(-d * d / (px * px * 1.2)) * mix(vec3(.75, .85, 1.), vec3(1., .9, .8), hash12(id + 1.3)) * (l == 0 ? .5 : .25);
-    }
-  }
-  return c;
-}
-
 void main(){
   vec2 ps = (2. * gl_FragCoord.xy - uRes) / uRes.y;   // 화면 좌표 (세로 -1..1)
   vec2 p = ps + uDrift;                                // 장면 좌표
@@ -325,8 +307,11 @@ void main(){
   vec3 BR = vec3(1.6, 3.7, 9.0), BM = vec3(3.0);
   float sunI = 7.;
 
-  // 배경
-  vec3 col = vec3(.0015, .004, .009) * (1. + .6 * (1. - length(ps) * .4));
+  // 배경: 레퍼런스 마지막 프레임 색 분포 기준. 먼 우측은 거의 검은 남색, 지구 테두리에 가까울수록 푸르게
+  // 시선이 지구 중심을 스치는 거리로 테두리까지의 화면 거리 근사
+  float tc = dot(rd, uE), ca = sqrt(max(dot(uE, uE) - tc * tc, 0.));
+  float dLimb = max(ca - uR, 0.) / length(uE) / uTanH;
+  vec3 col = vec3(.0001, .0003, .0006) + vec3(.0003, .0072, .024) * exp(-dLimb / .27);
 
   vec2 ip = sphere(ro, rd, uE, uR);
   bool hitP = ip.x > 0.;
@@ -340,7 +325,7 @@ void main(){
     // 태양이 떠오르는 지점 주변은 구름을 성기게 (장면 고정 좌표라 태양이 움직여도 구름은 그대로)
     float cl = clouds(Nr, dot(N, -rd), .75 * exp(-length(p - uSunEndP) / .35));
     float land = smoothstep(.52, .56, fbm(Nr * 1.4 + 11., 5));
-    vec3 alb = mix(vec3(.010, .022, .045), vec3(.035, .036, .030), land);
+    vec3 alb = mix(vec3(.004, .011, .026), vec3(.035, .036, .030), land);
     alb = mix(alb, vec3(.80, .85, .92), cl);
 
     float ndl = dot(N, uSun);
@@ -349,8 +334,11 @@ void main(){
     float nearSun = exp(-length(p - uSunP) * 1.1);
     vec3 fill = vec3(.42, .52, .68) * uRevealed * (.10 + .5 * nearSun) + vec3(.03, .05, .09) * .08;
     col = alb * (direct + fill);
-  } else {
-    col += stars(p);
+    // 태양 근처 표면 위 대기 헤이즈 (레퍼런스: 태양 옆 지구면이 분홍빛 도는 흰색으로 밝음, 가까운 거리에서 빠르게 감쇠)
+    col += uVis * 3. * exp(-length(p - uSunP) / .117) * vec3(1., .86, .8);
+    // 테두리 안쪽 청색 대기 띠: 흰 림 바로 안쪽에서 시작해 수 px에 걸쳐 감쇠
+    float xin = max(uR - ca, 0.);
+    col += uRevealed * vec3(.08, .19, .34) * smoothstep(0., .003, xin) * exp(-xin / .016);
   }
 
   // 대기 산란 (단일 산란, 시선 방향 적분)
@@ -384,6 +372,8 @@ void main(){
     // 제곱: 테두리를 스치는 긴 경로만 남기고 원판 정면의 얇은 대기는 거의 0
     // 투과율 차이로 붉어지는 걸 휘도로 탈색해 흰색 유지
     vec3 rimAll = dot(sA * sA, vec3(.2126, .7152, .0722)) * 10. * vec3(.97, .99, 1.03) * uRim;
+    // 지구 원판 안쪽으로는 림이 번지지 않게: 테두리에서 안쪽으로 들어갈수록 빠르게 감쇠 (테두리에서 1이라 이음새 없음)
+    if (hitP) rimAll *= exp(-max(uR - ca, 0.) / .0025);
     col = col * Tcam + scat + rimAll + sA * BR * vec3(.010, .016, .030);   // 마지막 항: 해 뜨기 전 희미한 청색 테두리
   }
 
@@ -392,14 +382,13 @@ void main(){
   vec2 dS = p - uSunP; float r = length(dS);
   vec3 warm = vec3(1., .78, .52);
   // 태양 본체는 항상 지구 뒤: 시선이 지구 중심을 스치는 거리로 테두리 마스크 (1px 안티에일리어싱)
-  float tc = dot(rd, uE), ca = sqrt(max(dot(uE, uE) - tc * tc, 0.));
   float aa = 1.5 * uTanH * 2. / uRes.y * length(uE);
   float behind = smoothstep(uR - aa, uR + aa, ca);
   float disc = smoothstep(.05, .034, r) * behind;
   col += uVis * disc * 7. * mix(warm, vec3(1., .97, .92), .7);
   col += uVis * exp(-r * r / .0045) * 2.8 * behind * warm;              // 코어도 본체 취급
-  col += uVis * (exp(-r / .07) * 1.2 + exp(-r / .2) * .25) * warm;       // 번짐은 테두리 위로 넘어옴
-  col += uVis * (exp(-r / .45) * .09 + exp(-r / 1.4) * .01) * vec3(1., .55, .25);
+  col += uVis * (exp(-r / .06) * 1.1 + exp(-r / .13) * .12) * warm;       // 번짐은 테두리 위로 넘어옴 (태양 근처로 좁게)
+  col += uVis * exp(-r / .28) * .015 * vec3(1., .55, .25);
 
   // 죽순
   col = tkComposite(col, ps);
@@ -410,7 +399,7 @@ void main(){
     vec2 d = ps - sunS; float rr = length(d), an = atan(d.y, d.x);
     float n = .55 * noise1(an * 6.37 + uTime * .03) + .45 * noise1(an * 15.9 - uTime * .05 + 4.);
     float spikes = pow(n, 9.) * 3. + pow(noise1(an * 31.8 + 9.), 14.) * 1.2;
-    col += uVis * spikes * .03 / (rr + .045) * exp(-rr * 2.) * vec3(1., .8, .58);
+    col += uVis * spikes * .03 / (rr + .045) * exp(-rr * 4.) * vec3(1., .8, .58);
     col += uVis * smoothstep(.05, 0., abs(rr - .42)) * .006 * vec3(.8, .6, 1.);
     for (int i = 0; i < 5; i++) {
       float k = float[5](-.35, .25, .55, .9, 1.35)[i];
@@ -541,7 +530,7 @@ function frame(now) {
   // 죽순: 깊이 z를 1 → zEnd로 늘려 직선으로 멀어짐 (화면 위치·크기 = 1/z). TK_START → TK_PARK (easeOut)
   const after = Math.max(0, t - INTRO_LEN * 0.6);            // 부유는 정착 직전부터 서서히
   const camF = Math.min(1, after / 6);
-  // 카메라 흐름: 장면(지구·태양·별)만 움직임, 죽순은 화면에 고정.
+  // 카메라 흐름: 장면(지구·태양)만 움직임, 죽순은 화면에 고정.
   // 원본 영상처럼 처음부터 천천히 팬(지구가 화면 오른쪽 아래로 흘러감) → 감속 후 느린 흔들림
   const pan = 1 - Math.exp(-Math.max(0, t) / 7);
   const drift = [0.075 - 0.075 * pan + camF * 0.03 * Math.sin(t * 0.021),
