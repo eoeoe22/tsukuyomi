@@ -1,6 +1,4 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
+<html lang="ko"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>회전하는 죽순</title>
@@ -20,9 +18,9 @@
 </head>
 <body>
 <div>
-  <canvas id="shoot"></canvas>
+  <canvas id="shoot" width="562" height="825"></canvas>
   <div class="ctl">
-    <label for="tilt">시점 기울기 (위↔아래) <b id="v-tilt"></b></label>
+    <label for="tilt">시점 기울기 (위↔아래) <b id="v-tilt">정면 0°</b></label>
     <input type="range" id="tilt" min="-90" max="90" step="1" value="0">
   </div>
 </div>
@@ -51,6 +49,7 @@ ctx.scale(dpr, dpr);
 
 // 오른쪽 절반 베지어를 샘플링해 높이별 반지름 표 생성
 const R_LUT = new Float32Array(H + 1);
+let PROFILE;   // 외곽선 샘플 [y, r] (위 끝 → 아래 중심)
 {
   const segs = [
     [[150, 20], [172, 20], [192, 85], [222, 175]],
@@ -64,6 +63,7 @@ const R_LUT = new Float32Array(H + 1);
     pts.push([a * s[0][1] + b * s[1][1] + c * s[2][1] + d * s[3][1],
               a * s[0][0] + b * s[1][0] + c * s[2][0] + d * s[3][0] - CX]);
   }
+  PROFILE = pts;
   let k = 0;
   for (let y = 0; y <= H; y++) {
     while (k < pts.length - 2 && pts[k + 1][0] < y) k++;
@@ -96,7 +96,10 @@ const rpAt = y => rAt(y + 0.5) - rAt(y - 0.5);   // dr/dy
 
 // 시점 기울기: 양수 = 위에서 내려다봄. 회전 중심은 높이 YC
 const YC = 220, Y0 = 20, Y1 = 420;
-let ct = 1, st = 0, OY = YC, body, bodyImg;
+let ct = 1, st = 0, OY = YC, body, bodyImg, shadeImg;
+// 하단 그늘: 아래 중심(반지름 0)에 가까울수록 선 색으로 어두워져 껍질 선 끝을 덮음
+const SHADE_IN = 50, SHADE_OUT = 110;   // 이 반지름 안쪽은 완전히 어둡고, 바깥쪽은 그늘 없음
+const shadeAt = r => { const t = Math.min(1, Math.max(0, (r - SHADE_IN) / (SHADE_OUT - SHADE_IN))); return 1 - t * t * (3 - 2 * t); };
 // 어느 기울기에서도 캔버스(원래 높이 400)에 들어가도록 고정 배율
 const S = (() => {
   let ext = 0;
@@ -133,7 +136,38 @@ function setTilt(deg) {
   b.stroke(body);
   b.fillStyle = COL.body;
   b.fill(body);
+  bakeShade();
   document.getElementById('v-tilt').textContent = (deg > 0 ? '위에서 ' : deg < 0 ? '아래에서 ' : '정면 ') + Math.abs(deg) + '°';
+}
+
+// 하단 그늘은 세로축 대칭이라 회전과 무관 → 기울기가 바뀔 때만 표면을 촘촘히 찍어 알파 맵으로 구움
+function bakeShade() {
+  const A = new Float32Array(W * H);
+  let top = 0;   // 가장 넓은 지점부터 아래쪽만
+  for (let i = 1; i < PROFILE.length; i++) if (PROFILE[i][1] > PROFILE[top][1]) top = i;
+  for (let i = top; i < PROFILE.length - 1; i++) {
+    const [y, r] = PROFILE[i], a = shadeAt(r);
+    if (a <= 0.003) continue;
+    const dy = PROFILE[i + 1][0] - y, dr = PROFILE[i + 1][1] - r;   // 바깥 법선: 반지름 성분 dy, 위쪽 성분 dr
+    const n = Math.max(8, Math.ceil(TAU * r * S / 0.5)), u = YC - y;
+    for (let j = 0; j < n; j++) {
+      const ph = j / n * TAU, c = Math.cos(ph);
+      if (dr * st + dy * c * ct <= 0) continue;
+      const px = Math.floor(CX + S * r * Math.sin(ph)), py = Math.floor(OY - S * (u * ct - r * c * st));
+      for (let oy = 0; oy < 2; oy++) for (let ox = 0; ox < 2; ox++) {
+        const x = px + ox, yy = py + oy;
+        if (x >= 0 && x < W && yy >= 0 && yy < H) { const k = yy * W + x; if (a > A[k]) A[k] = a; }
+      }
+    }
+  }
+  const [cr, cg, cb] = [1, 3, 5].map(i => parseInt(COL.line.slice(i, i + 2), 16));
+  const img = new ImageData(W, H);
+  for (let k = 0; k < W * H; k++) {
+    img.data[k * 4] = cr; img.data[k * 4 + 1] = cg; img.data[k * 4 + 2] = cb; img.data[k * 4 + 3] = A[k] * 255;
+  }
+  if (!shadeImg) shadeImg = document.createElement('canvas');
+  shadeImg.width = W; shadeImg.height = H;
+  shadeImg.getContext('2d').putImageData(img, 0, 0);
 }
 
 let rot = 0, last = performance.now();
@@ -176,6 +210,7 @@ function draw() {
     strokeRun(run);
   });
   ctx.stroke();
+  ctx.drawImage(shadeImg, 0, 0, W, H);
   ctx.restore();
 }
 
@@ -191,5 +226,6 @@ setTilt(+tiltEl.value);
 draw();
 requestAnimationFrame(loop);
 </script>
-</body>
-</html>
+
+
+</body></html>
