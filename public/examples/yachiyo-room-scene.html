@@ -26,6 +26,7 @@
   <div class="ctl">
     <label><span>실내 어둠 <b id="vDark"></b></span><input type="range" id="rDark" min="0" max="100" value="72"></label>
     <label><span>불빛 세기 <b id="vGlow"></b></span><input type="range" id="rGlow" min="0" max="150" value="100"></label>
+    <label><span>벽 빛무늬 <b id="vPat"></b></span><input type="range" id="rPat" min="0" max="200" value="100"></label>
     <div><button id="flk" class="on">일렁임 ON</button> <button id="tag">부품 표시</button></div>
   </div>
   <p class="note">카메라: 눈높이 1.6m, 뒷벽까지 17.5m. 뒷벽 5칸 = 회벽+원창 / 개구 3칸 / 회벽+원창. 바닥등 앞줄 6·뒷줄 4, 스탠드 2, 충립 2 (모두 좌우 대칭 배치).</p>
@@ -277,18 +278,157 @@ async function buildLanterns() {
     L.sx = sx; L.sy = sy; L.m = m;
     L.dx = sx - g.ax * m; L.dy = sy - g.ay * m; L.dw = g.W * m; L.dh = g.H * m;
   }
+  // 빛무늬 투영용 원통 랜턴 기하 (이미지 px 단위 θ·y 좌표)
+  CYD = JSON.parse(wCy.eval('JSON.stringify({R, LIGHT_Y, Y_FLOOR, Y0, RAILS, BAND_UP, BAND_LO, BANDS, MOTIFS})'));
   fSq.remove(); fCy.remove();
   LANTERNS.sort((a, b) => b.d - a.d);   // 먼 것부터
 }
 
+// ===== 원통 랜턴 빛무늬 투영 =====
+// 등 속 점광원에서 원통 표면(θ, y)의 투각·종이무늬를 지난 빛을 방의 평면(뒷벽·옆벽·천장·바닥)에 맺는다.
+// 방 안쪽은 볼록 상자라 평면마다 화면 영역으로 잘라 그리면 모서리 경계도 맞는다.
+let CYD = null, albedo = null, litLayer = null;
+const PAT = {
+  col: '255,170,95',
+  star: 0.2, starFall: 0.7,          // 위 띠 육각별: 천장·윗벽 넓게, 흐리게 (거리 감쇠 완만)
+  starBlur: [4, 9, 16], starBins: [3, 7],   // 맺힌 거리(m)별 번짐(px): 멀수록 흐림
+  low: 0.5, lowBlur: 2.5,             // 아래 띠 → 바닥
+  paper: 0.2, lit: 0.42, dark: 0.6, paperFall: 2.2, paperBlur: 2.5,   // 종이창: 바탕빛 / 매화·물결 / 어두운 윤곽
+  paperVS: 0.35, paperTMAX: 5,        // 종이창 빛: 위아래 퍼짐을 눌러 수평 띠로, 랜턴 가까운 벽에만
+  D0: 1.6, TMAX: 30,
+};
+const SURF = (() => {
+  const B = ZB, Z1 = -9;
+  return [
+    { ax: 2, v: B, quads: [[[-HX, YK, B], [HX, YK, B], [HX, YC, B], [-HX, YC, B]],
+      [[-HX, 0, B], [-4.5, 0, B], [-4.5, YK, B], [-HX, YK, B]], [[4.5, 0, B], [HX, 0, B], [HX, YK, B], [4.5, YK, B]]] },
+    { ax: 0, v: -HX, quads: [[[-HX, 0, B], [-HX, 0, Z1], [-HX, YC, Z1], [-HX, YC, B]]] },
+    { ax: 0, v: HX, quads: [[[HX, 0, B], [HX, 0, Z1], [HX, YC, Z1], [HX, YC, B]]] },
+    { ax: 1, v: YC, quads: [[[-HX, YC, B], [HX, YC, B], [HX, YC, Z1], [-HX, YC, Z1]]] },
+    { ax: 1, v: 0, quads: [[[-HX, 0, B], [HX, 0, B], [HX, 0, -5], [-HX, 0, -5]]] },
+  ];
+})();
+const mkLayer = () => { const c = document.createElement('canvas'); c.width = W * dpr; c.height = H * dpr; const g = c.getContext('2d'); g.scale(dpr, dpr); return [c, g]; };
+const CAN_FILTER = (() => { try { const g = document.createElement('canvas').getContext('2d'); g.filter = 'blur(1px)'; return g.filter === 'blur(1px)'; } catch (e) { return false; } })();
+function clipSurf(g, s) {
+  g.beginPath();
+  for (const q of s.quads) { q.forEach((p, i) => { const [x, y] = proj(...p); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); }
+  g.clip();
+}
+// 원통 표면점 → 월드. 등 방향은 π/4 고정, 좌우 등은 거울상
+function cylPt(L, th, y) {
+  const s = L.h / (CYD.Y_FLOOR - CYD.Y0), a = th + Math.PI / 4;
+  return [L.x + L.sd * CYD.R * s * Math.sin(a), (CYD.Y_FLOOR - y) * s, L.z + CYD.R * s * Math.cos(a)];
+}
+// (θ,y) 다각형을 평면 s에 투영 → 화면 점, 평균 거리. 한 점이라도 안 닿으면 null
+// vs: 빛 방향의 세로 성분 배율(1 = 실제 투영, 작을수록 수평으로 납작), tmax: 최대 도달 거리
+function projPoly(L, Lp, pts, s, vs = 1, tmax = PAT.TMAX) {
+  const out = []; let dsum = 0;
+  for (const [th, y] of pts) {
+    const P = cylPt(L, th, y), d = [P[0] - Lp[0], (P[1] - Lp[1]) * vs, P[2] - Lp[2]];
+    const n = Math.hypot(...d), dd = d[s.ax] / n;
+    if (Math.abs(dd) < 1e-4) return null;
+    const t = (s.v - Lp[s.ax]) / dd;
+    if (t <= 0 || t > tmax) return null;
+    out.push(proj(Lp[0] + d[0] / n * t, Lp[1] + d[1] / n * t, Lp[2] + d[2] / n * t)); dsum += t;
+  }
+  return { pts: out, d: dsum / pts.length };
+}
+function fillPts(g, pts) { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.fill(); }
+const fall = (d, k) => Math.min(1, Math.pow(PAT.D0 / d, k));
+function clipYPoly(P, lo, hi) {
+  const cut = (Q, keep, yv) => {
+    const out = [];
+    for (let i = 0; i < Q.length; i++) {
+      const a = Q[i], b = Q[(i + 1) % Q.length], ka = keep(a[1]), kb = keep(b[1]);
+      if (ka) out.push(a);
+      if (ka !== kb) { const t = (yv - a[1]) / (b[1] - a[1]); out.push([a[0] + (b[0] - a[0]) * t, yv]); }
+    }
+    return out;
+  };
+  let Q = cut(P, y => y >= lo, lo); if (Q.length < 3) return null;
+  Q = cut(Q, y => y <= hi, hi); return Q.length < 3 ? null : Q;
+}
+function buildPatterns() {
+  const [lc, lg] = mkLayer();
+  const LY = CYD.LIGHT_Y, TAU = Math.PI * 2;
+  // 위 띠 별 / 아래 띠 별 (한 바퀴분만)
+  const holes = b => b.holes.filter(h => h.th >= 0 && h.th < TAU).map(h => h.pts);
+  const upHoles = holes(CYD.BANDS[0]), loHoles = holes(CYD.BANDS[1]);
+  // 종이창 바탕: 가로대 사이 띠를 조각내고 광원 높이에서 위·아래로 나눔 (천장·바닥은 한쪽만 닿음)
+  const paperSegs = [], N = 96;
+  for (const [y0, y1] of [[CYD.RAILS[0], LY - 0.5], [LY + 0.5, CYD.RAILS[1]]]) for (let k = 0; k < N; k++) {
+    const p = [];
+    for (let i = 0; i <= 3; i++) p.push([TAU * (k + i / 3) / N, y0]);
+    for (let i = 3; i >= 0; i--) p.push([TAU * (k + i / 3) / N, y1]);
+    paperSegs.push(p);
+  }
+  const splitLY = P => [clipYPoly(P, -1e9, LY - 0.5), clipYPoly(P, LY + 0.5, 1e9)].filter(Boolean);
+  for (const L of LANTERNS) {
+    if (L.type !== 'cy') continue;
+    L.sd = Math.sign(L.x) || 1;
+    const Lp = cylPt(L, 0, LY); Lp[0] = L.x; Lp[2] = L.z;
+    // 1) 종이창: 바탕빛 → 어두운 윤곽 파내기 → 밝은 무늬
+    const [pc, pg] = mkLayer();
+    for (const s of SURF) {
+      pg.save(); clipSurf(pg, s);
+      for (const P of paperSegs) { const r = projPoly(L, Lp, P, s, PAT.paperVS, PAT.paperTMAX); if (!r) continue; pg.fillStyle = `rgba(${PAT.col},${PAT.paper * fall(r.d, PAT.paperFall)})`; fillPts(pg, r.pts); }
+      for (const m of CYD.MOTIFS) for (const layer of m.layers) {
+        pg.globalCompositeOperation = layer.lit ? 'lighter' : 'destination-out';
+        for (const poly of layer.polys) for (const P of splitLY(poly)) {
+          const r = projPoly(L, Lp, P, s, PAT.paperVS, PAT.paperTMAX); if (!r) continue;
+          const a = layer.lit ? PAT.lit * fall(r.d, PAT.paperFall) : PAT.dark;
+          pg.fillStyle = layer.lit ? `rgba(${PAT.col},${a})` : `rgba(0,0,0,${a})`; fillPts(pg, r.pts);
+        }
+      }
+      pg.globalCompositeOperation = 'source-over'; pg.restore();
+    }
+    lg.globalCompositeOperation = 'lighter';
+    if (CAN_FILTER) lg.filter = `blur(${PAT.paperBlur * dpr}px)`;
+    lg.drawImage(pc, 0, 0, W, H); lg.filter = 'none';
+    // 2) 육각별: 위 띠는 거리별로 점점 더 번지게, 아래 띠는 바닥에 비교적 또렷이
+    const bins = PAT.starBlur.map(() => mkLayer()), [oc, og] = mkLayer();
+    for (const s of SURF) {
+      for (const [c, g] of bins) { g.save(); clipSurf(g, s); }
+      og.save(); clipSurf(og, s);
+      for (const P of upHoles) {
+        const r = projPoly(L, Lp, P, s); if (!r) continue;
+        const bi = r.d < PAT.starBins[0] ? 0 : r.d < PAT.starBins[1] ? 1 : 2, g = bins[bi][1];
+        g.fillStyle = `rgba(${PAT.col},${PAT.star * fall(r.d, PAT.starFall)})`; fillPts(g, r.pts);
+      }
+      for (const P of loHoles) {
+        const r = projPoly(L, Lp, P, s); if (!r) continue;
+        og.fillStyle = `rgba(${PAT.col},${PAT.low * fall(r.d, 1)})`; fillPts(og, r.pts);
+      }
+      for (const [c, g] of bins) g.restore();
+      og.restore();
+    }
+    bins.forEach(([c], i) => { if (CAN_FILTER) lg.filter = `blur(${PAT.starBlur[i] * dpr}px)`; lg.drawImage(c, 0, 0, W, H); });
+    if (CAN_FILTER) lg.filter = `blur(${PAT.lowBlur * dpr}px)`;
+    lg.drawImage(oc, 0, 0, W, H); lg.filter = 'none';
+    lg.globalCompositeOperation = 'source-over';
+  }
+  // 반사광 = 표면색(어둡게 하기 전) × 빛. 어두운 나무·란마에서도 무늬가 보이게 표면색을 밝은 쪽으로 끌어올림
+  const [ac, ag] = mkLayer();
+  ag.drawImage(albedo, 0, 0, W, H);
+  ag.globalCompositeOperation = 'screen'; ag.fillStyle = 'rgb(110,100,90)'; ag.fillRect(0, 0, W, H);
+  const [rc, rg] = mkLayer();
+  rg.fillStyle = '#000'; rg.fillRect(0, 0, W, H);
+  rg.globalCompositeOperation = 'lighter'; rg.drawImage(lc, 0, 0, W, H); rg.drawImage(lc, 0, 0, W, H);
+  rg.globalCompositeOperation = 'multiply'; rg.drawImage(ac, 0, 0, W, H);
+  rg.globalCompositeOperation = 'source-over';
+  litLayer = rc;
+}
+
 // ===== 그리기 =====
-const S = { dark: 72, glow: 100, flicker: true, tags: false };
+const S = { dark: 72, glow: 100, pat: 100, flicker: true, tags: false };
 let base = null;
 function buildBase() {
   base = document.createElement('canvas'); base.width = W * dpr; base.height = H * dpr;
   const g = base.getContext('2d'); g.scale(dpr, dpr);
   TAGS.length = 0;
   sky(g); outside(g); ceiling(g); sideWalls(g); floor(g); backWall(g); screens(g);
+  if (!albedo) { [albedo] = mkLayer(); albedo.getContext('2d').drawImage(base, 0, 0, W, H); }
   // 밤 실내: 곱하기로 전체를 어둡게 (푸른 기)
   const a = S.dark / 100;
   const c = [255 - 190 * a, 255 - 192 * a, 255 - 170 * a].map(n => n | 0);
@@ -323,6 +463,14 @@ function draw() {
     // 주변 벽·공기로 번지는 빛
     const cy = L.sy - L.h * 0.55 * L.k, rr = (big ? 4.2 : 1.6) * L.k;
     radial(ctx, L.sx, cy, rr, rr, glow('255,145,60', (big ? 0.32 : 0.16) * G * fl));
+  }
+  // 원통 랜턴 빛무늬 (벽·천장·바닥)
+  if (litLayer) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = Math.min(1, S.pat / 100 * G * fl);
+    ctx.drawImage(litLayer, 0, 0, W, H);
+    if (S.pat / 100 * G * fl > 1) { ctx.globalAlpha = Math.min(1, S.pat / 100 * G * fl - 1); ctx.drawImage(litLayer, 0, 0, W, H); }
+    ctx.globalAlpha = 1;
   }
   ctx.globalCompositeOperation = 'source-over';
   for (const L of LANTERNS) ctx.drawImage(L.img, L.dx, L.dy, L.dw, L.dh);
@@ -373,12 +521,13 @@ function bind(id, vid, key, fmt, rebuild) {
 }
 bind('rDark', 'vDark', 'dark', v => v + '%', true);
 bind('rGlow', 'vGlow', 'glow', v => v + '%', false);
+bind('rPat', 'vPat', 'pat', v => v + '%', false);
 $('flk').classList.toggle('on', S.flicker); $('flk').textContent = S.flicker ? '일렁임 ON' : '일렁임 OFF';
 $('flk').onclick = e => { S.flicker = !S.flicker; e.target.classList.toggle('on', S.flicker); e.target.textContent = S.flicker ? '일렁임 ON' : '일렁임 OFF'; draw(); };
 $('tag').onclick = e => { S.tags = !S.tags; e.target.classList.toggle('on', S.tags); draw(); };
 
 buildBase(); draw();
-buildLanterns().then(() => { $('wait').remove(); window.__sceneReady = true; draw(); requestAnimationFrame(loop); })
+buildLanterns().then(() => { buildPatterns(); $('wait').remove(); window.__sceneReady = true; draw(); requestAnimationFrame(loop); })
   .catch(e => { $('wait').textContent = '랜턴 불러오기 실패: ' + e.message; console.error(e); });
 window.__scene = { S, LANTERNS, draw, buildBase };
 </script>
