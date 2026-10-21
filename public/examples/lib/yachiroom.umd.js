@@ -188,7 +188,15 @@ function buildPrims(o) {
     P.push(...boxPrims(0, 0.25, 0, 2.6, 0.07, 0.07, R, s, sc, ox, oy, o));
     P.push(...boxPrims(0, -0.25, 0, 2.6, 0.06, 0.06, R, s, sc, ox, oy, o));
     const n = Math.max(2, Math.round(o.bars));
-    for (let i = 0; i < n; i++) {
+    if (o.midRail) {
+      // 가운데 횡대 + 아래·위 동자 간격을 기본(2.4/n)의 loStep·upStep배로, 가운데 정렬
+      P.push(...boxPrims(0, 0, 0, 2.6, 0.06, 0.06, R, s, sc, ox, oy, o));
+      const sp = 2.4 / n;
+      for (const [step, cy] of [[o.loStep || 2, -0.125], [o.upStep || 4, 0.125]]) {
+        const ss = sp * step, m = Math.floor((2.4 - sp) / ss + 1e-6) + 1;
+        for (let j = 0; j < m; j++) P.push(...boxPrims((j - (m - 1) / 2) * ss, cy, 0, 0.06, 0.25, 0.06, R, s, sc, ox, oy, o));
+      }
+    } else for (let i = 0; i < n; i++) {
       const x = -1.2 + 2.4 * (i + 0.5) / n;
       P.push(...boxPrims(x, 0, 0, 0.06, 0.5, 0.06, R, s, sc, ox, oy, o));
     }

@@ -48,6 +48,8 @@ const ZB = -17.5;            // 뒷벽
 const HX = 7.5;              // 방 반폭
 const YK = 4.0, YR_ = 5.2, YC = 6.0;   // 가모이(개구 윗선), 란마 윗선, 천장
 const BAYS = [-7.5, -4.5, -1.5, 1.5, 4.5, 7.5];
+// 옆벽(방 앞·뒤 끝): ZB~ZW 먼 칸은 원창 회벽, ZW부터 앞은 밖으로 트인 개구
+const ZW = -14.5;
 // 우측 단 (상단): x DX0 ~ 오른쪽 벽, 높이 DH, 뒷벽부터 화면 앞(DZ1)까지
 const DX0 = 3.9, DH = 0.3, DZ1 = -5;
 const baseY = x => x > DX0 ? DH : 0;
@@ -129,8 +131,10 @@ function sky(g) {
 function outside(g) {
   // 개구 밖 툇마루 + 난간 (yachiroom kouran)
   const zo = ZB - 2.2;
-  poly(g, [proj(-4.5, 0, ZB), proj(4.5, 0, ZB), proj(4.5, 0, zo), proj(-4.5, 0, zo)], '#3a2c20');
-  for (const xc of [-3, 0, 3]) comp(g, 'kouran', xc, 0.48, zo + 0.15, 3.0 / 2.6, 0.95 / 0.57, { bars: 9 });
+  // 난간은 개구(±4.5)보다 2m 뒤라 원근상 좁아 보임 → ±5.25까지 넓혀 창 밖을 채움
+  const RW = 3.5;
+  poly(g, [proj(-5.5, 0, ZB), proj(5.5, 0, ZB), proj(5.5, 0, zo), proj(-5.5, 0, zo)], '#3a2c20');
+  for (const xc of [-RW, 0, RW]) comp(g, 'kouran', xc, 0.48, zo + 0.15, RW / 2.6, 0.95 / 0.57, { bars: 9, midRail: true, loStep: 2, upStep: 4 });
 }
 function ceiling(g) {
   const z1 = -9;
@@ -140,17 +144,41 @@ function ceiling(g) {
   for (const x of [-4.5, -1.5, 1.5, 4.5]) boxP(g, x - 0.16, x + 0.16, YC - 0.32, YC, ZB, z1, beam);
   for (const z of [-14.5, -11.5]) boxP(g, -HX, HX, YC - 0.4, YC, z - 0.16, z + 0.16, beam);
 }
+function sideOutside(g) {
+  // 옆 개구 밖 툇마루 + 난간. 뒤 난간과 같은 거리(벽에서 2.05m)·높이·동자 간격(아래 2칸·위 4칸)으로 깊이 방향을 따라 놓는다
+  const xo = HX + 2.05, z0 = ZB - 2.2, z1 = -5, p = 0.36, w = 0.04;
+  const wood = { f: '#4a3421', s: '#3d2a1b', b: '#2e2015', t: '#5a4030' };
+  for (const sd of [-1, 1]) {
+    const bx = (a, b, y0, y1, za, zb) => boxP(g, Math.min(sd * a, sd * b), Math.max(sd * a, sd * b), y0, y1, za, zb, wood);
+    poly(g, [proj(sd * HX, 0, z0), proj(sd * (xo + 0.2), 0, z0), proj(sd * (xo + 0.2), 0, z1), proj(sd * HX, 0, z1)], '#3a2c20');
+    for (let z = z0 + 0.15; z < z1; z += 2 * p) bx(xo - w, xo + w, 0.06, 0.48, z - w, z + w);
+    for (let z = z0 + 0.15; z < z1; z += 4 * p) bx(xo - w, xo + w, 0.48, 0.9, z - w, z + w);
+    for (const [ya, yb] of [[0, 0.12], [0.43, 0.53], [0.84, 0.96]]) bx(xo - w - 0.01, xo + w + 0.01, ya, yb, z0 + 0.1, z1);
+  }
+}
+// 옆벽 원창: x = 일정한 평면 위 원 (뒷벽 marumado와 같은 반지름·살·색)
+function sideMarumado(g, x, zc, yc, r) {
+  const s = kAt(zc) / 100, N = 48;
+  const ring = Array.from({ length: N }, (_, i) => { const a = i / N * Math.PI * 2; return proj(x, yc + r * Math.sin(a), zc + r * Math.cos(a)); });
+  poly(g, ring, '#0d162e', '#241a12', 5 * s);
+  const bar = (a, b) => line3(g, [x, yc + a[1], zc + a[0]], [x, yc + b[1], zc + b[0]], '#57493a', 3 * s);
+  bar([-r, 0], [r, 0]); bar([0, -r], [0, r]);
+  bar([-r * 0.5, -r * 0.86], [-r * 0.5, r * 0.86]); bar([r * 0.5, -r * 0.86], [r * 0.5, r * 0.86]);
+}
 function sideWalls(g) {
   const z1 = -9;
   for (const sd of [-1, 1]) {
     const x = sd * HX;
-    poly(g, [proj(x, 0, ZB), proj(x, 0, z1), proj(x, YK, z1), proj(x, YK, ZB)], '#4c3f31');
-    poly(g, [proj(x, 0, ZB), proj(x, 0, z1), proj(x, 0.9, z1), proj(x, 0.9, ZB)], '#3a2f24');
+    // 먼 칸만 회벽 + 허리벽 + 원창. 그 앞(ZW~z1)은 개구로 뚫려 밖 툇마루가 보인다
+    poly(g, [proj(x, 0, ZB), proj(x, 0, ZW), proj(x, YK, ZW), proj(x, YK, ZB)], '#4c3f31');
+    poly(g, [proj(x, 0, ZB), proj(x, 0, ZW), proj(x, 0.9, ZW), proj(x, 0.9, ZB)], '#3a2f24');
+    sideMarumado(g, x, (ZB + ZW) / 2, 2.3, 1.05);
     // 측면 란마 띠
     poly(g, [proj(x, YK, ZB), proj(x, YK, z1), proj(x, YC, z1), proj(x, YC, ZB)], '#1a1510');
     for (let z = ZB + 0.2; z < z1; z += 0.22) line3(g, [x, YK, z], [x, YR_, z], 'rgba(120,95,70,0.55)', 1.6);
     const wood = { f: '#4a3421', s: '#3d2a1b', b: '#2e2015', t: '#5a4030' };
-    const xi = x - sd * 0.18;
+    const xi = x - sd * 0.18, y0 = baseY(x);
+    boxP(g, Math.min(x, xi), Math.max(x, xi), y0, y0 + 0.08, ZW, z1, wood);   // 개구 문지방
     boxP(g, Math.min(x, xi), Math.max(x, xi), YK - 0.12, YK + 0.12, ZB, z1, wood);
     boxP(g, Math.min(x, xi), Math.max(x, xi), YR_ - 0.12, YR_ + 0.14, ZB, z1, wood);
     for (const z of [-14.5, -11.5]) {
@@ -261,11 +289,10 @@ function screens(g) {
 // ===== 등불 =====
 // type: sq(사각뿔대 바닥등) | cy(원통 스탠딩). h = 실제 높이(m)
 const LANTERNS = [];
-for (const sd of [-1, 1]) {
-  LANTERNS.push({ type: 'cy', x: sd * 5.5, z: -15.9, h: 1.75 });
-  for (const x of [0.95, 3.1]) LANTERNS.push({ type: 'sq', x: sd * x, z: -15.4, h: 0.5 });
-  for (const x of [0.7, 2.1, 3.5]) LANTERNS.push({ type: 'sq', x: sd * x, z: -7.9, h: 0.5 });
-}
+for (const sd of [-1, 1]) LANTERNS.push({ type: 'cy', x: sd * 5.5, z: -15.9, h: 1.75 });
+// 사각뿔대: 앞·뒤 줄 각 5개, 같은 x에 놓아 두 줄이 대응(좌우대칭, 가운데 1개)
+const SQX = [-3.5, -1.75, 0, 1.75, 3.5];
+for (const z of [-15.4, -7.9]) for (const x of SQX) LANTERNS.push({ type: 'sq', x, z, h: 0.5 });
 LANTERNS.forEach(L => { L.d = -L.z; L.k = kAt(L.z); L.y0 = baseY(L.x); });
 
 function loadFrame(src) {
@@ -382,8 +409,9 @@ const SURF_ALL = (() => {
   return [
     { ax: 2, v: B, quads: [[[-HX, YK, B], [HX, YK, B], [HX, YC, B], [-HX, YC, B]],
       [[-HX, 0, B], [-4.5, 0, B], [-4.5, YK, B], [-HX, YK, B]], [[4.5, DH, B], [HX, DH, B], [HX, YK, B], [4.5, YK, B]]] },
-    { ax: 0, v: -HX, quads: [[[-HX, 0, B], [-HX, 0, Z1], [-HX, YC, Z1], [-HX, YC, B]]] },
-    { ax: 0, v: HX, quads: [[[HX, DH, B], [HX, DH, Z1], [HX, YC, Z1], [HX, YC, B]]] },
+    // 옆벽: 먼 칸(원창 회벽) + 개구 위 란마 띠
+    { ax: 0, v: -HX, quads: [[[-HX, 0, B], [-HX, 0, ZW], [-HX, YK, ZW], [-HX, YK, B]], [[-HX, YK, B], [-HX, YK, Z1], [-HX, YC, Z1], [-HX, YC, B]]] },
+    { ax: 0, v: HX, quads: [[[HX, DH, B], [HX, DH, ZW], [HX, YK, ZW], [HX, YK, B]], [[HX, YK, B], [HX, YK, Z1], [HX, YC, Z1], [HX, YC, B]]] },
     { ax: 1, v: YC, quads: [[[-HX, YC, B], [HX, YC, B], [HX, YC, Z1], [-HX, YC, Z1]]] },
     { ax: 1, v: 0, floor: true, quads: [[[-HX, 0, B], [DX0, 0, B], [DX0, 0, DZ1], [-HX, 0, DZ1]]] },
     // 우측 단: 윗면 + 옆면(챌판, -x 쪽을 봄 → 단 왼쪽의 등만 비춤)
@@ -691,7 +719,7 @@ function buildBase() {
   base = document.createElement('canvas'); base.width = W * dpr; base.height = H * dpr;
   const g = base.getContext('2d'); g.scale(dpr, dpr);
   TAGS.length = 0;
-  sky(g); outside(g); ceiling(g); sideWalls(g); floor(g); backWall(g); dais(g); screens(g);
+  sky(g); outside(g); sideOutside(g); ceiling(g); sideWalls(g); floor(g); backWall(g); dais(g); screens(g);
   if (!albedo) { [albedo] = mkLayer(); albedo.getContext('2d').drawImage(base, 0, 0, W, H); }
   // 밤 실내: 곱하기로 전체를 어둡게 (푸른 기)
   const a = S.dark / 100;
