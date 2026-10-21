@@ -30,7 +30,7 @@
   <label for="tilt">죽순 시점 기울기 <b id="v-tilt"></b></label>
   <input type="range" id="tilt" min="-90" max="90" step="1" value="-30">
   <label for="q">렌더 배율 <b id="v-q"></b></label>
-  <input type="range" id="q" min="0.4" max="1" step="0.05" value="0.75">
+  <input type="range" id="q" min="0.4" max="1" step="0.05" value="1">
   <button id="replay">인트로 다시</button>
 </details>
 <script>
@@ -237,19 +237,63 @@ float noise3(vec3 x){
 float fbm(vec3 p, int oct){ float a = .5, s = 0.; for (int i = 0; i < 7; i++) { if (i >= oct) break; s += a * noise3(p); p = p * 2.03 + vec3(1.7, 9.2, 3.1); a *= .5; } return s; }
 float noise1(float x){ float i = floor(x), f = fract(x); f = f * f * (3. - 2. * f); return mix(hash12(vec2(i, 3.7)), hash12(vec2(i + 1., 3.7)), f); }
 
-// 구름: 잘게 부서진 적운 덩어리 + 위도 방향으로 늘어진 층운 띠. 맑은 바다 구역이 사이사이 비어 보이게
-// mu: 시선과 법선의 코사인 (테두리 근처에선 고주파 침식을 줄여 반짝임 방지)
-// thin: 0..1, 구름 양을 줄이는 정도
-float clouds(vec3 Nr, float mu, float thin){
-  float cov = smoothstep(.30, .62, fbm(Nr * 8. + 3.7, 3)) * (1. - thin); // 지역별 구름 양
-  vec3 q = Nr * vec3(1., 2.4, 1.) * 34.;                                // 남북 압축 → 위도 방향 줄무늬
-  vec2 w = vec2(fbm(q * .3 + vec3(5.2, 1.3, 2.8), 3), fbm(q * .3 + vec3(1.7, 9.2, 4.1), 3)) - .5;
-  q += vec3(w.x, 0., w.y) * 3.;                                         // 약한 워프: 띠가 휘어지게
-  float d = fbm(q, 5);
-  float e = noise3(q * 4.1 + 7.1) * .55 + noise3(q * 9.3 + 2.3) * .45;  // 가장자리 잘게 부수기
-  d -= (1. - cov) * .26 + (1. - e) * .2 * smoothstep(.05, .35, mu);
-  // 얇은 가장자리는 반투명(바다가 비침), 두꺼운 중심부만 밝게
-  return smoothstep(.18, .40, d) * (.45 + .55 * smoothstep(.32, .50, d));
+// 픽셀 크기 기반 안티에일리어싱: 한 주기가 ~3px보다 작아지는 옥타브는 평균값(.5)으로 수렴
+// f: 옥타브 주파수 (Nr 단위), fp: 한 픽셀이 덮는 Nr 길이
+float aaW(float f, float fp){ return 1. - smoothstep(.25, .55, f * fp); }
+// g: 옥타브 감쇠 (클수록 고주파 비중이 커져 결이 거칠어짐)
+float fbmAA(vec3 p, float f, float fp, int oct, float g){
+  float a = 1., s = 0., n = 0.;
+  for (int i = 0; i < 8; i++) {
+    if (i >= oct) break;
+    s += a * mix(.5, noise3(p), aaW(f, fp)); n += a;
+    p = p * 2.03 + vec3(1.7, 9.2, 3.1); f *= 2.03; a *= g;
+  }
+  return s / n;
+}
+
+// 구름 (레퍼런스 마지막 프레임 기준)
+//  - 큰 구조: 위도 방향으로 늘어진 띠 + 워프로 휘어짐. 지역별 구름 양(cov)으로 맑은 바다 구역을 비움
+//  - 고주파 결이 밀도 자체를 흔들어 가장자리가 잘게 부서지고 내부도 평평한 판이 되지 않게
+//  - 점 적운: 2~3px 크기 밝은 점들이 구름 지대 가장자리에 흩뿌려짐 (해상도감의 핵심)
+// fp: 픽셀 크기 (Nr 단위, 화면 위쪽 ~.0008 / 테두리 근처 ~.003), mu: 시선·법선 코사인, thin: 0..1 구름 양 감소
+// 반환값은 1을 넘을 수 있음 (밝은 꼭대기·점 적운이 흰색까지 올라가게)
+float clouds(vec3 Nr, float fp, float mu, float thin){
+  float cov = smoothstep(.38, .62, fbmAA(Nr * 4. + 3.7, 4., fp, 4, .5)) * (1. - thin);
+
+  const float F = 18.;
+  vec3 q = Nr * vec3(1., 3.4, 1.) * F;                                  // 남북 압축 → 위도 방향 줄무늬
+  vec2 w = vec2(fbmAA(q * .4 + vec3(5.2, 1.3, 2.8), F * .4, fp, 4, .5),
+                fbmAA(q * .4 + vec3(1.7, 9.2, 4.1), F * .4, fp, 4, .5)) - .5;
+  q += vec3(w.x, w.y * .3, w.y) * 4.5;                                  // 워프: 띠가 휘고 소용돌이침
+  float d = fbmAA(q, F, fp, 5, .55);
+  // 고주파 결 (주기 ~10px → 2px). 약간 덜 늘인 좌표라 줄무늬 속에 알갱이가 섞임
+  vec3 qh = Nr * vec3(1., 2.2, 1.) * 110. + vec3(w.x, 0., w.y) * 3.;
+  float h = fbmAA(qh, 110., fp, 5, .8);
+
+  // 비스듬히 볼수록(테두리 쪽) 구름층을 길게 통과해 두껍게 보임
+  float den = d - (1. - cov) * .44 + (h - .5) * .5 + (1. - mu) * .04;
+  // 알갱이 노이즈 (주기 ~4px)
+  float gr = mix(.5, noise3(Nr * 260. + 8.1), aaW(260., fp));
+  // 섬유 결: 위도 방향으로 강하게 늘인 고주파 → 베일이 실처럼 갈라짐
+  vec3 qf = Nr * vec3(1., 5., 1.) * 50. + vec3(w.x, 0., w.y) * 5.;
+  float fil = fbmAA(qf, 250., fp, 3, .6);             // AA는 가장 촘촘한 남북 방향 주파수 기준
+  // 얇은 베일: 넓게 깔리지만 어둡고 섬유 결로 갈라짐
+  float veil = smoothstep(.46, .58, den) * smoothstep(.20, .52, fil + (h - .5) * .7);
+  // 두꺼운 덩어리: 알갱이로 잘게 쪼개져 작은 조각들로 (큰 판이 되지 않게)
+  float dense = smoothstep(.59, .66, den + (gr - .5) * .32) * cov;
+  float body = max(veil, dense);
+  float lum = veil * .30 * (.5 + 1.2 * h) * (.7 + .6 * gr) + dense * (.6 + 1.1 * (gr - .5) + .6 * smoothstep(.63, .75, den));
+
+  // 점 적운: 고립된 밝은 점. 구름 지대 근처(den)에서만
+  const float fs = 380.;
+  float sw = aaW(fs, fp);
+  float sp = noise3(Nr * fs + 4.3);
+  float pk = hash13(floor(Nr * fs + 4.3));                              // 점마다 밝기 다르게
+  float clump = smoothstep(.35, .60, noise3(Nr * 45. + 6.6));          // 점들이 무리 지어 모이게
+  float pop = mix(.04, smoothstep(.64, .88, sp) * (.35 + .65 * pk), sw)
+            * smoothstep(.36, .50, den) * clump * (1. - body * .6);
+
+  return lum + pop * 1.8;
 }
 
 vec2 sphere(vec3 ro, vec3 rd, vec3 c, float r){
@@ -323,10 +367,15 @@ void main(){
     float cs = cos(uSpin), sn = sin(uSpin);
     vec3 Nr = vec3(cs * N.x + sn * N.z, N.y, -sn * N.x + cs * N.z);
     // 태양이 떠오르는 지점 주변은 구름을 성기게 (장면 고정 좌표라 태양이 움직여도 구름은 그대로)
-    float cl = clouds(Nr, dot(N, -rd), .75 * exp(-length(p - uSunEndP) / .35));
+    // 픽셀 하나가 덮는 표면 길이: 시야각/픽셀 × 거리, 테두리 쪽은 비스듬해 늘어남 (압축 방향 과보정 완화로 지수 .7)
+    float fp = 2. * uTanH / uRes.y * ip.x / pow(max(dot(N, -rd), .02), .7);
+    float cl = clouds(Nr, fp, dot(N, -rd), .75 * exp(-length(p - uSunEndP) / .35));
     float land = smoothstep(.52, .56, fbm(Nr * 1.4 + 11., 5));
     vec3 alb = mix(vec3(.004, .011, .026), vec3(.035, .036, .030), land);
-    alb = mix(alb, vec3(.80, .85, .92), cl);
+    // 구름 반사율은 1.4배 (레퍼런스 구름 꼭대기가 거의 흰색), 1을 넘는 부분은 더 강하게
+    // 구름 꼭대기는 레퍼런스에서 거의 흰색: 1을 넘는 부분은 더 강하게
+    vec3 cA = vec3(.80, .85, .92) * (min(cl, 1.) + max(cl - 1., 0.) * 2.);
+    alb = alb * (1. - min(cl, 1.)) + cA;
 
     float ndl = dot(N, uSun);
     vec3 direct = smoothstep(-.015, .06, ndl) * exp(-vec3(.55, 1.35, 3.2) * exp(-max(ndl, 0.) * 14.)) * sunI * .35;
@@ -334,6 +383,8 @@ void main(){
     float nearSun = exp(-length(p - uSunP) * 1.1);
     vec3 fill = vec3(.42, .52, .68) * uRevealed * (.10 + .5 * nearSun) + vec3(.03, .05, .09) * .08;
     col = alb * (direct + fill);
+    // 구름 전용 보조광: 역광 대기에 둘러싸여 태양에서 먼 쪽 구름도 밝게 보임 (레퍼런스)
+    col += cA * uRevealed * .14 * vec3(.85, .9, 1.);
     // 태양 근처 표면 위 대기 헤이즈 (레퍼런스: 태양 옆 지구면이 분홍빛 도는 흰색으로 밝음, 가까운 거리에서 빠르게 감쇠)
     col += uVis * 3. * exp(-length(p - uSunP) / .117) * vec3(1., .86, .8);
     // 테두리 안쪽 청색 대기 띠: 흰 림 바로 안쪽에서 시작해 수 px에 걸쳐 감쇠
@@ -485,7 +536,7 @@ gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 
-let scale = 0.75;
+let scale = 1;
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   cv.width = Math.round(innerWidth * dpr * scale);
