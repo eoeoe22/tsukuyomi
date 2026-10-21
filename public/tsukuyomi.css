@@ -564,16 +564,179 @@
             transition: opacity 0.6s ease;
         }
 
-        /* 산 전환 버튼 아이콘(examples/mountain-icon.svg 인라인) */
-        .world-toggle svg {
+        #earthScene {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #worldEarth {
+            background: #02050a;
+        }
+
+        /* ── 세계 드롭다운: 각 패널 맨 왼쪽(tsukuyomi.worlds.js가 만든다). 접힘 상태에서도 항상 보인다 ── */
+        .world-picker {
+            position: relative;
+            flex: 0 0 auto;
+            display: flex;
+        }
+
+        .panel > .world-picker:not(:last-child) {
+            margin-right: 8px;
+        }
+
+        .world-select {
+            height: 46px;
+            min-width: 46px;
+            padding: 0 9px 0 14px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            border: 0;
+            border-radius: var(--radius-pill);
+            background: var(--track);
+            box-shadow: var(--inset-sm);
+            color: var(--text-muted);
+            font-size: 19px;
+            line-height: 1;
+            cursor: pointer;
+            transition: background-color 0.25s, color 0.25s, transform 0.25s, box-shadow 1.25s ease;
+        }
+
+        .world-select:hover {
+            transform: translateY(-1px);
+        }
+
+        .world-select:active {
+            transform: none;
+        }
+
+        .world-select:focus-visible {
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
+        }
+
+        .world-picker.open .world-select {
+            color: var(--primary);
+        }
+
+        .world-select svg,
+        .world-menu svg {
             width: 19px;
             height: 19px;
             display: block;
         }
 
+        .world-caret {
+            font-size: 11px;
+            opacity: 0.65;
+        }
+
+        /* 메뉴: 버튼 위로 펼친다(패널이 화면 아래쪽에 붙어 있으므로) */
+        .world-menu {
+            position: absolute;
+            left: -10px;
+            bottom: calc(100% + 18px);
+            z-index: 2;
+            min-width: 176px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 6px;
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+            opacity: 0;
+            transform: translateY(8px) scale(0.98);
+            transform-origin: 24px 100%;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 1.25s ease, visibility 0s 0.22s;
+        }
+
+        .world-picker.open .world-menu {
+            opacity: 1;
+            transform: none;
+            visibility: visible;
+            pointer-events: auto;
+            transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 1.25s ease, visibility 0s;
+        }
+
+        .world-menu button {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            height: 44px;
+            padding: 0 16px 0 12px;
+            border: 0;
+            border-radius: 14px;
+            background: transparent;
+            color: var(--text);
+            font: 600 14px/1 var(--font-sans);
+            text-align: left;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s;
+        }
+
+        .world-menu-icon {
+            width: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .world-menu button:hover,
+        .world-menu button:focus-visible {
+            background: var(--track);
+            outline: none;
+        }
+
+        .world-menu button[aria-checked="true"] {
+            background: var(--primary);
+            color: var(--on-primary);
+        }
+
+        .panel.is-night .world-select {
+            color: #9aa0ae;
+        }
+
+        .panel.is-night .world-picker.open .world-select {
+            color: #c8cdd8;
+        }
+
+        .panel.is-night .world-menu {
+            box-shadow: 0 10px 22px rgba(0, 0, 0, 0.45);
+        }
+
+        .panel.is-night .world-menu button:not([aria-checked="true"]) {
+            color: #c8cdd8;
+        }
+
+        @media (max-width: 460px),
+        (pointer: coarse) and (max-height: 500px) {
+            .world-select {
+                height: 48px;
+                min-width: 48px;
+            }
+
+            .world-menu button {
+                height: 48px;
+            }
+        }
+
         @media (prefers-reduced-motion: reduce) {
             .dock,
             body[data-world-busy] .dock {
+                transition: none;
+            }
+
+            .world-select,
+            .world-menu,
+            .world-picker.open .world-menu {
                 transition: none;
             }
         }

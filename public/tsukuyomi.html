@@ -31,6 +31,12 @@
             <canvas id="mountScene" aria-hidden="true"></canvas>
         </div>
     </div>
+    <!-- 地: 역광 지구 장면 (tsukuyomi.earth.js, 처음 필요할 때 로드). 경로는 #earth -->
+    <div class="world" id="worldEarth" hidden>
+        <div class="world-view">
+            <canvas id="earthScene" aria-hidden="true"></canvas>
+        </div>
+    </div>
 
     <div class="dock">
         <section class="panel intro-hidden" id="panel" aria-label="장면 전환">
@@ -57,8 +63,6 @@
                 <button type="button" id="btnCursorMoon" aria-label="달 배치 물고기 군집"
                     aria-pressed="false"><i class="bi bi-moon-fill" aria-hidden="true"></i></button>
             </span>
-            <button type="button" id="btnToMount" class="wallpaper-toggle world-toggle" aria-label="산으로 이동"
-                aria-pressed="false"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M11.225 6.553a.5.5 0 0 0-.577.093l-3.71 4.71-2.66-2.772a.5.5 0 0 0-.63.062L.002 13v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4.5z"/></svg></button>
             <span class="sr-only" id="status" aria-live="polite"></span>
         </section>
     </div>
@@ -72,9 +76,12 @@
                 <button type="button" data-scene="sunset" aria-label="노을" aria-pressed="false"><i
                         class="bi bi-cloud-sun-fill" aria-hidden="true"></i></button>
             </div>
-            <button type="button" id="btnToMoon" class="wallpaper-toggle world-toggle on" aria-label="수면으로 돌아가기"
-                aria-pressed="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M11.225 6.553a.5.5 0 0 0-.577.093l-3.71 4.71-2.66-2.772a.5.5 0 0 0-.63.062L.002 13v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4.5z"/></svg></button>
         </section>
+    </div>
+
+    <!-- 세계 드롭다운(.world-picker)은 각 패널 맨 왼쪽에 tsukuyomi.worlds.js가 넣는다 -->
+    <div class="dock" id="earthDock" hidden>
+        <section class="panel is-night" id="earthPanel" aria-label="지구 장면"></section>
     </div>
 
     <script src="cloud-live.js"></script>

@@ -5693,7 +5693,7 @@ void main() {
             const DRAG_MIN_DIST = 24;    // css px between spawned ripples
             const DRAG_MIN_DT = 0.06;    // seconds between spawned ripples
             const overUI = t => document.body.hasAttribute('data-world-busy') ||
-                ((t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad,#worldMount,' +
+                ((t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad,#worldMount,#worldEarth,' +
                     // 랜딩(landing.html): 글자·링크·버튼 위에서는 리플/클릭 이펙트를 내지 않는다.
                     // [data-scene-off]는 다른 세계(山)가 화면을 덮고 있는 동안 루트에 붙는다.
                     '.l-copy,.l-cta,a,button,[data-scene-off]'));

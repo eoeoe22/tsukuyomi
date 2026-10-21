@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-torii" viewBox="0 0 16 16">
+  <!-- reference-images/done/torii.svg(432x360)를 16x16 단색 아이콘으로: 갓+시마키 한 덩어리, 가쿠즈카·누키는 1px 이상으로 보강 -->
+  <path d="M.07 1.41Q8 3.04 15.93 1.41L15.7 2.19 15.19 2.22 15.11 3.04Q8 4.44.89 3.04L.81 2.22.3 2.19ZM7.5 3.5H8.5V6.1H7.5ZM1.63 6H14.37V7H1.63ZM3.41 3.2H4.44L4.56 13.7H3.3ZM3.19 13.56H4.67V14.59H3.19ZM11.56 3.2H12.59L12.7 13.7H11.44ZM11.33 13.56H12.81V14.59H11.33Z"/>
+</svg>
