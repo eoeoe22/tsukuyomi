@@ -58,6 +58,9 @@
             const FG = fg.getContext('2d');
 
             const elPanel = document.getElementById('panel');
+            // 海(공백) 세계 패널: 별 궤적·공백 밤 토글이 여기 있다(tsukuyomi.html). 없으면(랜딩·월페이퍼) 토글은 elPanel 안에 있다
+            const elSeaPanel = document.getElementById('seaPanel');
+            const ENGINE_PANELS = [elPanel, elSeaPanel].filter(Boolean);
             const elStatus = document.getElementById('status');
             const elDay = document.getElementById('btnDay');
             const elDusk = document.getElementById('btnDusk');
@@ -3870,9 +3873,13 @@ void main() {
             function measureCardZone() {
                 if (!(CFG.LANTERN_CARD_AVOID >= 0.5)) return null;
                 try {
-                    if (!elPanel || !elPanel.getBoundingClientRect) return null;
-                    const r = elPanel.getBoundingClientRect();
-                    if (!(r.width > 0 && r.height > 0)) return null;
+                    // 보이는 패널(月 또는 海) 기준. 숨은 독은 크기 0
+                    let r = null;
+                    for (const pn of ENGINE_PANELS) {
+                        const q = pn.getBoundingClientRect();
+                        if (q.width > 0 && q.height > 0) { r = q; break; }
+                    }
+                    if (!r) return null;
                     return {
                         cardCx: r.left + r.width / 2,
                         cardHalf: r.width / 2 + CARD_MARGIN,
@@ -5980,7 +5987,7 @@ void main() {
                 }
                 // card switches to its night palette once the sky has gone dark
                 const night = palQ() >= 0.5 || dnW() >= 0.5;
-                if (night !== lastNight) { lastNight = night; elPanel.classList.toggle('is-night', night); }
+                if (night !== lastNight) { lastNight = night; for (const pn of ENGINE_PANELS) pn.classList.toggle('is-night', night); }
                 if (active !== lastActive) {
                     lastActive = active;
                     elPanel.classList.toggle('scene-day', active === 'day');
@@ -5997,7 +6004,8 @@ void main() {
 
             // 강조 커서(thumb): 현재 시간 아이콘 위로 슬라이드 이동.
             // 평소 1칸 버블(접힘)에서는 x=0, 펼침에서는 인덱스*칸 이동.
-            const ORDER = () => [elDay, elDusk, elNight, elMirror];
+            // 공백 버튼이 없는 패널(tsukuyomi.html: 공백은 海 세계로 분리)에서는 빠진 칸 없이 센다
+            const ORDER = () => [elDay, elDusk, elNight, elMirror].filter(Boolean);
             const HOVER_OK = (() => { try { return window.matchMedia('(hover: hover)').matches; } catch (e) { return true; } })();
             const TOUCH_UI = (() => { try { return window.matchMedia('(hover: none)').matches; } catch (e) { return false; } })();
             let thumbInit = false;
@@ -6057,23 +6065,23 @@ void main() {
                 let cardROTimer = 0;
                 let cardLastRect = '';
                 try {
-                    const r0 = elPanel.getBoundingClientRect();
-                    cardLastRect = [r0.left, r0.top, r0.width, r0.height].join(',');
+                    const z0 = measureCardZone();
+                    cardLastRect = z0 ? [z0.cardCx, z0.cardHalf, z0.cardTop].join(',') : '';
                 } catch (e) { /* 측정 실패 시 첫 콜백에서 처리 */ }
                 try {
                     const cardRO = new ResizeObserver(() => {
                         clearTimeout(cardROTimer);
                         cardROTimer = setTimeout(() => {
                             try {
-                                const r = elPanel.getBoundingClientRect();
-                                const key = [r.left, r.top, r.width, r.height].join(',');
+                                const z = measureCardZone();
+                                const key = z ? [z.cardCx, z.cardHalf, z.cardTop].join(',') : '';
                                 if (key === cardLastRect) return;
                                 cardLastRect = key;
                                 projectLanterns();
                             } catch (e) { /* 측정 실패 시 현상 유지 */ }
                         }, 200);
                     });
-                    cardRO.observe(elPanel);
+                    for (const pn of ENGINE_PANELS) cardRO.observe(pn);
                 } catch (e) { /* observer 미지원 시 resize 때만 반영 */ }
             }
 
@@ -6109,11 +6117,13 @@ void main() {
             // 바깥 탭 시 접기 (모바일)
             if (TOUCH_UI) {
                 document.addEventListener('pointerdown', e => {
-                    if (!elPanel || !elPanel.classList.contains('expanded')) return;
-                    if (e.target instanceof Element && elPanel.contains(e.target)) return;
-                    elPanel.classList.remove('expanded');
-                    clearTimeout(collapseTimer);
-                    moveThumb();
+                    for (const pn of ENGINE_PANELS) {
+                        if (!pn.classList.contains('expanded')) continue;
+                        if (e.target instanceof Element && pn.contains(e.target)) continue;
+                        pn.classList.remove('expanded');
+                        clearTimeout(collapseTimer);
+                        moveThumb();
+                    }
                 });
             }
 
@@ -6134,15 +6144,16 @@ void main() {
             }
             if (elStars) elStars.addEventListener('click', e => {
                 e.stopPropagation();
-                if (TOUCH_UI && elPanel && !elPanel.classList.contains('expanded')) {
-                    elPanel.classList.add('expanded');
+                const pn = elStars.closest('.panel') || elPanel;
+                if (TOUCH_UI && pn && !pn.classList.contains('expanded')) {
+                    pn.classList.add('expanded');
                     moveThumb();
                 }
                 setDayStars(!dsOn);
-                if (TOUCH_UI && elPanel) {
+                if (TOUCH_UI && pn) {
                     clearTimeout(collapseTimer);
                     collapseTimer = setTimeout(() => {
-                        elPanel.classList.remove('expanded');
+                        pn.classList.remove('expanded');
                         moveThumb();
                     }, 900);
                 }
@@ -6160,15 +6171,16 @@ void main() {
             }
             if (elDark) elDark.addEventListener('click', e => {
                 e.stopPropagation();
-                if (TOUCH_UI && elPanel && !elPanel.classList.contains('expanded')) {
-                    elPanel.classList.add('expanded');
+                const pn = elDark.closest('.panel') || elPanel;
+                if (TOUCH_UI && pn && !pn.classList.contains('expanded')) {
+                    pn.classList.add('expanded');
                     moveThumb();
                 }
                 setDayDark(!dnOn);
-                if (TOUCH_UI && elPanel) {
+                if (TOUCH_UI && pn) {
                     clearTimeout(collapseTimer);
                     collapseTimer = setTimeout(() => {
-                        elPanel.classList.remove('expanded');
+                        pn.classList.remove('expanded');
                         moveThumb();
                     }, 900);
                 }

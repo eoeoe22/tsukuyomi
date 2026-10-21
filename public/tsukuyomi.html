@@ -40,10 +40,8 @@
 
     <div class="dock">
         <section class="panel intro-hidden" id="panel" aria-label="장면 전환">
-            <div class="icongroup" id="icongroup" role="group" aria-label="공백 / 황혼 / 밤 / 미러볼 선택">
+            <div class="icongroup" id="icongroup" role="group" aria-label="황혼 / 밤 / 미러볼 선택">
                 <span class="thumb" id="thumb" aria-hidden="true"></span>
-                <button type="button" id="btnDay" aria-label="공백" aria-pressed="false"><i class="bi bi-cloud-fill"
-                        aria-hidden="true"></i></button>
                 <button type="button" id="btnDusk" class="on" aria-label="황혼" aria-pressed="true"><i
                         class="bi bi-cloud-sun-fill" aria-hidden="true"></i></button>
                 <button type="button" id="btnNight" aria-label="밤" aria-pressed="false"><i class="bi bi-moon-fill"
@@ -51,10 +49,6 @@
                 <button type="button" id="btnMirror" aria-label="미러볼" aria-pressed="false"><i class="bi bi-globe2"
                         aria-hidden="true"></i></button>
             </div>
-            <button type="button" id="btnStars" class="wallpaper-toggle stars-toggle" aria-label="별 궤적"
-                aria-pressed="false"><i class="bi bi-stars" aria-hidden="true"></i></button>
-            <button type="button" id="btnDark" class="wallpaper-toggle stars-toggle" aria-label="공백 밤"
-                aria-pressed="false"><i class="bi bi-brightness-alt-high-fill" aria-hidden="true"></i></button>
             <span class="cursor-group" id="cursorGroup" role="group" aria-label="물고기 군집 배치">
                 <button type="button" id="btnCursorOff" class="on" aria-label="물고기 군집 숨김"
                     aria-pressed="true"><i class="bi bi-ban" aria-hidden="true"></i></button>
@@ -64,6 +58,16 @@
                     aria-pressed="false"><i class="bi bi-moon-fill" aria-hidden="true"></i></button>
             </span>
             <span class="sr-only" id="status" aria-live="polite"></span>
+        </section>
+    </div>
+
+    <!-- 海: 츠쿠요미 바다(공백 장면). 月와 같은 엔진(tsukuyomi.js)·캔버스를 쓰고 조절 패널만 따로. 경로는 #sea -->
+    <div class="dock" id="seaDock" hidden>
+        <section class="panel scene-day" id="seaPanel" aria-label="츠쿠요미 바다">
+            <button type="button" id="btnStars" class="wallpaper-toggle stars-toggle" aria-label="별 궤적"
+                aria-pressed="false"><i class="bi bi-stars" aria-hidden="true"></i></button>
+            <button type="button" id="btnDark" class="wallpaper-toggle stars-toggle" aria-label="공백 밤"
+                aria-pressed="false"><i class="bi bi-brightness-alt-high-fill" aria-hidden="true"></i></button>
         </section>
     </div>
 

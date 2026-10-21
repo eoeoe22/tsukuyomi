@@ -583,8 +583,9 @@
             display: flex;
         }
 
-        .panel > .world-picker:not(:last-child) {
-            margin-right: 8px;
+        /* 드롭다운 오른쪽 간격: 아이콘 그룹은 여기서, 단독 토글(海의 별 궤적 등)은 자기 margin-left로(접히면 0) */
+        .world-picker + .icongroup {
+            margin-left: 8px;
         }
 
         .world-select {
