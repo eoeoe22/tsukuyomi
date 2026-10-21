@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ko"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>원통형 행등 — 반3D 회전체</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#e9e6ef; --fg:#1d1a26; --muted:#5e5870; --line:#c9c3d6; --accent:#b8661f;
+    --stage-top:#1a2350; --stage-mid:#0e1433; --stage-floor:#2a1d16;
+    color-scheme:light;
+    box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){ --bg:#0b0d18; --fg:#ece8f2; --muted:#9a93ad; --line:#2a2c44; --accent:#f0a24c; color-scheme:dark; }
+  }
+  :root[data-theme="dark"]{ --bg:#0b0d18; --fg:#ece8f2; --muted:#9a93ad; --line:#2a2c44; --accent:#f0a24c; color-scheme:dark; }
+  *,*::before,*::after{box-sizing:inherit}
+  html{scroll-padding-top:env(safe-area-inset-top,0px)}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+  main{max-width:720px;margin:0 auto;padding:28px 18px 40px;display:grid;gap:18px}
+  h1{font-family:"Shippori Mincho","Noto Serif KR",serif;font-weight:700;font-size:1.6rem;letter-spacing:.02em;margin:0;line-height:1.3}
+  p.lead{margin:4px 0 0;color:var(--muted);max-width:60ch}
+  .stage{position:relative;border-radius:6px;overflow:hidden;
+    background:linear-gradient(180deg,var(--stage-top) 0%,var(--stage-mid) 62%,#1c1612 62.2%,var(--stage-floor) 100%);
+    display:grid;place-items:center;padding:10px 0}
+  canvas{width:320px;height:520px;max-width:100%;display:block}
+  .ctl{display:grid;grid-template-columns:1fr auto auto;gap:10px 14px;align-items:center}
+  .ctl label{display:grid;gap:2px;font-size:.9rem;color:var(--muted)}
+  .ctl label b{color:var(--fg);font-weight:600}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  button{font:inherit;font-size:.9rem;padding:7px 14px;border-radius:4px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .export{display:grid;gap:10px}
+  .export .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .export .row label{font-size:.9rem;color:var(--muted);display:flex;gap:6px;align-items:center}
+  textarea{width:100%;height:90px;font:11px/1.4 ui-monospace,Menlo,monospace;background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:8px}
+  .cmp{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .cmp figure{margin:0;display:grid;gap:4px}
+  .cmp figcaption{font-size:.82rem;color:var(--muted)}
+  .cmp .box{background:linear-gradient(180deg,var(--stage-top),var(--stage-mid));border-radius:4px;display:grid;place-items:center;min-height:120px}
+  .cmp .box > *{max-width:100%;height:auto}
+  @media (max-width:520px){ .ctl{grid-template-columns:1fr 1fr} .ctl label{grid-column:1/-1} }
+</style>
+</head><body>
+<!-- ① 형태 원본: 좌우 대칭 실루엣. 원통 몸통(반지름 62, 높이 250). 다리·받침판은 회전체가 아니라 상자로 따로 그린다 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <path id="profile" d="M98 70 H222 V320 H98 Z"/>
+</svg>
+<main>
+  <header>
+    <h1>원통형 행등</h1>
+    <p class="lead">종이 원통 안에 불을 켠 스탠딩 랜턴입니다. 위아래 나무 띠에는 나무로 남긴 육각별 둘레를 마름모 창이 감싸도록 투각되어 있고, 사각 받침판 위 네 다리가 원통을 받칩니다.</p>
+  </header>
+  <div class="stage"><canvas id="cv" aria-label="회전하는 원통형 행등"></canvas></div>
+  <div class="ctl">
+    <label>시점 기울기 <b id="vt"></b><input type="range" id="tilt" min="-90" max="90" value="12"></label>
+    <button id="spin" aria-pressed="true">회전 멈춤</button>
+    <button id="exp">현재 프레임 SVG로 내보내기</button>
+  </div>
+  <section class="export" hidden id="exBox">
+    <div class="row">
+      <label><input type="checkbox" id="bgOn" checked> 배경 포함</label>
+      <button id="copy">SVG 코드 복사</button>
+      <span id="msg" style="font-size:.85rem;color:var(--muted)"></span>
+    </div>
+    <textarea id="out" readonly aria-label="SVG 코드"></textarea>
+    <div class="cmp">
+      <figure><div class="box" id="snapCv"></div><figcaption>캔버스 (내보낸 순간)</figcaption></figure>
+      <figure><div class="box" id="snapSvg"></div><figcaption>SVG 결과</figcaption></figure>
+    </div>
+  </section>
+</main>
+<script>
+// ===== 설정 =====
+const W = 320, H = 520;
+const COL = {
+  wood:'#2a170b', woodRim:'#3b2313', woodEdge:'rgba(255,186,110,0.55)', outline:'#140a04',
+  back:'rgba(122,52,10,0.42)', inner:'#ffd98f', innerDeep:'#e58a34', bloom:'#ff9a3c',
+  faceEdge:'rgba(18,8,3,0.55)'
+};
+const PERIOD = 16;            // 1회전 초
+const OUTLINE = 1.5;          // 외곽선 두께(px)
+const RIM_T = [70, 78], RIM_B = [312, 320];      // 위·아래 테두리 (나무)
+const BAND_UP = [78, 121], BAND_LO = [269, 312]; // 육각별 투각 띠 (얇게)
+const RAILS = [121, 269];     // 가운데 종이창(넓게)을 감싸는 가로대
+const POSTS = 4;              // 다리 수 (대각 방향)
+const STAR_M = 11;            // 띠 한 줄에 들어가는 육각별 수
+const STAR_GAP = 0.16;        // 마름모 창 사이 나무살 비율
+// 받침: 사각 판 + 그 위 얇은 단 + 다리 4개 (모두 R 배수)
+const Y_FLOOR = 432;          // 판 밑면(바닥)
+const BASE = { half: 0.95, top: 424 };
+const STEP = { half: 0.7, top: 421 };
+const LEG = { r: 0.8, half: 4.5 };
+
+// ===== ② 프로파일 샘플링 → 높이별 반지름 표 (템플릿 그대로) =====
+const pathEl = document.getElementById('profile');
+const bb = pathEl.getBBox();
+const CX = bb.x + bb.width / 2, Y0 = Math.ceil(bb.y), Y1 = Math.floor(bb.y + bb.height);
+const YC = (Y0 + Y_FLOOR) / 2;   // 기울기 회전 중심: 받침까지 포함한 전체의 가운데
+const R_LUT = new Float32Array(H + 2);
+let PROFILE;
+{
+  const L = pathEl.getTotalLength(), N = 4000;
+  const raw = [];
+  for (let i = 0; i < N; i++) { const p = pathEl.getPointAtLength(L * i / N); raw.push([p.y, p.x - CX]); }
+  let s0 = raw.findIndex((q, i) => q[1] < 0 && raw[(i + 1) % N][1] >= 0);
+  if (s0 < 0) s0 = 0;
+  const right = [];
+  for (let k = 1; k <= N; k++) { const q = raw[(s0 + k) % N]; if (q[1] < 0) break; right.push(q); }
+  if (right.length && right[0][0] > right[right.length - 1][0]) right.reverse();
+  PROFILE = right;
+  let k = 0;
+  for (let y = 0; y <= H; y++) {
+    while (k < PROFILE.length - 2 && PROFILE[k + 1][0] < y) k++;
+    const [y0, r0] = PROFILE[k], [y1, r1] = PROFILE[k + 1];
+    R_LUT[y] = y1 > y0 ? r0 + (r1 - r0) * Math.min(1, Math.max(0, (y - y0) / (y1 - y0))) : r1;
+  }
+  for (let y = 0; y <= H; y++) if (y <= Y0 || y >= Y1) R_LUT[y] = 0;
+}
+const rAt = y => { const i = Math.max(0, Math.min(H, Math.floor(y))), f = y - i; return R_LUT[i] + (R_LUT[Math.min(H, i + 1)] - R_LUT[i]) * f; };
+const drdy = y => rAt(y + 0.5) - rAt(y - 0.5);
+const TAU = Math.PI * 2;
+const R = rAt((Y0 + Y1) / 2);   // 몸통 반지름 (원통이라 하나)
+
+// ===== ③ 표면 위 곡선·도형 정의 (θ, y) =====
+// 육각별 투각 (사진 기준): 60° 마름모 타일링에서 일부 꼭짓점(삼각 격자 A)을 중심으로 한 마름모 6장은
+// 나무로 남겨 '어두운 육각별'이 되고, 나머지 마름모(A에 닿지 않는 B–C 쌍)만 뚫린다.
+// 그래서 뚫린 마름모는 별의 120° 홈에 끼워져 별을 둘러싸고, 별 사이에서는 세 장씩 Y자로 모인다.
+function starHoles(yA, yB, phase) {
+  const C = TAU * R, L = C / STAR_M, rowH = L * Math.sqrt(3) / 2, yc = (yA + yB) / 2;
+  const out = [], s = 1 - STAR_GAP;
+  // B 꼭짓점 → 이웃 C 꼭짓점 세 방향 (길이 = 마름모 긴 대각선 L/√3)
+  const D = [[0, -2 * rowH / 3], [L / 2, rowH / 3], [-L / 2, rowH / 3]];
+  for (let j = -2; j <= 2; j++) for (let i = 0; i < STAR_M; i++) {
+    const A = [i * L + ((j & 1) ? L / 2 : 0) + phase, yc + j * rowH];   // 어두운 별 중심
+    const B = [A[0] + L / 2, A[1] + rowH / 3];
+    for (const [dx, dy] of D) {
+      const m = [B[0] + dx / 2, B[1] + dy / 2];          // 마름모 중심
+      const px = -dy / Math.sqrt(3) / 2, py = dx / Math.sqrt(3) / 2;   // 짧은 대각선 절반 (= 긴 대각선/√3)
+      let v = [B, [m[0] + px, m[1] + py], [B[0] + dx, B[1] + dy], [m[0] - px, m[1] - py]];
+      v = v.map(([x, y]) => [m[0] + (x - m[0]) * s, m[1] + (y - m[1]) * s]);
+      if (v.every(p => p[1] <= yA) || v.every(p => p[1] >= yB)) continue;
+      const pts = [];   // 곡면을 따르도록 변을 3등분
+      for (let e = 0; e < 4; e++) { const [p, q] = [v[e], v[(e + 1) % 4]]; for (let t = 0; t < 3; t++) pts.push([(p[0] + (q[0] - p[0]) * t / 3) / R, p[1] + (q[1] - p[1]) * t / 3]); }
+      out.push({ th: m[0] / R, pts });
+    }
+  }
+  return out;
+}
+const BANDS = [
+  { y: BAND_UP, holes: starHoles(BAND_UP[0], BAND_UP[1], 0) },
+  { y: BAND_LO, holes: starHoles(BAND_LO[0], BAND_LO[1], 0) },
+];
+const POST_TH = k => Math.PI / 4 + k * TAU / POSTS;
+const CURVES = [
+  ...RAILS.map(y => ({ kind: 'rail', pts: Array.from({ length: 241 }, (_, i) => [i / 240 * TAU, y]) })),
+];
+
+// ===== ④ 음영: 모두 회전 불변 (안쪽 광원이 축 위에 있으므로) → 기울기 바뀔 때만 계산 =====
+const PAPER_H = [[0,'#b8541b'],[0.16,'#e98b3a'],[0.5,'#ffdc9a'],[0.84,'#e98b3a'],[1,'#b8541b']];
+const PAPER_V = [[0,'rgba(60,20,0,0.5)'],[0.38,'rgba(60,20,0,0.06)'],[0.6,'rgba(60,20,0,0)'],[1,'rgba(60,20,0,0.42)']];
+const HOT     = [[0,'rgba(255,255,246,0.97)'],[0.3,'rgba(255,246,214,0.72)'],[0.65,'rgba(255,214,140,0.22)'],[1,'rgba(255,200,120,0)']];
+const HALO    = [[0,'rgba(255,170,80,0.30)'],[0.35,'rgba(255,140,60,0.12)'],[1,'rgba(255,120,40,0)']];
+const FLOOR   = [[0,'rgba(255,170,90,0.55)'],[0.45,'rgba(255,140,60,0.18)'],[1,'rgba(255,120,40,0)']];
+const INNER   = [[0,'#fff6d8'],[0.55,'#ffd287'],[1,'#e2852f']];
+const BAND_H  = [[0,'#1e0d05'],[0.22,'#4e240d'],[0.5,'#7d3d16'],[0.78,'#4e240d'],[1,'#1e0d05']];
+const HOLE_H  = [[0,'#a9481a'],[0.18,'#e98d3f'],[0.5,'#fff0c6'],[0.82,'#e98d3f'],[1,'#a9481a']];
+
+// ===== 캔버스 =====
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+cv.width = W * dpr; cv.height = H * dpr; ctx.scale(dpr, dpr);
+const CAN_BLUR = typeof ctx.filter === 'string';
+
+// 받침까지 포함한 단면 반지름 (화면 크기 안정화용)
+const rExt = y => y <= Y1 ? Math.max(rAt(y), R) : y < STEP.top ? R * LEG.r + LEG.half * 1.5 : R * BASE.half * Math.SQRT2;
+const S = (() => {
+  let ext = 0;
+  for (let d = 0; d <= 90; d++) {
+    const c = Math.cos(d * Math.PI / 180), s = Math.sin(d * Math.PI / 180);
+    let lo = Infinity, hi = -Infinity;
+    for (let y = Y0; y <= Y_FLOOR; y++) { const u = (YC - y) * c, h = rExt(y) * s; lo = Math.min(lo, u - h); hi = Math.max(hi, u + h); }
+    ext = Math.max(ext, hi - lo);
+  }
+  return Math.min(1, (H - 100) / ext);
+})();
+
+let ct = 1, st = 0, OY = YC, rot = 0, tiltDeg = 0, ellipses = [], body, bodyImg, bloomImg, G = {};
+
+// ===== ⑤ 핵심 투영 =====
+function project(th, y) {
+  const a = th + rot, r = rAt(y) + 0.6;   // 격자는 종이보다 살짝 바깥
+  const x = r * Math.sin(a), z = r * Math.cos(a), u = YC - y;
+  const front = y > Y0 && y < Y1 - 1 && drdy(y) * st + Math.cos(a) * ct > 0;
+  return { x: CX + S * x, y: OY - S * (u * ct - z * st), front, c: Math.cos(a) };
+}
+// 원통 표면 위 투각 꼭짓점: 실루엣 너머 점은 실루엣 위로 눌러 접힘 방지
+function projSurf(th, y) {
+  let a = th + rot; a = Math.atan2(Math.sin(a), Math.cos(a));
+  a = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, a));
+  const x = R * Math.sin(a), z = R * Math.cos(a);
+  return [CX + S * x, OY - S * ((YC - y) * ct - z * st)];
+}
+// 물체 좌표 (x, y, z) → 화면 + 깊이 z'
+function projXYZ(x0, y, z0) {
+  const cr = Math.cos(rot), sr = Math.sin(rot);
+  const x = x0 * cr + z0 * sr, z = z0 * cr - x0 * sr, u = YC - y;
+  return { x: CX + S * x, y: OY - S * (u * ct - z * st), zp: u * st + z * ct };
+}
+const sy = y => OY - S * (YC - y) * ct;   // 축 위 점의 화면 y
+
+function setTilt(deg) {
+  tiltDeg = deg;
+  const T = deg * Math.PI / 180; ct = Math.cos(T); st = Math.sin(T);
+  let lo = Infinity, hi = -Infinity;
+  for (let y = Y0; y <= Y_FLOOR; y++) { const u = (YC - y) * ct, h = rExt(y) * Math.abs(st); lo = Math.min(lo, u - h); hi = Math.max(hi, u + h); }
+  OY = H / 2 + S * (lo + hi) / 2;
+  body = new Path2D(); ellipses = [];
+  for (let y = Y0; y <= Y1; y++) {
+    const rx = Math.max(0.01, S * Math.max(rAt(y), (y === Y0 || y === Y1) ? R : 0)), ry = Math.max(0.75, rx * Math.abs(st)), cy = sy(y);
+    body.moveTo(CX + rx, cy); body.ellipse(CX, cy, rx, ry, 0, 0, TAU);
+    ellipses.push([cy, rx, ry]);
+  }
+  const rx = S * R, midY = (RAILS[0] + RAILS[1]) / 2;
+  G = {
+    paperH: { x1: CX - rx, x2: CX + rx },
+    paperV: { y1: sy(Y0) - rx * Math.max(0, st), y2: sy(Y1) + rx * Math.max(0, -st) },
+    hot:    { cx: CX, cy: sy(midY), r: rx * 1.55 },
+    halo:   { cx: CX, cy: sy((Y0 + Y1) / 2), r: rx * 3.4 },
+    floor:  { cx: CX, cy: sy(Y_FLOOR), rx: rx * 3.1, ry: rx * 3.1 * Math.max(0.05, st) },
+  };
+  bodyImg ||= document.createElement('canvas');
+  bodyImg.width = W * dpr; bodyImg.height = H * dpr;
+  const b = bodyImg.getContext('2d'); b.scale(dpr, dpr);
+  b.lineJoin = 'round'; b.strokeStyle = COL.outline; b.lineWidth = OUTLINE * 2; b.stroke(body);
+  b.fillStyle = lin(b, G.paperH.x1, 0, G.paperH.x2, 0, PAPER_H); b.fill(body);
+  b.fillStyle = lin(b, 0, G.paperV.y1, 0, G.paperV.y2, PAPER_V); b.fill(body);
+  bloomImg ||= document.createElement('canvas');
+  bloomImg.width = W * dpr; bloomImg.height = H * dpr;
+  const g = bloomImg.getContext('2d'); g.scale(dpr, dpr);
+  if (CAN_BLUR) { g.filter = 'blur(16px)'; g.globalAlpha = 0.55; g.fillStyle = COL.bloom; g.fill(body); }
+  document.getElementById('vt').textContent = (deg > 0 ? '위에서 ' : deg < 0 ? '아래에서 ' : '정면 ') + Math.abs(deg) + '°';
+}
+function lin(c, x1, y1, x2, y2, stops) { const g = c.createLinearGradient(x1, y1, x2, y2); stops.forEach(([o, s]) => g.addColorStop(o, s)); return g; }
+function rad(c, cx, cy, r, stops) { const g = c.createRadialGradient(cx, cy, 0, cx, cy, r); stops.forEach(([o, s]) => g.addColorStop(o, s)); return g; }
+
+function visibleRuns() {
+  const front = [], back = [];
+  for (const c of CURVES) {
+    let run = [], side = null;
+    const flush = () => { if (run.length > 1) (side ? front : back).push({ kind: c.kind, pts: run, c: run[0].c }); run = []; };
+    for (const [th, y] of c.pts) {
+      const p = project(th, y);
+      if (side !== null && p.front !== side) flush();
+      side = p.front; run.push(p);
+    }
+    flush();
+  }
+  return { front, back };
+}
+const WIDTH = { rail: 5, post: 6 };
+const strokeW = (r, scale = 1) => r.kind === 'post' ? Math.max(2, WIDTH.post * Math.abs(r.c)) * S * scale : WIDTH[r.kind] * S * scale;
+
+// 원통 앞쪽 반원호 두 개 사이 다각형 (회전 불변) — 테두리·띠 영역
+function rimPoly(yA, yB) {
+  if (ct < 0.02) return null;
+  const n = 48, top = [], bot = [];
+  for (let i = 0; i <= n; i++) {
+    const a = -Math.PI / 2 + Math.PI * i / n, x = CX + S * R * Math.sin(a), z = R * Math.cos(a);
+    top.push([x, OY - S * ((YC - yA) * ct - z * st)]);
+    bot.push([x, OY - S * ((YC - yB) * ct - z * st)]);
+  }
+  return top.concat(bot.reverse());
+}
+// 띠: 앞쪽 영역 + 보이는 투각 마름모들
+function bandParts() {
+  return BANDS.map(b => {
+    const poly = rimPoly(b.y[0], b.y[1]);
+    if (!poly) return null;
+    const holes = b.holes.filter(h => Math.cos(h.th + rot) > -0.25).map(h => h.pts.map(([th, y]) => projSurf(th, y)));
+    return { poly, holes };
+  }).filter(Boolean);
+}
+function caps() {
+  const rx = S * R, out = [];
+  if (st > 0.01) out.push({ kind: 'top', cy: sy(Y0), rx, ry: rx * st });
+  if (st < -0.01) out.push({ kind: 'bot', cy: sy(Y1), rx, ry: rx * -st });
+  return out;
+}
+
+// ===== 받침: 사각 판·단·다리 = 회전하는 상자들 =====
+const hex2rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const mixC = (c1, c2, t) => { const a = hex2rgb(c1), b = hex2rgb(c2); t = Math.max(0, Math.min(1, t)); return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',')})`; };
+// 볼록 상자 하나: 보이는 면만 (법선 z' > 0). shade(면 종류, 물체좌표 법선, 시점 법선) → 색
+function boxFaces(px, pz, h, yT, yB, shade) {
+  const P = (sx, y, sz) => projXYZ(px + sx * h, y, pz + sz * h);
+  const cr = Math.cos(rot), sr = Math.sin(rot), out = [];
+  if (st > 0.001) out.push({ pts: [P(-1, yT, -1), P(1, yT, -1), P(1, yT, 1), P(-1, yT, 1)], fill: shade('top') });
+  if (st < -0.001) out.push({ pts: [P(-1, yB, -1), P(1, yB, -1), P(1, yB, 1), P(-1, yB, 1)], fill: shade('bot') });
+  for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const vx = nx * cr + nz * sr, vz = nz * cr - nx * sr;
+    if (vz * ct <= 0.001) continue;
+    const [ax, az, bx, bz] = nx ? [nx, -1, nx, 1] : [-1, nz, 1, nz];
+    out.push({ pts: [P(ax, yT, az), P(bx, yT, bz), P(bx, yB, bz), P(ax, yB, az)], fill: shade('side', [nx, nz], [vx, vz]) });
+  }
+  out.forEach(f => f.pts = f.pts.map(p => [p.x, p.y]));
+  return out;
+}
+const slabShade = (top, sideDark, sideLit) => (kind, n, v) =>
+  kind === 'top' ? top : kind === 'bot' ? sideDark : mixC(sideDark, sideLit, 0.15 + 0.75 * Math.max(0, v[1] * 0.85 - v[0] * 0.35));
+function baseParts() {
+  const B = R * BASE.half, Sx = R * STEP.half, rl = R * LEG.r;
+  const slab = boxFaces(0, 0, B, BASE.top, Y_FLOOR, slabShade('#7b4224', '#24120a', '#8c4a25'));
+  const step = boxFaces(0, 0, Sx, STEP.top, BASE.top, slabShade('#8f4f2b', '#2b160b', '#9a5328'));
+  const legs = Array.from({ length: POSTS }, (_, k) => {
+    const th = POST_TH(k), px = rl * Math.sin(th), pz = rl * Math.cos(th);
+    // 축(등불) 쪽을 향한 면일수록 밝게
+    const faces = boxFaces(px, pz, LEG.half, Y1, STEP.top, (kind, n, v) => kind !== 'side' ? '#3a1d0d' :
+      mixC('#1f1009', '#b4652d', 0.12 + 0.62 * Math.max(0, -(n[0] * px + n[1] * pz) / rl) + 0.18 * Math.max(0, v[1])));
+    return { faces, z: projXYZ(px, (Y1 + STEP.top) / 2, pz).zp };
+  }).sort((m, n) => m.z - n.z).flatMap(l => l.faces);
+  // 위에서: 판 → 단 → 다리 → (몸통). 아래에서: (몸통) → 다리 → 단 → 판
+  return st >= 0 ? { behind: [...slab, ...step, ...legs], front: [] } : { behind: [], front: [...legs, ...step, ...slab] };
+}
+function drawFaces(list) {
+  ctx.lineJoin = 'round'; ctx.lineWidth = 0.7; ctx.strokeStyle = COL.faceEdge;
+  for (const f of list) {
+    ctx.beginPath(); f.pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath();
+    ctx.fillStyle = f.fill; ctx.fill(); ctx.stroke();
+  }
+}
+const polyPath = (c, pts) => { pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y)); c.closePath(); };
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  if (st > -0.02) {
+    ctx.save(); ctx.translate(G.floor.cx, G.floor.cy); ctx.scale(1, G.floor.ry / G.floor.rx);
+    ctx.fillStyle = rad(ctx, 0, 0, G.floor.rx, FLOOR); ctx.beginPath(); ctx.arc(0, 0, G.floor.rx, 0, TAU); ctx.fill(); ctx.restore();
+  }
+  ctx.fillStyle = rad(ctx, G.halo.cx, G.halo.cy, G.halo.r, HALO); ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(bloomImg, 0, 0, W, H);
+
+  const base = baseParts();
+  drawFaces(base.behind);
+
+  ctx.drawImage(bodyImg, 0, 0, W, H);
+  ctx.save(); ctx.clip(body);
+  const { front, back } = visibleRuns();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (CAN_BLUR) ctx.filter = 'blur(1.2px)';
+  ctx.strokeStyle = COL.back;
+  for (const r of back) { ctx.lineWidth = strokeW(r, 0.7); ctx.beginPath(); ctx.moveTo(r.pts[0].x, r.pts[0].y); for (const p of r.pts) ctx.lineTo(p.x, p.y); ctx.stroke(); }
+  ctx.filter = 'none';
+  ctx.fillStyle = rad(ctx, G.hot.cx, G.hot.cy, G.hot.r, HOT); ctx.fillRect(0, 0, W, H);
+  // 육각별 투각 띠
+  for (const b of bandParts()) {
+    ctx.save();
+    ctx.beginPath(); polyPath(ctx, b.poly); ctx.clip();
+    ctx.fillStyle = lin(ctx, G.paperH.x1, 0, G.paperH.x2, 0, BAND_H); ctx.fillRect(0, 0, W, H);
+    ctx.beginPath(); for (const h of b.holes) polyPath(ctx, h);
+    ctx.fillStyle = lin(ctx, G.paperH.x1, 0, G.paperH.x2, 0, HOLE_H); ctx.fill();
+    ctx.restore();
+  }
+  ctx.strokeStyle = COL.wood;
+  for (const r of front) { ctx.lineWidth = strokeW(r); ctx.beginPath(); ctx.moveTo(r.pts[0].x, r.pts[0].y); for (const p of r.pts) ctx.lineTo(p.x, p.y); ctx.stroke(); }
+  for (const [yA, yB] of [RIM_T, RIM_B]) {
+    const poly = rimPoly(yA, yB); if (!poly) continue;
+    ctx.fillStyle = COL.woodRim; ctx.beginPath(); polyPath(ctx, poly); ctx.fill();
+  }
+  const edge = rimPoly(RIM_B[0], RIM_B[0]);
+  if (edge) { ctx.strokeStyle = COL.woodEdge; ctx.lineWidth = 1.2; ctx.beginPath(); edge.slice(0, 49).forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke(); }
+  for (const c of caps()) {
+    ctx.fillStyle = c.kind === 'top' ? COL.woodRim : COL.wood;
+    ctx.beginPath(); ctx.ellipse(CX, c.cy, c.rx, c.ry, 0, 0, TAU); ctx.fill();
+    if (c.kind === 'top') {
+      ctx.save(); ctx.translate(CX, c.cy); ctx.scale(1, c.ry / c.rx);
+      ctx.fillStyle = rad(ctx, 0, 0, c.rx * 0.84, INNER); ctx.beginPath(); ctx.arc(0, 0, c.rx * 0.84, 0, TAU); ctx.fill(); ctx.restore();
+    } else {
+      ctx.strokeStyle = 'rgba(255,170,90,0.25)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(CX, c.cy, c.rx * 0.8, c.ry * 0.8, 0, 0, TAU); ctx.stroke();
+    }
+  }
+  ctx.restore();
+  drawFaces(base.front);
+}
+
+// ===== SVG 스냅샷: 같은 계산 결과를 SVG 요소로 =====
+function buildSVG(withBg = true) {
+  const f = n => n.toFixed(2);
+  const stops = s => s.map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join('');
+  const d = ellipses.map(([cy, rx, ry]) => `M${f(CX + rx)} ${f(cy)}A${f(rx)} ${f(ry)} 0 1 0 ${f(CX - rx)} ${f(cy)}A${f(rx)} ${f(ry)} 0 1 0 ${f(CX + rx)} ${f(cy)}Z`).join('');
+  const ell = `<path d="${d}"/>`;
+  const { front, back } = visibleRuns();
+  const pl = r => `<polyline points="${r.pts.map(p => f(p.x) + ',' + f(p.y)).join(' ')}" stroke-width="${f(strokeW(r))}"/>`;
+  const plB = r => `<polyline points="${r.pts.map(p => f(p.x) + ',' + f(p.y)).join(' ')}" stroke-width="${f(strokeW(r, 0.7))}"/>`;
+  const pts = p => p.map(([x, y]) => f(x) + ',' + f(y)).join(' ');
+  const base = baseParts();
+  const faceSvg = list => list.map(q => `<polygon points="${pts(q.pts)}" fill="${q.fill}"/>`).join('');
+  const bands = bandParts();
+  const bandClips = bands.map((b, i) => `<clipPath id="band${i}"><polygon points="${pts(b.poly)}"/></clipPath>`).join('');
+  const bandSvg = bands.map((b, i) => `<g clip-path="url(#band${i})"><polygon points="${pts(b.poly)}" fill="url(#bandH)"/>` +
+    `<path d="${b.holes.map(h => 'M' + h.map(([x, y]) => f(x) + ' ' + f(y)).join('L') + 'Z').join('')}" fill="url(#holeH)"/></g>`).join('');
+  const rims = [RIM_T, RIM_B].map(([a, b]) => rimPoly(a, b)).filter(Boolean)
+    .map(p => `<polygon points="${pts(p)}" fill="${COL.woodRim}"/>`).join('');
+  const edge = rimPoly(RIM_B[0], RIM_B[0]);
+  const edgeSvg = edge ? `<polyline points="${pts(edge.slice(0, 49))}" fill="none" stroke="${COL.woodEdge}" stroke-width="1.2"/>` : '';
+  const capSvg = caps().map(c => c.kind === 'top'
+    ? `<ellipse cx="${CX}" cy="${f(c.cy)}" rx="${f(c.rx)}" ry="${f(c.ry)}" fill="${COL.woodRim}"/><ellipse cx="${CX}" cy="${f(c.cy)}" rx="${f(c.rx * 0.84)}" ry="${f(c.ry * 0.84)}" fill="url(#inner)"/>`
+    : `<ellipse cx="${CX}" cy="${f(c.cy)}" rx="${f(c.rx)}" ry="${f(c.ry)}" fill="${COL.wood}"/><ellipse cx="${CX}" cy="${f(c.cy)}" rx="${f(c.rx * 0.8)}" ry="${f(c.ry * 0.8)}" fill="none" stroke="rgba(255,170,90,0.25)" stroke-width="1"/>`).join('');
+  const floor = st > -0.02 ? `<ellipse cx="${f(G.floor.cx)}" cy="${f(G.floor.cy)}" rx="${f(G.floor.rx)}" ry="${f(G.floor.ry)}" fill="url(#floor)"/>` : '';
+  const bg = withBg ? `<rect width="${W}" height="${H}" fill="url(#bg)"/>` : '';
+  const gx = `gradientUnits="userSpaceOnUse" x1="${f(G.paperH.x1)}" y1="0" x2="${f(G.paperH.x2)}" y2="0"`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+<defs>
+<clipPath id="body">${ell}</clipPath>${bandClips}
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a2350"/><stop offset="0.62" stop-color="#0e1433"/><stop offset="0.622" stop-color="#1c1612"/><stop offset="1" stop-color="#2a1d16"/></linearGradient>
+<linearGradient id="paperH" ${gx}>${stops(PAPER_H)}</linearGradient>
+<linearGradient id="bandH" ${gx}>${stops(BAND_H)}</linearGradient>
+<linearGradient id="holeH" ${gx}>${stops(HOLE_H)}</linearGradient>
+<linearGradient id="paperV" gradientUnits="userSpaceOnUse" x1="0" y1="${f(G.paperV.y1)}" x2="0" y2="${f(G.paperV.y2)}">${stops(PAPER_V)}</linearGradient>
+<radialGradient id="hot" gradientUnits="userSpaceOnUse" cx="${f(G.hot.cx)}" cy="${f(G.hot.cy)}" r="${f(G.hot.r)}">${stops(HOT)}</radialGradient>
+<radialGradient id="halo" gradientUnits="userSpaceOnUse" cx="${f(G.halo.cx)}" cy="${f(G.halo.cy)}" r="${f(G.halo.r)}">${stops(HALO)}</radialGradient>
+<radialGradient id="floor">${stops(FLOOR)}</radialGradient>
+<radialGradient id="inner">${stops(INNER)}</radialGradient>
+<filter id="bloom" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="8"/></filter>
+<filter id="soft" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="1.2"/></filter>
+</defs>
+${bg}${floor}
+<rect width="${W}" height="${H}" fill="url(#halo)"/>
+<g fill="${COL.bloom}" opacity="0.55" filter="url(#bloom)">${ell}</g>
+<g stroke="${COL.faceEdge}" stroke-width="0.7" stroke-linejoin="round">${faceSvg(base.behind)}</g>
+<g fill="none" stroke="${COL.outline}" stroke-width="${OUTLINE * 2}">${ell}</g>
+<g fill="url(#paperH)">${ell}</g>
+<g fill="url(#paperV)">${ell}</g>
+<g clip-path="url(#body)">
+<g fill="none" stroke="${COL.back}" stroke-linecap="round" stroke-linejoin="round" filter="url(#soft)">${back.map(plB).join('')}</g>
+<rect width="${W}" height="${H}" fill="url(#hot)"/>
+${bandSvg}
+<g fill="none" stroke="${COL.wood}" stroke-linecap="round" stroke-linejoin="round">${front.map(pl).join('')}</g>
+${rims}${edgeSvg}${capSvg}
+</g>
+<g stroke="${COL.faceEdge}" stroke-width="0.7" stroke-linejoin="round">${faceSvg(base.front)}</g>
+</svg>`;
+}
+
+let last = performance.now(), spinning = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+function loop(t) {
+  const dt = Math.min(0.1, (t - last) / 1000); last = t;
+  if (spinning) { rot = (rot + dt * TAU / PERIOD) % TAU; draw(); }
+  requestAnimationFrame(loop);
+}
+const spinBtn = document.getElementById('spin');
+const syncSpin = () => { spinBtn.textContent = spinning ? '회전 멈춤' : '회전 시작'; spinBtn.setAttribute('aria-pressed', String(spinning)); };
+spinBtn.addEventListener('click', () => { spinning = !spinning; syncSpin(); });
+const tiltEl = document.getElementById('tilt');
+tiltEl.addEventListener('input', () => { setTilt(+tiltEl.value); draw(); });
+
+const outEl = document.getElementById('out'), bgOn = document.getElementById('bgOn');
+function doExport() {
+  const svg = buildSVG(bgOn.checked);
+  outEl.value = svg;
+  document.getElementById('exBox').hidden = false;
+  document.getElementById('snapSvg').innerHTML = svg;
+  const img = new Image(); img.src = cv.toDataURL(); img.width = W; img.alt = '내보낸 순간의 캔버스';
+  const box = document.getElementById('snapCv'); box.replaceChildren(img);
+  document.getElementById('msg').textContent = '';
+}
+document.getElementById('exp').addEventListener('click', doExport);
+bgOn.addEventListener('change', () => { if (!document.getElementById('exBox').hidden) { outEl.value = buildSVG(bgOn.checked); document.getElementById('snapSvg').innerHTML = outEl.value; } });
+document.getElementById('copy').addEventListener('click', async () => {
+  const m = document.getElementById('msg');
+  try { await navigator.clipboard.writeText(outEl.value); m.textContent = '복사했습니다.'; }
+  catch { outEl.select(); m.textContent = '자동 복사가 막혀 있어 코드를 선택해 두었습니다. Ctrl+C로 복사하세요.'; }
+});
+
+syncSpin();
+setTilt(+tiltEl.value); draw(); requestAnimationFrame(loop);
+window.__api = { setTilt: d => { tiltEl.value = d; setTilt(d); draw(); }, buildSVG, setRot: r => { rot = r; draw(); }, pause: () => { spinning = false; syncSpin(); } };
+</script>
+</body></html>
