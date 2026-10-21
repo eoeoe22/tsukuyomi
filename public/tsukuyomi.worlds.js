@@ -1,6 +1,6 @@
-/* 세계 전환: 月(수면 토리이: 황혼·밤·미러볼) · 海(공백) · 山(산정 토리이, tsukuyomi.mount.js) · 地(역광 지구, tsukuyomi.earth.js).
+/* 세계 전환: 月(수면 토리이: 황혼·밤·미러볼) · 海(공백) · 山(산정 토리이, tsukuyomi.mount.js) · 地(역광 지구, tsukuyomi.earth.js) · 八(야치요의 방, tsukuyomi.room.js).
  * 경로는 tsukuyomi.html 하나로 통합하고 해시로 연다(정적 호스팅이라 경로 리라이트 없이):
- *   없음 = 月, #sea = 海, #mount = 山, #earth = 地.
+ *   없음 = 月, #sea = 海, #mount = 山, #earth = 地, #room = 八.
  * 月와 海는 같은 엔진(tsukuyomi.js)·캔버스를 쓴다. 둘 사이는 엔진의 장면 전환(공백 ↔ 황혼 스냅샷 크로스페이드 등)에
  * 맡기고 하단 패널만 바꾼다. 그 밖의 전환은 모두 단순 페이드.
  *
@@ -17,10 +17,12 @@
   const moonEl = document.getElementById('worldMoon');
   const mountEl = document.getElementById('worldMount');
   const earthEl = document.getElementById('worldEarth');
+  const roomEl = document.getElementById('worldRoom');
   const moonPanel = document.getElementById('panel');
   const moonDock = moonPanel ? moonPanel.closest('.dock') : null;
   const mountDock = document.getElementById('mountDock');
   const earthDock = document.getElementById('earthDock');
+  const roomDock = document.getElementById('roomDock');
   const seaDock = document.getElementById('seaDock');
   if (!moonEl || !mountEl || !moonDock || !mountDock) return;
 
@@ -37,10 +39,10 @@
   };
   // 해시·history·document.title 연동. 랜딩은 스크롤이 세계를 고르므로 끈다
   const ROUTE = document.documentElement.getAttribute('data-worlds-route') !== 'off';
-  const TITLES = { moon: '月 | ( ◠ ᗜ ◠ )', sea: '海 | ( ◠ ᗜ ◠ )', mount: '山 | ( ◠ ᗜ ◠ )', earth: '地 | ( ◠ ᗜ ◠ )' };
-  const HASH = { sea: '#sea', mount: '#mount', earth: '#earth' };
+  const TITLES = { moon: '月 | ( ◠ ᗜ ◠ )', sea: '海 | ( ◠ ᗜ ◠ )', mount: '山 | ( ◠ ᗜ ◠ )', earth: '地 | ( ◠ ᗜ ◠ )', room: '八 | ( ◠ ᗜ ◠ )' };
+  const HASH = { sea: '#sea', mount: '#mount', earth: '#earth', room: '#room' };
 
-  // ---------- 엔진 지연 로드 (山 / 地) ----------
+  // ---------- 엔진 지연 로드 (山 / 地 / 八) ----------
   function lazyScript(src, name) {
     let p = null;
     return () => {
@@ -59,10 +61,12 @@
   }
   const loadMount = lazyScript('tsukuyomi.mount.js', 'TsukuyomiMount');
   const loadEarth = lazyScript('tsukuyomi.earth.js', 'TsukuyomiEarth');
+  const loadRoom = lazyScript('tsukuyomi.room.js', 'TsukuyomiRoom');
   // 의도가 보이면(드롭다운 근처) 미리 받아 배치·구름 생성·셰이더 컴파일을 시작해 둔다
   const prewarmMount = () => { loadMount().catch(e => console.warn('[tsukuyomi] 산 장면 미리 로드 실패:', e)); };
   const prewarmEarth = () => { if (earthEl) loadEarth().catch(e => console.warn('[tsukuyomi] 지구 장면 미리 로드 실패:', e)); };
-  const prewarm = () => { prewarmMount(); prewarmEarth(); };
+  const prewarmRoom = () => { if (roomEl) loadRoom().catch(e => console.warn('[tsukuyomi] 방 장면 미리 로드 실패:', e)); };
+  const prewarm = () => { prewarmMount(); prewarmEarth(); prewarmRoom(); };
 
   // ---------- 세계 어댑터: 시작/정지 ----------
   // o.snap: 엔진이 멈춰 있다가(다른 세계에서) 올라오는 경우. 화면에 보이기 전이라 장면을 전환 없이 바로 맞춘다
@@ -119,10 +123,18 @@
     start() { return loadEarth().then(E => { this.E = E; E.start(); }); },
     stop() { if (this.E) this.E.stop(); },
   } : null;
+  // 八: 단일 장면이라 옵션이 없다. 베이스(방 구조)가 그려진 뒤에 전환이 시작되도록 start를 기다린다
+  const room = (roomEl && roomDock) ? {
+    id: 'room', el: roomEl, dock: roomDock,
+    R: null,
+    start() { return loadRoom().then(R => { this.R = R; return R.start(); }); },
+    stop() { if (this.R) this.R.stop(); },
+  } : null;
   const WORLDS = { moon };
   if (sea) WORLDS.sea = sea;
   WORLDS.mount = mount;
   if (earth) WORLDS.earth = earth;
+  if (room) WORLDS.room = room;
 
   // ---------- 상태 ----------
   let world = 'moon';
@@ -269,6 +281,7 @@
       icon: svg16('M11.225 6.553a.5.5 0 0 0-.577.093l-3.71 4.71-2.66-2.772a.5.5 0 0 0-.63.062L.002 13v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4.5z'),
     },
     { id: 'earth', label: '지구', icon: '<i class="bi bi-globe-americas-fill" aria-hidden="true"></i>' },
+    { id: 'room', label: '야치요의 방', icon: '<i class="bi bi-house-door-fill" aria-hidden="true"></i>' },
   ].filter(m => WORLDS[m.id]);
   const pickers = [];
 

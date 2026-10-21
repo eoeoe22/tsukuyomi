@@ -572,6 +572,18 @@
             display: block;
         }
 
+        #roomScene {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #worldRoom {
+            background: #05070d;
+        }
+
         #worldEarth {
             background: #02050a;
         }
