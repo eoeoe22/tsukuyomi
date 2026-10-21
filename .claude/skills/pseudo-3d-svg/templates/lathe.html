@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ko"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>회전체 반3D 템플릿</title>
+<style>
+  :root { --bg:#f3f1ee; --fg:#2b2230; color-scheme:light; }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --bg:#1b1a1c; --fg:#e8e4e6; color-scheme:dark; } }
+  html,body{height:100%;margin:0} body{background:var(--bg);color:var(--fg);display:grid;place-items:center;font:13px system-ui,sans-serif}
+  canvas{width:300px;height:440px;max-width:100%;display:block}
+  .ctl{width:300px;max-width:100%;margin:10px auto 0;display:grid;gap:6px}
+  .ctl input{width:100%}
+  textarea{width:100%;height:70px;font:11px ui-monospace,monospace}
+</style>
+</head><body>
+<!-- ① 형태 원본: 좌우 대칭 실루엣 SVG path. 세로축(중심 x)으로 돌린 회전체가 된다 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <path id="profile" d="M150 20 C 172 20, 192 85, 222 175 C 252 265, 264 330, 256 368
+    C 247 404, 210 420, 150 420 C 90 420, 53 404, 44 368 C 36 330, 48 265, 78 175
+    C 108 85, 128 20, 150 20 Z"/>
+</svg>
+<div>
+  <canvas id="cv"></canvas>
+  <div class="ctl">
+    <label>시점 기울기 <b id="vt"></b><input type="range" id="tilt" min="-90" max="90" value="0"></label>
+    <button id="exp">현재 프레임 SVG 내보내기</button>
+    <textarea id="out" readonly></textarea>
+  </div>
+</div>
+<script>
+// ===== 설정 =====
+const W = 300, H = 440;
+const COL = { body:'#6e625f', outline:'#2b2230', line:'#1e1a1c' };
+const PERIOD = 12;            // 1회전 초
+const OUTLINE = 3;            // 외곽선 두께(px). 2배 stroke 후 fill로 안쪽 절반을 덮는다
+
+// ===== ② 프로파일 샘플링 → 높이별 반지름 표 =====
+const pathEl = document.getElementById('profile');
+const bb = pathEl.getBBox();
+const CX = bb.x + bb.width / 2, Y0 = Math.ceil(bb.y), Y1 = Math.floor(bb.y + bb.height);
+const YC = (Y0 + Y1) / 2;     // 기울기 회전 중심 높이
+const R_LUT = new Float32Array(H + 2);
+// PROFILE: 오른쪽 절반을 경로(호 길이) 순서로 샘플링한 [y, r] 목록, 위 끝 → 아래 끝.
+// 높이 기준 표(R_LUT)는 바닥처럼 거의 수평인 구간에서 해상도를 잃으므로, 표면을 훑는 작업(음영 굽기)은 반드시 PROFILE 을 쓴다.
+let PROFILE;
+{
+  const L = pathEl.getTotalLength(), N = 4000;
+  const raw = [];
+  for (let i = 0; i < N; i++) { const p = pathEl.getPointAtLength(L * i / N); raw.push([p.y, p.x - CX]); }
+  // 오른쪽 절반(x ≥ CX)의 연속 구간을 찾아 경로 순서대로 이어 붙임 (path 시작점이 어디든 동작)
+  let s0 = raw.findIndex((q, i) => q[1] < 0 && raw[(i + 1) % N][1] >= 0);
+  if (s0 < 0) s0 = 0;
+  const right = [];
+  for (let k = 1; k <= N; k++) { const q = raw[(s0 + k) % N]; if (q[1] < 0) break; right.push(q); }
+  if (right.length && right[0][0] > right[right.length - 1][0]) right.reverse();   // 위 → 아래 방향으로 통일
+  PROFILE = right;
+  // 반지름 표: 정수 높이마다 PROFILE 의 이웃 두 점을 선형 보간 (정수로 반올림해 max 로 모으면 계단이 생겨
+  // dr/dy 가 들쭉날쭉해지고, 가장 넓은 지점(dr/dy≈0)에서 앞면 판정이 깜빡여 실루엣을 따라 점선이 생긴다)
+  let k = 0;
+  for (let y = 0; y <= H; y++) {
+    while (k < PROFILE.length - 2 && PROFILE[k + 1][0] < y) k++;
+    const [y0, r0] = PROFILE[k], [y1, r1] = PROFILE[k + 1];
+    R_LUT[y] = y1 > y0 ? r0 + (r1 - r0) * Math.min(1, Math.max(0, (y - y0) / (y1 - y0))) : r1;
+  }
+  for (let y = 0; y <= H; y++) if (y <= Y0 || y >= Y1) R_LUT[y] = 0;
+}
+const rAt = y => { const i = Math.max(0, Math.min(H, Math.floor(y))), f = y - i; return R_LUT[i] + (R_LUT[Math.min(H, i + 1)] - R_LUT[i]) * f; };
+const drdy = y => rAt(y + 0.5) - rAt(y - 0.5);
+const TAU = Math.PI * 2;
+const wrap = a => ((a + Math.PI) % TAU + TAU) % TAU - Math.PI;
+
+// ===== ③ 표면 위 곡선 정의 (θ → 높이 y). 여기만 바꾸면 무늬가 바뀐다 =====
+// 예시: 죽순 껍질. 끝(top)이 각도 th를 향하고 양옆으로 흘러내림, 다음 껍질은 120°씩 회전
+const COUNT = 9, TOP0 = 45, GAP = 40, DROP = 150, TURN = TAU / 3;
+const SHEATHS = Array.from({ length: COUNT }, (_, i) => ({ top: TOP0 + i * GAP, th: i * TURN }));
+const edgeY = (k, th) => { const s = SHEATHS[k], g = Math.abs(wrap(th - s.th)) / Math.PI; return s.top + DROP * (1 - Math.pow(1 - g, 1.6)); };
+const CURVES = SHEATHS.map((_, k) => ({
+  y: th => edgeY(k, th),
+  // 표면 위 가림(해석적): 더 바깥(아래) 껍질의 가장자리보다 아래에 있으면 덮임
+  hidden: (th, y) => { for (let j = k + 1; j < COUNT; j++) if (y > edgeY(j, th) + 0.5) return true; return false; },
+}));
+
+// ===== ④ 음영(축대칭이면 회전 불변 → 기울기 바뀔 때만 굽기). alpha 0~1 반환, null이면 끔 =====
+const SHADE_IN = 50, SHADE_OUT = 110;
+let Y_WIDE = Y0; for (let y = Y0; y <= Y1; y++) if (R_LUT[y] > R_LUT[Y_WIDE]) Y_WIDE = y;   // 가장 넓은 높이
+const shadeFn = (y, r) => {
+  if (y < Y_WIDE) return 0;                                // 가장 넓은 지점 아래쪽만 (경계에서 이미 0이라 이음매 없음)
+  const t = Math.min(1, Math.max(0, (r - SHADE_IN) / (SHADE_OUT - SHADE_IN)));
+  return 1 - t * t * (3 - 2 * t);
+};
+
+// ===== 캔버스 =====
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+cv.width = W * dpr; cv.height = H * dpr; ctx.scale(dpr, dpr);
+
+// 어떤 기울기에서도 캔버스에 들어가는 고정 배율 (기울기마다 크기가 출렁이지 않게)
+const S = (() => {
+  let ext = 0;
+  for (let d = 0; d <= 90; d++) {
+    const c = Math.cos(d * Math.PI / 180), s = Math.sin(d * Math.PI / 180);
+    let lo = Infinity, hi = -Infinity;
+    for (let y = Y0; y <= Y1; y++) { const u = (YC - y) * c, h = rAt(y) * s; lo = Math.min(lo, u - h); hi = Math.max(hi, u + h); }
+    ext = Math.max(ext, hi - lo);
+  }
+  return Math.min(1, (Y1 - Y0) / ext);
+})();
+
+let ct = 1, st = 0, OY = YC, rot = 0, tiltDeg = 0, ellipses = [], body, bodyImg, shadeImg;
+
+// ===== ⑤ 핵심 투영: (θ, y) → 세로축 회전 → x축 기울기 → 정사영 + 앞면 판정 =====
+function project(th, y) {
+  const a = th + rot, r = rAt(y);
+  const x = r * Math.sin(a), z = r * Math.cos(a), u = YC - y;
+  // 회전체 바깥 법선 ∝ (sin a, dr/dy, cos a). 기울인 뒤 시점 성분(z')>0 이면 보임 (볼록체 한정)
+  const front = y > Y0 && y < Y1 - 1 && drdy(y) * st + Math.cos(a) * ct > 0;
+  return { x: CX + S * x, y: OY - S * (u * ct - z * st), front };
+}
+
+function setTilt(deg) {
+  tiltDeg = deg;
+  const T = deg * Math.PI / 180; ct = Math.cos(T); st = Math.sin(T);
+  let lo = Infinity, hi = -Infinity;
+  for (let y = Y0; y <= Y1; y++) { const u = (YC - y) * ct, h = rAt(y) * Math.abs(st); lo = Math.min(lo, u - h); hi = Math.max(hi, u + h); }
+  OY = H / 2 + S * (lo + hi) / 2;   // 화면 세로 중앙 정렬
+  // 실루엣 = 높이별 단면 원(→타원) 합집합. 세로축 회전과 무관
+  body = new Path2D(); ellipses = [];
+  for (let y = Y0; y <= Y1; y++) {
+    const rx = Math.max(0.01, S * rAt(y)), ry = Math.max(0.75, rx * Math.abs(st)), cy = OY - S * (YC - y) * ct;
+    body.moveTo(CX + rx, cy); body.ellipse(CX, cy, rx, ry, 0, 0, TAU);
+    ellipses.push([cy, rx, ry]);
+  }
+  bodyImg ||= document.createElement('canvas');
+  bodyImg.width = W * dpr; bodyImg.height = H * dpr;
+  const b = bodyImg.getContext('2d'); b.scale(dpr, dpr);
+  b.lineJoin = 'round'; b.strokeStyle = COL.outline; b.lineWidth = OUTLINE * 2; b.stroke(body);
+  b.fillStyle = COL.body; b.fill(body);
+  bakeShade();
+  document.getElementById('vt').textContent = (deg > 0 ? '위에서 ' : deg < 0 ? '아래에서 ' : '정면 ') + Math.abs(deg) + '°';
+}
+
+// 표면을 촘촘히 찍어(splat) 알파 맵 생성. 보이는 면만, 픽셀별 최대값
+function bakeShade() {
+  shadeImg ||= document.createElement('canvas');
+  shadeImg.width = W; shadeImg.height = H;
+  if (!shadeFn) return;
+  const A = new Float32Array(W * H);
+  // 높이를 일정 간격으로 훑으면 바닥(수평에 가까운 구간)에서 반지름이 크게 건너뛰어 동심원 무늬가 생긴다 → 프로파일을 호 길이 순서로 훑는다
+  for (let i = 0; i < PROFILE.length - 1; i++) {
+    const [y, r] = PROFILE[i], a = shadeFn(y, r);
+    if (a <= 0.003) continue;
+    const dy = PROFILE[i + 1][0] - y, dr = PROFILE[i + 1][1] - r;   // 바깥 법선: 반지름 성분 dy, 위쪽 성분 dr
+    const n = Math.max(8, Math.ceil(TAU * r * S / 0.5)), u = YC - y;
+    for (let j = 0; j < n; j++) {
+      const ph = j / n * TAU, c = Math.cos(ph);
+      if (dr * st + dy * c * ct <= 0) continue;
+      const px = Math.floor(CX + S * r * Math.sin(ph)), py = Math.floor(OY - S * (u * ct - r * c * st));
+      for (let oy = 0; oy < 2; oy++) for (let ox = 0; ox < 2; ox++) {
+        const X = px + ox, Y = py + oy;
+        if (X >= 0 && X < W && Y >= 0 && Y < H) { const k = Y * W + X; if (a > A[k]) A[k] = a; }
+      }
+    }
+  }
+  const [cr, cg, cb] = [1, 3, 5].map(i => parseInt(COL.line.slice(i, i + 2), 16));
+  const img = new ImageData(W, H);
+  for (let k = 0; k < W * H; k++) { img.data[k*4]=cr; img.data[k*4+1]=cg; img.data[k*4+2]=cb; img.data[k*4+3]=A[k]*255; }
+  shadeImg.getContext('2d').putImageData(img, 0, 0);
+}
+
+// 보이는 연속 구간(run)만 폴리라인으로
+function visibleRuns() {
+  const runs = [], N = 720;
+  CURVES.forEach(c => {
+    let run = [];
+    for (let i = 0; i <= N; i++) {
+      const th = i / N * TAU, y = c.y(th), p = project(th, y);
+      if (p.front && !(c.hidden && c.hidden(th, y))) run.push(p);
+      else { if (run.length > 1) runs.push(run); run = []; }
+    }
+    if (run.length > 1) runs.push(run);
+  });
+  return runs;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(bodyImg, 0, 0, W, H);
+  ctx.save(); ctx.clip(body);
+  ctx.strokeStyle = COL.line; ctx.lineWidth = 3.5; ctx.lineCap = ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (const run of visibleRuns()) { ctx.moveTo(run[0].x, run[0].y); for (const p of run) ctx.lineTo(p.x, p.y); }
+  ctx.stroke();
+  ctx.drawImage(shadeImg, 0, 0, W, H);
+  ctx.restore();
+}
+
+// ===== SVG 스냅샷: 같은 계산 결과를 SVG 요소로 =====
+function buildSVG() {
+  const f = n => n.toFixed(2);
+  const ell = ellipses.map(([cy, rx, ry]) => `<ellipse cx="${CX}" cy="${f(cy)}" rx="${f(rx)}" ry="${f(ry)}"/>`).join('');
+  const lines = visibleRuns().map(r => `<polyline points="${r.map(p => f(p.x) + ',' + f(p.y)).join(' ')}"/>`).join('');
+  const shade = shadeFn ? `<image href="${shadeImg.toDataURL()}" x="0" y="0" width="${W}" height="${H}"/>` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+<defs><clipPath id="body">${ell}</clipPath></defs>
+<g fill="none" stroke="${COL.outline}" stroke-width="${OUTLINE * 2}">${ell}</g>
+<g fill="${COL.body}">${ell}</g>
+<g clip-path="url(#body)"><g fill="none" stroke="${COL.line}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">${lines}</g>${shade}</g>
+</svg>`;
+}
+
+let last = performance.now();
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function loop(t) {
+  const dt = (t - last) / 1000; last = t;
+  if (!reduce) rot = (rot + dt * TAU / PERIOD) % TAU;
+  draw(); requestAnimationFrame(loop);
+}
+const tiltEl = document.getElementById('tilt');
+tiltEl.addEventListener('input', () => { setTilt(+tiltEl.value); draw(); });
+document.getElementById('exp').addEventListener('click', () => { document.getElementById('out').value = buildSVG(); });
+setTilt(+tiltEl.value); draw(); requestAnimationFrame(loop);
+window.__api = { setTilt, buildSVG, setRot: r => { rot = r; draw(); } };
+</script>
+</body></html>
