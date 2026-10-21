@@ -44,6 +44,10 @@
   .cmp .box{background:linear-gradient(180deg,var(--stage-top),var(--stage-mid));border-radius:4px;display:grid;place-items:center;min-height:120px}
   .cmp .box > *{max-width:100%;height:auto}
   @media (max-width:520px){ .ctl{grid-template-columns:1fr 1fr} .ctl label{grid-column:1/-1} }
+  .tune{display:grid;grid-template-columns:1fr;gap:10px 14px;align-items:center}
+  .tune label{display:grid;gap:2px;font-size:.9rem;color:var(--muted)}
+  .tune label b{color:var(--fg);font-weight:600}
+  @media (max-width:520px){ .tune{grid-template-columns:1fr} }
 </style>
 </head><body>
 <!-- ① 형태 원본: 좌우 대칭 실루엣. 원통 몸통(반지름 62, 높이 250). 다리·받침판은 회전체가 아니라 상자로 따로 그린다 -->
@@ -53,13 +57,15 @@
 <main>
   <header>
     <h1>원통형 행등</h1>
-    <p class="lead">종이 원통 안에 불을 켠 스탠딩 랜턴입니다. 위아래 나무 띠에는 나무로 남긴 육각별 둘레를 마름모 창이 감싸도록 투각되어 있고, 사각 받침판 위 네 다리가 원통을 받칩니다.</p>
   </header>
   <div class="stage"><canvas id="cv" aria-label="회전하는 원통형 행등"></canvas></div>
   <div class="ctl">
     <label>시점 기울기 <b id="vt"></b><input type="range" id="tilt" min="-90" max="90" value="12"></label>
     <button id="spin" aria-pressed="true">회전 멈춤</button>
     <button id="exp">현재 프레임 SVG로 내보내기</button>
+  </div>
+  <div class="tune">
+    <label>수직 간격 <b id="vVert"></b><input type="range" id="inVert" min="0.7" max="1.4" step="0.05" value="1"></label>
   </div>
   <section class="export" hidden id="exBox">
     <div class="row">
@@ -85,11 +91,13 @@ const COL = {
 const PERIOD = 16;            // 1회전 초
 const OUTLINE = 1.5;          // 외곽선 두께(px)
 const RIM_T = [70, 78], RIM_B = [312, 320];      // 위·아래 테두리 (나무)
-const BAND_UP = [78, 121], BAND_LO = [269, 312]; // 육각별 투각 띠 (얇게)
-const RAILS = [121, 269];     // 가운데 종이창(넓게)을 감싸는 가로대
+const BAND_UP = [78, 140.4], BAND_LO = [249.6, 312]; // 육각별 투각 띠 62.4px (띠:중간:띠 = 4:7:4)
+const RAILS = [140.4, 249.6];   // 가운데 종이창 109.2px을 감싸는 가로대
 const POSTS = 4;              // 다리 수 (대각 방향)
-const STAR_M = 11;            // 띠 한 줄에 들어가는 육각별 수
-const STAR_GAP = 0.16;        // 마름모 창 사이 나무살 비율
+const STAR_M = 14;             // 고정: 띠 한 바퀴 14개 (좌우 간격 27.8px)
+const STAR_SIZE = 0.4;        // 고정: 별 크기 (작게)
+let STAR_VMUL = 1.0;          // 수직 간격 조절기용 (별 사이 거리 배율, 예시 구현본의 dy에 대응)
+const STAR_GAP = 0.08;        // 마름모 창 사이 나무살 비율 (작게 → 별 작게·창 크게)
 // 받침: 사각 판 + 그 위 얇은 단 + 다리 4개 (모두 R 배수)
 const Y_FLOOR = 432;          // 판 밑면(바닥)
 const BASE = { half: 0.95, top: 424 };
@@ -127,20 +135,24 @@ const TAU = Math.PI * 2;
 const R = rAt((Y0 + Y1) / 2);   // 몸통 반지름 (원통이라 하나)
 
 // ===== ③ 표면 위 곡선·도형 정의 (θ, y) =====
-// 육각별 투각 (사진 기준): 60° 마름모 타일링에서 일부 꼭짓점(삼각 격자 A)을 중심으로 한 마름모 6장은
-// 나무로 남겨 '어두운 육각별'이 되고, 나머지 마름모(A에 닿지 않는 B–C 쌍)만 뚫린다.
-// 그래서 뚫린 마름모는 별의 120° 홈에 끼워져 별을 둘러싸고, 별 사이에서는 세 장씩 Y자로 모인다.
+// 육각별 투각 (사진 기준): 납작별(꼭짓점이 양옆). 60° 마름모 타일링에서
+// 삼각 격자를 세로로 세워 A열(짝수)은 가운데 1개, B열(홀수)은 위·아래 2개가
+// 띠에 걸리도록 배치한다. 정면에는 가운데 줄 별 2개가 온전히 보인다.
+// 조절기(예시 구현본 대응): STAR_SIZE=0.4·STAR_M=14 고정, STAR_VMUL=수직 간격 배율(dy)만 조절.
+// 수직 간격은 별 사이 거리만 벌리고(위치만 이동), 마름모 창 모양은 그대로 둔다(예시 dy와 동일). 세로줄 엇갈림은 V/2로 고정.
 function starHoles(yA, yB, phase) {
-  const C = TAU * R, L = C / STAR_M, rowH = L * Math.sqrt(3) / 2, yc = (yA + yB) / 2;
-  const out = [], s = 1 - STAR_GAP;
-  // B 꼭짓점 → 이웃 C 꼭짓점 세 방향 (길이 = 마름모 긴 대각선 L/√3)
-  const D = [[0, -2 * rowH / 3], [L / 2, rowH / 3], [-L / 2, rowH / 3]];
-  for (let j = -2; j <= 2; j++) for (let i = 0; i < STAR_M; i++) {
-    const A = [i * L + ((j & 1) ? L / 2 : 0) + phase, yc + j * rowH];   // 어두운 별 중심
-    const B = [A[0] + L / 2, A[1] + rowH / 3];
+  const C = TAU * R, Lh = C / STAR_M, V0 = Lh * 2 / Math.sqrt(3), V = V0 * STAR_VMUL, yc = (yA + yB) / 2;
+  // STAR_SIZE↑ → 나무별↑(마름모 창↓). s>1이면 창끼리 살짝 겹쳐 별이 더 작아진다.
+  const out = [], s = (1 - STAR_GAP) + (1 - STAR_SIZE) * 0.25;
+  // B 꼭짓점 → 이웃 C 꼭짓점 세 방향 (납작별용: 동·북서·남서). 모양은 V0 기준 고정.
+  const Bx_off = -Lh / 3, By_off = V0 / 2;
+  const D = [[2 * Lh / 3, 0], [-Lh / 3, V0 / 2], [-Lh / 3, -V0 / 2]];
+  for (let j = -2; j < STAR_M + 2; j++) for (let i = -3; i <= 3; i++) {
+    const A = [j * Lh + phase, yc + i * V + ((j & 1) ? V / 2 : 0)];   // 어두운 별 중심
+    const B = [A[0] + Bx_off, A[1] + By_off];
     for (const [dx, dy] of D) {
       const m = [B[0] + dx / 2, B[1] + dy / 2];          // 마름모 중심
-      const px = -dy / Math.sqrt(3) / 2, py = dx / Math.sqrt(3) / 2;   // 짧은 대각선 절반 (= 긴 대각선/√3)
+      const px = -dy / Math.sqrt(3) / 2, py = dx / Math.sqrt(3) / 2;   // 짧은 대각선 절반
       let v = [B, [m[0] + px, m[1] + py], [B[0] + dx, B[1] + dy], [m[0] - px, m[1] - py]];
       v = v.map(([x, y]) => [m[0] + (x - m[0]) * s, m[1] + (y - m[1]) * s]);
       if (v.every(p => p[1] <= yA) || v.every(p => p[1] >= yB)) continue;
@@ -151,10 +163,15 @@ function starHoles(yA, yB, phase) {
   }
   return out;
 }
-const BANDS = [
-  { y: BAND_UP, holes: starHoles(BAND_UP[0], BAND_UP[1], 0) },
-  { y: BAND_LO, holes: starHoles(BAND_LO[0], BAND_LO[1], 0) },
-];
+let BANDS = [];
+function rebuildBands() {
+  const ph = TAU * R / (STAR_M * 2);   // 정면 중앙에 마름모가 오도록 반 칸 이동
+  BANDS = [
+    { y: BAND_UP, holes: starHoles(BAND_UP[0], BAND_UP[1], ph) },
+    { y: BAND_LO, holes: starHoles(BAND_LO[0], BAND_LO[1], ph) },
+  ];
+}
+rebuildBands();
 const POST_TH = k => Math.PI / 4 + k * TAU / POSTS;
 const CURVES = [
   ...RAILS.map(y => ({ kind: 'rail', pts: Array.from({ length: 241 }, (_, i) => [i / 240 * TAU, y]) })),
@@ -458,6 +475,15 @@ spinBtn.addEventListener('click', () => { spinning = !spinning; syncSpin(); });
 const tiltEl = document.getElementById('tilt');
 tiltEl.addEventListener('input', () => { setTilt(+tiltEl.value); draw(); });
 
+// ===== 육각별 무늬 수동 조절기 (리모트 예시 구현본 대응: dy) =====
+// 별 크기·좌우 간격은 고정(STAR_SIZE=0.4, STAR_M=14). 수직 간격만 조절.
+const inVert = document.getElementById('inVert');
+const vVert = document.getElementById('vVert');
+function syncStarUI() { vVert.textContent = '×' + Number(STAR_VMUL).toFixed(2); }
+function refreshStars() { rebuildBands(); draw(); }
+inVert.addEventListener('input', () => { STAR_VMUL = +inVert.value; syncStarUI(); refreshStars(); });
+syncStarUI();
+
 const outEl = document.getElementById('out'), bgOn = document.getElementById('bgOn');
 function doExport() {
   const svg = buildSVG(bgOn.checked);
@@ -478,6 +504,7 @@ document.getElementById('copy').addEventListener('click', async () => {
 
 syncSpin();
 setTilt(+tiltEl.value); draw(); requestAnimationFrame(loop);
-window.__api = { setTilt: d => { tiltEl.value = d; setTilt(d); draw(); }, buildSVG, setRot: r => { rot = r; draw(); }, pause: () => { spinning = false; syncSpin(); } };
+window.__api = { setTilt: d => { tiltEl.value = d; setTilt(d); draw(); }, buildSVG, setRot: r => { rot = r; draw(); }, pause: () => { spinning = false; syncSpin(); },
+  setStars: o => { if (o.vert != null) { STAR_VMUL = +o.vert; inVert.value = STAR_VMUL; } syncStarUI(); refreshStars(); } };
 </script>
 </body></html>
