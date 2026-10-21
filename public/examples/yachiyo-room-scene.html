@@ -28,6 +28,9 @@
     <label><span>바닥등(사각뿔대) 불빛 <b id="vGlowSq"></b></span><input type="range" id="rGlowSq" min="0" max="200" value="35"></label>
     <label><span>스탠딩(원통) 불빛 <b id="vGlowCy"></b></span><input type="range" id="rGlowCy" min="0" max="200" value="70"></label>
     <label><span>벽 빛무늬 <b id="vPat"></b></span><input type="range" id="rPat" min="0" max="200" value="75"></label>
+    <label><span>바닥 원 좌우 x <b id="vEmbX"></b></span><input type="range" id="rEmbX" min="-350" max="350" value="-246"></label>
+    <label><span>바닥 원 앞뒤 z <b id="vEmbZ"></b></span><input type="range" id="rEmbZ" min="-1650" max="-600" value="-1164"></label>
+    <label><span>바닥 원 반지름 <b id="vEmbR"></b></span><input type="range" id="rEmbR" min="30" max="200" value="80"></label>
     <div><button id="flk" class="on">일렁임 ON</button> <button id="spn" class="on">무늬 회전 ON</button> <button id="tag">부품 표시</button></div>
   </div>
   <p class="note">카메라: 눈높이 1.6m, 뒷벽까지 17.5m. 뒷벽 5칸 = 회벽+원창 / 개구 3칸 / 회벽+원창. 바닥등 앞줄 6·뒷줄 4, 스탠드 2, 충립 1(왼쪽), 병풍 1(오른쪽 벽 자리에 벽과 평행, 6폭 청해파). 오른쪽 x≥3.9m는 한 단(0.3m) 높은 상단 — 카펫, 오른쪽 스탠드·병풍은 단 위.</p>
@@ -200,21 +203,35 @@ function floor(g) {
   }
   // 문지방
   boxP(g, -HX, HX, 0, 0.1, ZB, ZB + 0.25, { f: '#3a2818', s: '#2c1e12', t: '#5a4030' });
-  emblem(g, 0, -11, 1.05);
+  emblem(g, S.embX, S.embZ, S.embR);
 }
+// 바닥 가운데 원 문양: 붙여주신 맨홀 뚜껑 SVG(680×500, 중심 340,250, 바깥 r 214)를 바닥 평면에 그대로 옮김.
+// 색은 금·검정 둘만: SVG의 밝은 회색 → 금, 어두운 회색 → 검정. SVG 1단위 = R/214, SVG 아래(+y) = 앞쪽(+z)
+const EMB_T = [   // 80×80 타일 안 T자 4개 (SVG tgrid3 경로)
+  [[3, 3], [37, 3], [37, 15], [26, 15], [26, 37], [14, 37], [14, 15], [3, 15]],
+  [[43, 3], [55, 3], [55, 14], [77, 14], [77, 26], [55, 26], [55, 37], [43, 37]],
+  [[37, 43], [37, 77], [25, 77], [25, 66], [3, 66], [3, 54], [25, 54], [25, 43]],
+  [[43, 77], [77, 77], [77, 65], [66, 65], [66, 43], [54, 43], [54, 65], [43, 65]],
+];
 function emblem(g, xc, zc, R) {
-  const ring = (r, n = 72) => Array.from({ length: n }, (_, i) => { const a = i / n * Math.PI * 2; return proj(xc + Math.cos(a) * r, 0.001, zc + Math.sin(a) * r); });
-  poly(g, ring(R), '#1d140d', 'rgba(0,0,0,0.6)', 2);
-  poly(g, ring(R * 0.93), '#8c6a2c');
-  poly(g, ring(R * 0.82), '#22180f');
-  // 8분할 금색 띠 문양
-  for (let i = 0; i < 8; i++) {
-    const a0 = i / 8 * Math.PI * 2 + 0.12, a1 = a0 + Math.PI / 4 - 0.24, pts = [];
-    for (let t = 0; t <= 8; t++) { const a = a0 + (a1 - a0) * t / 8; pts.push(proj(xc + Math.cos(a) * R * 0.72, 0.001, zc + Math.sin(a) * R * 0.72)); }
-    for (let t = 8; t >= 0; t--) { const a = a0 + (a1 - a0) * t / 8; pts.push(proj(xc + Math.cos(a) * R * 0.55, 0.001, zc + Math.sin(a) * R * 0.55)); }
-    poly(g, pts, '#6e5222');
+  const s = R / 214;
+  const P = (x, y) => proj(xc + (x - 340) * s, 0.001, zc + (y - 250) * s);   // SVG 좌표 → 화면
+  const circ = (r, cx = 340, cy = 250, n = 96) => Array.from({ length: n }, (_, i) => { const a = i / n * Math.PI * 2; return P(cx + Math.cos(a) * r, cy + Math.sin(a) * r); });
+  const GOLD = '#b89040', INK = '#1a120b';
+  // 이중 테두리: 214 검정 / 208 금 / 194 검정 / 190 금 / 170 검정 / 166 금 / 160 검정(무늬 바탕)
+  [[214, INK], [208, GOLD], [194, INK], [190, GOLD], [170, INK], [166, GOLD], [160, INK]].forEach(([r, c]) => poly(g, circ(r), c));
+  // T자 무늬: 타일 원점 (300,210), 주기 80. 반지름 158 원으로 자른다. 칸 경계선(stroke)은 검정 바탕이 대신함
+  g.save(); g.beginPath(); circ(158).forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.clip();
+  g.fillStyle = GOLD;
+  for (let ty = 210 - 160; ty < 410; ty += 80) for (let tx = 300 - 160; tx < 500; tx += 80) for (const T of EMB_T) {
+    g.beginPath(); T.forEach(([x, y], i) => { const q = P(tx + x + 0.8, ty + y + 0.8); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath(); g.fill();
   }
-  poly(g, ring(R * 0.4), '#2a1e13', '#6e5222', 1.5);
+  g.restore();
+  // 좌우 열쇠 구멍 (둥근 막대 22×8 + 원 r6)
+  for (const kx of [171, 509]) {
+    poly(g, circ(6, kx, 250, 24), INK);
+    poly(g, [P(kx - 7, 246), P(kx + 7, 246), ...circ(4, kx + 7, 250, 16).slice(12).concat(circ(4, kx + 7, 250, 16).slice(0, 5)), P(kx + 7, 254), P(kx - 7, 254), ...circ(4, kx - 7, 250, 16).slice(4, 13)], INK);
+  }
 }
 function backWall(g) {
   const plaster = [D.plaster, D.plasterD];
@@ -723,12 +740,8 @@ function buildPatterns() {
     lg.drawImage(oc, 0, 0, W, H); lg.filter = 'none';
     lg.globalCompositeOperation = 'source-over';
   }
-  // 반사광 = 표면색(어둡게 하기 전) × 빛. 어두운 나무·란마에서도 무늬가 보이게 표면색을 밝은 쪽으로 끌어올림
-  const [ac, ag] = mkLayer();
-  ag.drawImage(albedo, 0, 0, W, H);
-  ag.globalCompositeOperation = 'screen'; ag.fillStyle = 'rgb(110,100,90)'; ag.fillRect(0, 0, W, H);
-  ALB = ac;
-  litLayer = reflect(lc, mkLayer());
+  litSrc = lc;
+  refreshAlbedo();
   PBUF ={ l: mkLayer(), p: mkLayer(), r: mkLayer(), m: mkLayer(), d: mkLayer() };
   for (const L of LANTERNS) if (L.type === 'cy') { L.maskLit = reachMask(L, true); L.maskDark = reachMask(L, false); }
   paperSp = null;
@@ -736,6 +749,16 @@ function buildPatterns() {
 const ptmOf = s => s.byo ? PAT.byoTMAX : s.floor ? PAT.paperFloorTMAX : PAT.paperTMAX;
 // 벽(수직면)은 광원 높이를 지나도 투영이 이어지므로 나누지 않는다. 천장·바닥만 광원 위·아래로 나눈다
 const splitLY = (P, s) => s.ax !== 1 ? [P] : [clipYPoly(P, -1e9, CYD.LIGHT_Y - 0.5), clipYPoly(P, CYD.LIGHT_Y + 0.5, 1e9)].filter(Boolean);
+// 반사광 = 표면색(어둡게 하기 전) × 빛. 어두운 나무·란마에서도 무늬가 보이게 표면색을 밝은 쪽으로 끌어올림.
+// 바닥 원 문양을 옮기면 표면색이 바뀌므로 다시 부른다
+let litSrc = null;
+function refreshAlbedo() {
+  const [ac, ag] = mkLayer();
+  ag.drawImage(albedo, 0, 0, W, H);
+  ag.globalCompositeOperation = 'screen'; ag.fillStyle = 'rgb(110,100,90)'; ag.fillRect(0, 0, W, H);
+  ALB = ac;
+  if (litSrc) litLayer = reflect(litSrc, mkLayer());
+}
 function reflect(src, [rc, rg]) {
   rg.globalCompositeOperation = 'source-over'; rg.fillStyle = '#000'; rg.fillRect(0, 0, W, H);
   rg.globalCompositeOperation = 'lighter'; rg.drawImage(src, 0, 0, W, H); rg.drawImage(src, 0, 0, W, H);
@@ -829,14 +852,21 @@ function lanternMotifs(g, L, sp) {
 }
 
 // ===== 그리기 =====
-const S = { dark: 94, glowSq: 35, glowCy: 70, pat: 75, flicker: false, spin: true, tags: false };
-let base = null;
+const S = { dark: 94, glowSq: 35, glowCy: 70, pat: 75, flicker: false, spin: true, tags: false,
+  embX: -2.46, embZ: -11.64, embR: 0.8 };   // 바닥 원 문양 위치(m)·반지름(m)
+let base = null, albedoDirty = false;
 function buildBase() {
   base = document.createElement('canvas'); base.width = W * dpr; base.height = H * dpr;
   const g = base.getContext('2d'); g.scale(dpr, dpr);
   TAGS.length = 0;
   sky(g); outside(g); sideOutside(g); ceiling(g); sideWalls(g); floor(g); backWall(g); dais(g); screens(g); byobu(g);
-  if (!albedo) { [albedo] = mkLayer(); albedo.getContext('2d').drawImage(base, 0, 0, W, H); }
+  if (!albedo || albedoDirty) {
+    if (!albedo) [albedo] = mkLayer();
+    const ag = albedo.getContext('2d'); ag.setTransform(1, 0, 0, 1, 0, 0); ag.clearRect(0, 0, albedo.width, albedo.height);
+    ag.setTransform(dpr, 0, 0, dpr, 0, 0); ag.drawImage(base, 0, 0, W, H);
+    if (albedoDirty && ALB) refreshAlbedo();
+    albedoDirty = false;
+  }
   // 밤 실내: 곱하기로 전체를 어둡게 (푸른 기)
   const a = S.dark / 100;
   const c = [255 - 190 * a, 255 - 192 * a, 255 - 170 * a].map(n => n | 0);
@@ -946,6 +976,12 @@ bind('rDark', 'vDark', 'dark', v => v + '%', true);
 bind('rGlowSq', 'vGlowSq', 'glowSq', v => v + '%', false);
 bind('rGlowCy', 'vGlowCy', 'glowCy', v => v + '%', false);
 bind('rPat', 'vPat', 'pat', v => v + '%', false);
+// 바닥 원 문양: 위치·크기 (슬라이더 값 = cm)
+for (const [id, key] of [['rEmbX', 'embX'], ['rEmbZ', 'embZ'], ['rEmbR', 'embR']]) {
+  const r = $(id), v = $('v' + id.slice(1));
+  const f = () => { S[key] = +r.value / 100; v.textContent = S[key].toFixed(2) + 'm'; if (base) { albedoDirty = true; buildBase(); draw(); } };
+  r.addEventListener('input', f); f();
+}
 $('flk').classList.toggle('on', S.flicker); $('flk').textContent = S.flicker ? '일렁임 ON' : '일렁임 OFF';
 $('flk').onclick = e => { S.flicker = !S.flicker; e.target.classList.toggle('on', S.flicker); e.target.textContent = S.flicker ? '일렁임 ON' : '일렁임 OFF'; draw(); };
 $('spn').classList.toggle('on', S.spin); $('spn').textContent = S.spin ? '무늬 회전 ON' : '무늬 회전 OFF';
