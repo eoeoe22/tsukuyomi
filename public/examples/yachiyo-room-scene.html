@@ -294,11 +294,14 @@ const PAT = {
   starBlur: [4, 9, 16], starBins: [3, 7],   // 맺힌 거리(m)별 번짐(px): 멀수록 흐림
   low: 0.5, lowBlur: 2.5, lowTMAX: 3, // 아래 띠 → 등 바로 아래 바닥에만 (원본처럼)
   paper: 0.24, lit: 0.22, dark: 0.38, paperFall: 1.1, paperBlur: 2.5,   // 종이창: 바탕빛 / 매화·물결 / 어두운 윤곽
-  paperRows: 16, paperEdge: 0.3, paperBaseBlur: 16,   // 바탕빛: 가로 줄로 나눠 위아래 가장자리로 갈수록 옅게(가장자리 비율) + 크게 번지게 → 띠 경계가 부드럽게
+  paperRows: 16, paperEdge: 0.18, paperBaseBlur: 16,   // 바탕빛: 가로 줄로 나눠 위아래 가장자리로 갈수록 옅게(가장자리 비율) + 크게 번지게 → 띠 경계가 부드럽게
   paperVS: 0.9, paperLift: 0.06, paperTMAX: 16, paperFloorTMAX: 3,   // 종이창 빛: 위아래 퍼짐을 눌러 수평~살짝 위로, 벽 넓게 (바닥엔 등 근처만)
   // 종이창 무늬 재배치: 원본은 바닥 투영용이라 무늬가 종이창 아래쪽(y≈231)·광원 바로 위(y≈161)에 몰려 있다.
   // 수평 투영이 되도록 두 묶음을 광원 높이 바로 아래·위(이미지 px 오프셋)로 옮긴다. 광원에 가까울수록 벽에 크게 맺힌다.
   motifLo: 11, motifHi: -11, motifVS: 1,
+  // 벽 수평 투영: 가로는 실제 광선 방향, 세로는 종이창 띠(가로대 사이)를 랜턴 높이 × wallSpan 범위에 고르게 펼친다.
+  // 띠 중앙 = 종이창 중앙 높이 → 위아래로 치우치지 않음. 무늬 묶음도 띠 중앙 기준 ± 오프셋에 둔다
+  wallSpan: 1.5, motifFill: 0.92, motifRowGap: 1.2,
   D0: 1.6, TMAX: 30,
 };
 const SURF = (() => {
@@ -339,6 +342,23 @@ function projPoly(L, Lp, pts, s, vs = 1, tmax = PAT.TMAX, lift = 0) {
   }
   return { pts: out, d: dsum / pts.length };
 }
+// 종이창 띠 → 벽(수직면). 거리와 상관없이 세로 범위가 일정하다
+function projWall(L, Lp, pts, s, tmax) {
+  const [RA, RB] = CYD.RAILS, mid = (RA + RB) / 2, k = PAT.wallSpan * L.h / (RB - RA), y0 = cylPt(L, 0, mid)[1];
+  const out = []; let dsum = 0;
+  for (const [th, y] of pts) {
+    const P = cylPt(L, th, y), dx = P[0] - Lp[0], dz = P[2] - Lp[2], n = Math.hypot(dx, dz);
+    const dd = (s.ax === 0 ? dx : dz) / n;
+    if (Math.abs(dd) < 1e-4) return null;
+    const t = (s.v - Lp[s.ax]) / dd;
+    if (t <= 0 || t > tmax) return null;
+    const wy = y0 + (mid - y) * k;
+    out.push(proj(Lp[0] + dx / n * t, wy, Lp[2] + dz / n * t)); dsum += Math.hypot(t, wy - Lp[1]);
+  }
+  return { pts: out, d: dsum / pts.length };
+}
+// 종이창 빛: 벽은 수평 투영, 바닥은 등 근처만 실제 투영, 천장은 닿지 않음
+const projPaper = (L, Lp, P, s, vs, tmax, lift) => s.ax !== 1 ? projWall(L, Lp, P, s, tmax) : s.v === 0 ? projPoly(L, Lp, P, s, vs, tmax, lift) : null;
 function fillPts(g, pts) { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); g.fill(); }
 const fall = (d, k) => Math.min(1, Math.pow(PAT.D0 / d, k));
 function clipYPoly(P, lo, hi) {
@@ -383,12 +403,26 @@ function buildPatterns() {
   // 무늬 묶음(광원 아래 / 위)을 통째로 옮겨 묶음 중심이 광원 높이 ± 오프셋에 오게 한다 (모양은 그대로)
   const motifs = (() => {
     const yc = m => { let lo = 1e9, hi = -1e9; for (const l of m.layers) for (const p of l.polys) for (const [, y] of p) { lo = Math.min(lo, y); hi = Math.max(hi, y); } return (lo + hi) / 2; };
-    const grp = [[], []];
+    const hh = m => { let lo = 1e9, hi = -1e9; for (const l of m.layers) for (const p of l.polys) for (const [, y] of p) { lo = Math.min(lo, y); hi = Math.max(hi, y); } return (hi - lo) / 2; };
+    const mid = (CYD.RAILS[0] + CYD.RAILS[1]) / 2, grp = [[], []];
     for (const m of CYD.MOTIFS) grp[yc(m) > LY ? 0 : 1].push(m);
-    return grp.flatMap((ms, gi) => {
-      if (!ms.length) return [];
-      const c = ms.reduce((s, m) => s + yc(m), 0) / ms.length, dy = LY + (gi ? PAT.motifHi : PAT.motifLo) - c;
-      return ms.map(m => ({ ...m, layers: m.layers.map(l => ({ ...l, polys: l.polys.map(p => p.map(([th, y]) => [th, y + dy])) })) }));
+    // 묶음 중심을 띠 중앙 ± 오프셋에 둔 뒤, 높이가 거의 같은 무늬끼리 한 줄로 묶는다
+    const ms = grp.flatMap((g, gi) => {
+      const c = g.reduce((s, m) => s + yc(m), 0) / (g.length || 1), off = mid + (gi ? PAT.motifHi : PAT.motifLo) - c;
+      return g.map(m => ({ m, c: yc(m) + off, h: hh(m) }));
+    }).sort((a, b) => a.c - b.c);
+    const rows = [];
+    for (const o of ms) { const r = rows[rows.length - 1]; if (r && o.c - r[r.length - 1].c < PAT.motifRowGap) r.push(o); else rows.push([o]); }
+    // 줄을 띠 높이 × motifFill 안에 위에서 아래로 같은 간격으로 늘어놓는다 (모양·줄 안 위치는 그대로) → 위아래 무게가 고르다
+    const T = (CYD.RAILS[1] - CYD.RAILS[0]) / 2 * PAT.motifFill, hm = Math.max(...ms.map(o => o.h));
+    const out = [];
+    rows.forEach((r, i) => {
+      const rc = r.reduce((s, o) => s + o.c, 0) / r.length;
+      const ty = rows.length > 1 ? mid - (T - hm) + 2 * (T - hm) * i / (rows.length - 1) : mid;
+      for (const { m, c } of r) out.push([m, ty + (c - rc) - yc(m)]);
+    });
+    return out.map(([m, dy]) => {
+      return { ...m, layers: m.layers.map(l => ({ ...l, polys: l.polys.map(p => p.map(([th, y]) => [th, y + dy])) })) };
     });
   })();
   for (const L of LANTERNS) {
@@ -400,7 +434,7 @@ function buildPatterns() {
     const [bc, bgc] = mkLayer();
     for (const s of SURF) {
       bgc.save(); clipSurf(bgc, s);
-      for (const P of paperSegs) { const r = projPoly(L, Lp, P, s, PAT.paperVS, ptmOf(s), PAT.paperLift); if (!r) continue; bgc.fillStyle = `rgba(${PAT.col},${PAT.paper * P.w * fall(r.d, PAT.paperFall)})`; fillPts(bgc, r.pts); }
+      for (const P of paperSegs) { const r = projPaper(L, Lp, P, s, PAT.paperVS, ptmOf(s), PAT.paperLift); if (!r) continue; bgc.fillStyle = `rgba(${PAT.col},${PAT.paper * P.w * fall(r.d, PAT.paperFall)})`; fillPts(bgc, r.pts); }
       bgc.restore();
     }
     const [pc, pg] = mkLayer();
@@ -413,7 +447,7 @@ function buildPatterns() {
       for (const m of motifs) for (const layer of m.layers) {
         pg.globalCompositeOperation = layer.lit ? 'lighter' : 'destination-out';
         for (const poly of layer.polys) for (const P of splitLY(poly, s)) {
-          const r = projPoly(L, Lp, P, s, PAT.motifVS, ptm, PAT.paperLift); if (!r) continue;
+          const r = projPaper(L, Lp, P, s, PAT.motifVS, ptm, PAT.paperLift); if (!r) continue;
           const a = layer.lit ? PAT.lit * fall(r.d, PAT.paperFall) : PAT.dark;
           pg.fillStyle = layer.lit ? `rgba(${PAT.col},${a})` : `rgba(0,0,0,${a})`; fillPts(pg, r.pts);
         }
