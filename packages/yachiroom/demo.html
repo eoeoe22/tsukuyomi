@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>yachiroom demo — 방 물건 반3D 컴포넌트 (랜턴 제외)</title>
+<style>
+  body{margin:0;background:#111;color:#eee;font:14px/1.5 system-ui,"Noto Sans KR",sans-serif;display:flex;justify-content:center}
+  main{width:100%;max-width:760px;padding:16px 12px 28px}
+  h1{font-size:16px;margin:0 0 4px}.sub{font-size:12px;color:#999;margin:0 0 10px}
+  #stage{width:min(420px,90vw)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  label{font-size:12px;color:#bbb;display:grid;gap:2px}input[type=range]{width:100%;accent-color:#f0a050}
+  .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  button{font:inherit;font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid #444;background:#222;color:#eee;cursor:pointer}
+  button.on{border-color:#f0a050;color:#f0a050}
+  textarea{width:100%;height:80px;margin-top:10px;font:11px ui-monospace,monospace;background:#1b1b1f;color:#eee;border:1px solid #333;border-radius:8px}
+</style>
+</head>
+<body>
+<main>
+  <h1>yachiroom — 방 물건 컴포넌트</h1>
+  <p class="sub">랜턴 제외 · 반3D(정사영 회전) · Canvas=SVG 동일 prim. 최종 장면 조립前の 개별 확인용.</p>
+  <div id="stage"></div>
+  <div class="row" id="parts"></div>
+  <div class="grid">
+    <label>회전 rot <b id="vRot"></b><input type="range" id="rRot" min="0" max="360" value="24"></label>
+    <label>기울기 tilt <b id="vTilt"></b><input type="range" id="rTilt" min="-60" max="60" value="12"></label>
+    <label>란마 살 / 난간 동자 <b id="vSlat"></b><input type="range" id="rSlat" min="3" max="20" value="14"></label>
+    <label>병풍 꺾임 fold <b id="vFold"></b><input type="range" id="rFold" min="0" max="90" value="28"></label>
+  </div>
+  <div class="row">
+    <button id="play">회전再生</button>
+    <button id="svg">SVG 내보내기</button>
+  </div>
+  <textarea id="out" readonly placeholder="SVG 출력"></textarea>
+<script src="./dist/yachiroom.umd.js"></script>
+<script>
+  const inst = YachiRoom.mount('#stage', { part: 'hashira' });
+  const parts = YachiRoom.PARTS;
+  const box = document.getElementById('parts');
+  const btns = {};
+  for (const p of parts) {
+    const b = document.createElement('button');
+    b.textContent = YachiRoom.PART_LABEL[p];
+    if (p === 'hashira') b.classList.add('on');
+    b.onclick = () => { for (const k in btns) btns[k].classList.remove('on'); b.classList.add('on'); inst.set({ part: p }); };
+    btns[p] = b; box.appendChild(b);
+  }
+  const bind = (id, vid, key, fmt) => {
+    const r = document.getElementById(id);
+    const f = () => { document.getElementById(vid).textContent = fmt(+r.value); inst.set({ [key]: +r.value }); if (key==='rot') inst.rot = +r.value, inst.render(); };
+    r.addEventListener('input', f); f();
+  };
+  // rot는 인스턴스 회전값과 별도 동기화
+  const rRot = document.getElementById('rRot');
+  rRot.addEventListener('input', () => { document.getElementById('vRot').textContent = rRot.value + '°'; inst.rot = +rRot.value; inst.render(); });
+  document.getElementById('vRot').textContent = '24°';
+  bind('rTilt', 'vTilt', 'tilt', v => v + '°');
+  const rSlat = document.getElementById('rSlat');
+  rSlat.addEventListener('input', () => { document.getElementById('vSlat').textContent = rSlat.value; inst.set({ slats: +rSlat.value, bars: +rSlat.value }); });
+  document.getElementById('vSlat').textContent = '14';
+  bind('rFold', 'vFold', 'fold', v => v + '°');
+  document.getElementById('play').onclick = e => { const on = inst.toggle ? false : false; inst.playing ? inst.pause() : inst.play(); e.target.classList.toggle('on', inst.playing); };
+  document.getElementById('svg').onclick = async () => {
+    const svg = inst.toSVG();
+    document.getElementById('out').value = svg;
+    try { await navigator.clipboard.writeText(svg); } catch {}
+  };
+</script>
+</main>
+</body>
+</html>

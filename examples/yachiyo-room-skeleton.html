@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ko"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>야치요 방 · 구조 뼈대 초안 (랜턴 제외)</title>
+<style>
+  body{margin:0;background:#111;color:#eee;font:14px/1.5 system-ui,"Noto Sans KR",sans-serif;display:flex;justify-content:center}
+  main{width:100%;max-width:1020px;padding:16px 12px 28px}
+  h1{font-size:16px;margin:0 0 4px} .sub{font-size:12px;color:#999;margin:0 0 10px}
+  .stage{border-radius:12px;overflow:hidden;background:#05070d}
+  canvas{width:100%;aspect-ratio:16/9;display:block}
+  .ctl{margin-top:10px;display:grid;gap:10px;background:#1b1b1f;border:1px solid #333;border-radius:12px;padding:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+  label{display:grid;gap:2px;font-size:12px;color:#bbb} label b{color:#f0a050}
+  input[type=range]{width:100%;accent-color:#f0a050}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  button{font:inherit;font-size:13px;padding:6px 12px;border-radius:8px;border:1px solid #444;background:#222;color:#eee;cursor:pointer}
+  button.on{border-color:#f0a050;color:#f0a050}
+  .note{font-size:12px;color:#888;margin:0}
+  code{color:#f0a050}
+</style>
+</head><body>
+<main>
+  <h1>야치요 방 · 구조 뼈대 초안 <span style="color:#888">(랜턴 제외)</span></h1>
+  <p class="sub">refs <code>yachioroom2.png(와이드 전체 홀)</code> + <code>yachiyoroom.png(클로즈업)</code> 기준. 발광체(행등·스탠드·바닥등) 없이 기둥·벽·원창·개구부·천장·마루·전경 프레임만.</p>
+  <div class="stage"><canvas id="cv" width="960" height="540"></canvas></div>
+  <div class="ctl">
+    <div class="row" id="views">
+      <button data-v="wide" class="on">와이드 (yachioroom2)</button>
+      <button data-v="close">클로즈업 (yachiyoroom)</button>
+      <button id="lbBtn" class="on">라벨 ON</button>
+      <button id="wireBtn">와이어 ON</button>
+    </div>
+    <div class="grid">
+      <label><span>뒷벽 폭 <b id="vWall"></b></span><input type="range" id="rWall" min="60" max="96" value="80"></label>
+      <label><span>뒷벽 바닥(마루선) <b id="vFloor"></b></span><input type="range" id="rFloor" min="58" max="78" value="68"></label>
+      <label><span>뒷벽 윗선(란마 아래) <b id="vTop"></b></span><input type="range" id="rTop" min="18" max="34" value="26"></label>
+      <label><span>원창 반지름 <b id="vWin"></b></span><input type="range" id="rWin" min="4" max="12" value="8.5" step="0.5"></label>
+      <label><span>중앙 전경 기둥 폭 <b id="vCp"></b></span><input type="range" id="rCp" min="2" max="9" value="4.5" step="0.5"></label>
+      <label><span>하단 전경 레일 <b id="vRail"></b></span><input type="range" id="rRail" min="78" max="96" value="88"></label>
+    </div>
+    <div class="row" id="togs">
+      <button data-k="center" class="on">중앙기둥</button>
+      <button data-k="side" class="on">측면복도</button>
+      <button data-k="dan" class="on">우측 단(높은 마루)</button>
+      <button data-k="beam" class="on">천장 종보</button>
+    </div>
+    <p class="note">그리는 순서(뒤→앞): 밤하늘 → 바깥 난간 → 마루 밑판 → 뒷벽(회벽+원창 2) → 뒷기둥 6 → 가모이/란마 → 천장+종보 → 측면 복도 → 우측 단 → 전경 기둥(좌/우/중앙) + 하단 레일. 랜턴 자리에는 아무것도 그리지 않음.</p>
+  </div>
+</main>
+<script>
+'use strict';
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = 960, H = 540;
+const S = {
+  view: 'wide', labels: true, wire: false,
+  wall: 80, floor: 68, top: 26, win: 8.5, cp: 4.5, rail: 88,
+  center: true, side: true, dan: true, beam: true,
+};
+// 뒷벽 bay 분할: 좌회벽 / 개구1 / 개구2(중앙) / 개구3 / 우회벽
+const FR = [0, 0.22, 0.406, 0.593, 0.78, 1.0];
+const lerp = (a,b,t)=>a+(b-a)*t;
+
+function layout(){
+  const wallW = S.wall/100;                 // 뒷벽이 화면 폭에서 차지하는 비율
+  let bl, br;
+  if(S.view==='wide'){ bl = (1-wallW)/2; br = 1-(1-wallW)/2; }
+  else { bl = 0.02; br = 0.985; }            // 클로즈업: 뒷벽이 화면 가득, 좌회벽은 화면 밖으로
+  const L = bl*W, R = br*W;
+  const floorY = S.floor/100*H;
+  const ranmaB = S.top/100*H;               // 란마 아랫선 = 뒷벽 윗선
+  const ranmaT = ranmaB - H*0.10;           // 란마 띠 높이
+  const ceilBack = ranmaT - H*0.015;
+  const railY = S.rail/100*H;
+  const px = f => lerp(L, R, f);
+  return {L,R,floorY,ranmaB,ranmaT,ceilBack,railY,px};
+}
+function sky(g,L){
+  g.fillStyle = '#101c38';
+  g.fillRect(L.L, L.ranmaB - H*0.02, L.R-L.L, L.floorY-L.ranmaB+H*0.03);
+  // 별 대신 수평선 그라데이션만
+  const gr = g.createLinearGradient(0,L.ranmaB,0,L.floorY);
+  gr.addColorStop(0,'rgba(20,36,70,0)'); gr.addColorStop(1,'rgba(8,12,26,0.6)');
+  g.fillStyle = gr; g.fillRect(L.L,L.ranmaB,L.R-L.L,L.floorY-L.ranmaB);
+}
+function railOut(g,L){
+  // 바깥 난간(고우란): 개구부 3칸에만
+  g.strokeStyle = '#05080f'; g.lineWidth = 5;
+  const y = L.floorY - H*0.055;
+  g.beginPath(); g.moveTo(L.px(FR[1]),y); g.lineTo(L.px(FR[4]),y); g.stroke();
+  g.lineWidth = 2; g.strokeStyle = '#1b2740';
+  g.beginPath(); g.moveTo(L.px(FR[1]),y); g.lineTo(L.px(FR[4]),y); g.stroke();
+}
+function floorBase(g,L){
+  g.fillStyle = '#33271c';
+  g.beginPath();
+  g.moveTo(0,L.railY); g.lineTo(W,L.railY); g.lineTo(L.R,L.floorY); g.lineTo(L.L,L.floorY);
+  g.closePath(); g.fill();
+  // 마루 결(소실점 방향): 와이어 느낌, 뼈대라 얇게
+  g.strokeStyle = 'rgba(255,220,170,0.10)'; g.lineWidth = 1;
+  const vpx = W*0.5, vpy = L.floorY;
+  for(const f of [0,0.22,0.406,0.5,0.593,0.78,1]){
+    g.beginPath(); g.moveTo(lerp(0,W,f), L.railY); g.lineTo(L.px(f), vpy); g.stroke();
+  }
+  g.strokeStyle = 'rgba(255,220,170,0.07)';
+  for(let i=1;i<5;i++){ const y=lerp(L.floorY,L.railY,i/5); g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke(); }
+}
+function backWall(g,L){
+  const showLeft = !(S.view==='close'); // 클로즈업은 좌회벽 잘림
+  // 회벽 좌/우
+  g.fillStyle = '#57493a';
+  if(showLeft){ g.fillRect(L.px(FR[0]), L.ranmaB, L.px(FR[1])-L.px(FR[0]), L.floorY-L.ranmaB); }
+  g.fillRect(L.px(FR[4]), L.ranmaB, L.px(FR[5])-L.px(FR[4]), L.floorY-L.ranmaB);
+  // 회벽 아래 허리벽(어둡게)
+  g.fillStyle = 'rgba(0,0,0,0.35)';
+  const hb = L.floorY - (L.floorY-L.ranmaB)*0.28;
+  if(showLeft) g.fillRect(L.px(FR[0]), hb, L.px(FR[1])-L.px(FR[0]), L.floorY-hb);
+  g.fillRect(L.px(FR[4]), hb, L.px(FR[5])-L.px(FR[4]), L.floorY-hb);
+  // 원창 2개 (마루마도 + 십자살)
+  const r = S.win/100*H;
+  const cy = L.ranmaB + (L.floorY-L.ranmaB)*0.42;
+  const wins = [];
+  if(showLeft) wins.push((L.px(FR[0])+L.px(FR[1]))/2);
+  wins.push((L.px(FR[4])+L.px(FR[5]))/2);
+  for(const cx of wins){
+    g.fillStyle = '#0d162e';
+    g.beginPath(); g.arc(cx,cy,r,0,Math.PI*2); g.fill();
+    g.lineWidth = 4; g.strokeStyle = '#2b2118'; g.stroke();
+    g.lineWidth = 2; g.strokeStyle = '#57493a';
+    g.beginPath(); g.moveTo(cx-r,cy); g.lineTo(cx+r,cy); g.moveTo(cx,cy-r); g.lineTo(cx,cy+r); g.stroke();
+    // 세로살 2개
+    g.beginPath(); g.moveTo(cx-r*0.5,cy-r*0.86); g.lineTo(cx-r*0.5,cy+r*0.86);
+    g.moveTo(cx+r*0.5,cy-r*0.86); g.lineTo(cx+r*0.5,cy+r*0.86); g.stroke();
+  }
+  L._winCy = cy; L._winR = r;
+}
+function backPillars(g,L){
+  // 뒷기둥 6개 (개구 경계). 화면상 폭은 뒤라 얇게
+  g.fillStyle = '#241a12';
+  const bw = Math.max(6,(L.R-L.L)*0.018);
+  for(const f of FR){
+    if(S.view==='close' && f===FR[0]) continue; // 잘린 기둥 생략
+    const x = L.px(f);
+    g.fillRect(x-bw/2, L.ranmaT, bw, L.floorY-L.ranmaT);
+  }
+  // 가모이(개구 윗선 수평보)
+  g.fillStyle = '#1c140e';
+  g.fillRect(L.L, L.ranmaB-6, L.R-L.L, 10);
+  // 란마(격자 띠): 세로살만 약식으로
+  g.fillStyle = '#14100c';
+  g.fillRect(L.L, L.ranmaT, L.R-L.L, L.ranmaB-L.ranmaT);
+  g.strokeStyle = 'rgba(140,160,200,0.20)'; g.lineWidth = 1;
+  for(let x=L.L+4;x<L.R;x+=9){ g.beginPath(); g.moveTo(x,L.ranmaT+2); g.lineTo(x,L.ranmaB-2); g.stroke(); }
+  L._bw = bw;
+}
+function ceiling(g,L){
+  g.fillStyle = '#100c09';
+  g.beginPath();
+  g.moveTo(0,0); g.lineTo(W,0); g.lineTo(L.R,L.ceilBack); g.lineTo(L.L,L.ceilBack);
+  g.closePath(); g.fill();
+  if(!S.beam) return;
+  // 종보 2개 (대각선) + 중보
+  g.strokeStyle = '#241a12'; g.lineWidth = 10;
+  const beams = S.view==='wide'
+    ? [[W*0.20,0, L.px(0.30),L.ceilBack],[W*0.80,0, L.px(0.70),L.ceilBack]]
+    : [[W*0.30,0, L.px(0.36),L.ceilBack],[W*0.72,0, L.px(0.64),L.ceilBack]];
+  for(const [x0,y0,x1,y1] of beams){ g.beginPath(); g.moveTo(x0,y0); g.lineTo(x1,y1); g.stroke(); }
+  g.lineWidth = 6;
+  g.beginPath(); g.moveTo(0,H*0.02); g.lineTo(W,H*0.02); g.stroke();
+}
+function sideCorridor(g,L){
+  if(!S.side || S.view!=='wide') return;
+  // 좌측 복도 깊이 (뒷벽 밖 측면)
+  g.fillStyle = '#0d0a08';
+  g.beginPath();
+  g.moveTo(0,H*0.10); g.lineTo(L.L,L.ceilBack); g.lineTo(L.L,L.floorY); g.lineTo(0,L.railY);
+  g.closePath(); g.fill();
+  g.strokeStyle = 'rgba(255,220,170,0.12)';
+  g.beginPath(); g.moveTo(0,H*0.35); g.lineTo(L.L,(L.ceilBack+L.floorY)/2); g.stroke();
+}
+function rightDan(g,L){
+  if(!S.dan || S.view!=='wide') return;
+  // 우측 높은 마루: 윗면 + 앞(측면) 입면
+  const x0 = L.px(0.60), x1 = L.R + (W-L.R)*0.25, x2 = W*0.985;
+  const yTop = L.floorY + (L.railY-L.floorY)*0.28;
+  g.fillStyle = '#3d2c22'; // 윗면
+  g.beginPath(); g.moveTo(x0,L.floorY); g.lineTo(x1,yTop); g.lineTo(x2,yTop); g.lineTo(x2,L.railY); g.lineTo(x0,L.floorY); g.closePath(); g.fill();
+  g.fillStyle = '#1f150f'; // 단 옆면(계단 입면)
+  g.beginPath(); g.moveTo(x0,L.floorY); g.lineTo(x1,yTop); g.lineTo(x1,L.railY); g.lineTo(0,L.railY); g.lineTo(0,L.railY); g.closePath();
+  // 간단히: 단 앞선
+  g.strokeStyle = 'rgba(255,220,170,0.18)'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(x0,L.floorY); g.lineTo(x1,yTop); g.lineTo(x2,yTop); g.stroke();
+  L._dan = {x0,x1,x2,yTop};
+}
+function foreground(g,L){
+  // 전경 프레임: 좌/우 근기둥 + (와이드만) 중앙 근기둥 + 하단 레일. 가장 어둡게
+  g.fillStyle = '#070503';
+  const sideW = W*0.035;
+  g.fillRect(0,0,sideW,H);                 // 좌
+  g.fillRect(W-sideW,0,sideW,H);           // 우
+  if(S.center && S.view==='wide'){
+    const cw = W*S.cp/100;
+    g.fillRect(W*0.5-cw,0,cw*2,H);         // 중앙(카메라 바로 앞 기둥)
+  }
+  g.fillRect(0,L.railY,W,H-L.railY);       // 하단 레일/난간
+  // 레일 윗선
+  g.fillStyle = 'rgba(255,220,170,0.10)'; g.fillRect(0,L.railY,W,2);
+}
+function wire(g,L){
+  if(!S.wire) return;
+  g.save(); g.strokeStyle = '#ffd27a'; g.lineWidth = 1.5; g.setLineDash([6,4]);
+  g.strokeRect(L.L,L.ceilBack,L.R-L.L,L.floorY-L.ceilBack);
+  g.beginPath(); g.moveTo(W/2,0); g.lineTo(W/2,H); g.stroke();
+  g.setLineDash([]); g.restore();
+}
+function labels(g,L){
+  if(!S.labels) return;
+  g.save(); g.font = '12px system-ui'; 
+  const tag = (x,y,t)=>{ const w=g.measureText(t).width+10; g.fillStyle='rgba(0,0,0,0.65)'; g.fillRect(x,y-14,w,18); g.fillStyle='#ffd27a'; g.fillText(t,x+5,y); };
+  tag(L.L+6, L.ranmaT-6, '란마(격자)');
+  tag(L.L+6, L.ranmaB+16, S.view==='wide'?'좌 회벽+원창':'개구 3칸');
+  tag(L.px(0.5)-20, L.floorY-64, '개구(밤하늘/난간)');
+  tag(L.px(0.89)-30, (L._winCy||0)- (L._winR||0)-8, '원창');
+  tag(W*0.5-24, H*0.5, S.view==='wide'?'중앙 전경기둥':'');
+  tag(8, H-14, '하단 전경레일');
+  if(L._dan) tag(L._dan.x1, L._dan.yTop-8, '우측 단');
+  g.restore();
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#05070d'; ctx.fillRect(0,0,W,H);
+  const L = layout();
+  ceiling(ctx,L);
+  sky(ctx,L); railOut(ctx,L);
+  floorBase(ctx,L);
+  backWall(ctx,L); backPillars(ctx,L);
+  sideCorridor(ctx,L); rightDan(ctx,L);
+  foreground(ctx,L);
+  wire(ctx,L); labels(ctx,L);
+}
+// --- UI ---
+const $ = id=>document.getElementById(id);
+function bindRange(id,vid,key,fmt){
+  const r=$(id);
+  const f=()=>{ S[key]=+r.value; $(vid).textContent=fmt(+r.value); draw(); };
+  r.addEventListener('input',f); f();
+}
+bindRange('rWall','vWall','wall',v=>v+'%');
+bindRange('rFloor','vFloor','floor',v=>v+'%');
+bindRange('rTop','vTop','top',v=>v+'%');
+bindRange('rWin','vWin','win',v=>v+'%H');
+bindRange('rCp','vCp','cp',v=>v+'%W');
+bindRange('rRail','vRail','rail',v=>v+'%');
+document.querySelectorAll('#views [data-v]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#views [data-v]').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); S.view=b.dataset.v;
+  // 클로즈업에선 중앙기둥/단은 의미 없음
+  draw();
+}));
+$('lbBtn').addEventListener('click',e=>{ S.labels=!S.labels; e.target.classList.toggle('on',S.labels); draw(); });
+$('wireBtn').addEventListener('click',e=>{ S.wire=!S.wire; e.target.classList.toggle('on',S.wire); draw(); });
+document.querySelectorAll('#togs [data-k]').forEach(b=>b.addEventListener('click',()=>{
+  const k=b.dataset.k; S[k]=!S[k]; b.classList.toggle('on',S[k]); draw();
+}));
+draw();
+</script>
+</body></html>
