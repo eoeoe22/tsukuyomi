@@ -21,7 +21,7 @@
 </head><body>
 <main>
   <h1>야치요 방 · 장면 초안</h1>
-  <p class="sub">정면·좌우대칭 1점 투시. 구조물은 <code>packages/yachiroom</code> 부품, 등불은 <code>사각뿔대 랜턴</code>·<code>원통 스탠딩 랜턴</code> 예제에서 시점별로 뽑은 SVG. 중앙 전경 기둥 없음.</p>
+  <p class="sub">정면·좌우대칭 1점 투시. 구조물은 <code>packages/yachiroom</code> 부품, 등불은 <code>사각뿔대 랜턴</code>·<code>원통 스탠딩 랜턴 수평투영</code> 예제에서 시점별로 뽑은 SVG. 중앙 전경 기둥 없음.</p>
   <div class="stage"><canvas id="cv" width="1600" height="900"></canvas><div id="wait">랜턴 불러오는 중…</div></div>
   <div class="ctl">
     <label><span>실내 어둠 <b id="vDark"></b></span><input type="range" id="rDark" min="0" max="100" value="72"></label>
@@ -245,7 +245,7 @@ function loadFrame(src) {
 const svgImg = svg => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
 
 async function buildLanterns() {
-  const [fSq, fCy] = await Promise.all([loadFrame('./사각뿔대 랜턴.html'), loadFrame('./원통 스탠딩 랜턴.html')]);
+  const [fSq, fCy] = await Promise.all([loadFrame('./사각뿔대 랜턴.html'), loadFrame('./원통 스탠딩 랜턴 수평투영.html')]);
   const wSq = fSq.contentWindow, wCy = fCy.contentWindow;
   wCy.__api.pause(); wSq.__api.setFlick(1);
   // 랜턴 자체 후광·바닥 빛웅덩이는 이미지 경계에서 잘려 윤곽이 생기므로 빼고, 장면 쪽 빛으로 대신한다.
