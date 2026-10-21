@@ -57,7 +57,7 @@ textarea{width:100%;height:90px;font:11px/1.4 ui-monospace,Menlo,monospace;backg
 <main>
 <header>
 <h1>원통형 행등 · 수평 투영 작업본</h1>
-<p class="lead">축 위의 등불에서 나간 빛이 아래 띠의 육각별 투각을 지나 나무 바닥에 무늬를 떨어뜨립니다. 등이 돌면 무늬도 함께 돕니다.</p>
+<p class="lead">축 위의 등불에서 나간 빛이 아래 띠의 육각별 투각을 지나 나무 바닥에 무늬를 떨어뜨립니다. 등 몸통과 육각별 띠는 가만히 있고, 가운데 종이창 무늬(매화·물결)만 돌며 그 투영도 함께 돕니다.</p>
 </header>
 <div class="stage"><canvas id="cv" aria-label="회전하는 원통형 행등"></canvas></div>
 <div class="ctl">
@@ -91,7 +91,7 @@ wood:'#2a170b', woodRim:'#3b2313', woodEdge:'rgba(255,186,110,0.55)', outline:'#
 back:'rgba(122,52,10,0.42)', inner:'#ffd98f', innerDeep:'#e58a34', bloom:'#ff9a3c',
 faceEdge:'rgba(18,8,3,0.55)'
 };
-const PERIOD = 16;            // 1회전 초
+const PERIOD = 16;            // 종이창 무늬 1회전 초
 const OUTLINE = 1.5;          // 외곽선 두께(px)
 const RIM_T = [70, 78], RIM_B = [312, 320];      // 위·아래 테두리 (나무)
 const BAND_UP = [78, 140.4], BAND_LO = [249.6, 312]; // 육각별 투각 띠 62.4px (띠:중간:띠 = 4:7:4)
@@ -469,7 +469,7 @@ function bakeFloor() {
 }
 function floorLight() {
   const L = lightMap.getContext('2d'), Sm = starMap.getContext('2d'), Mm = motifMap.getContext('2d'), E = FLOOR_EXT, F = FLOOR_HOLES;
-  // 1) 투각을 지난 직사광: 별무늬 (회전 반영)
+  // 1) 투각을 지난 직사광: 별무늬 (띠는 고정이라 회전 없음)
   Sm.setTransform(1, 0, 0, 1, 0, 0); Sm.clearRect(0, 0, starMap.width, starMap.height);
   floorXf(Sm);
   for (const h of F) {
@@ -487,7 +487,7 @@ function floorLight() {
     const k = Math.min(1, m.I * FLOOR_GAIN);
     for (const ly of m.layers) {
       Mm.beginPath();
-      for (const p of ly.polys) { p.forEach(([th, rho], i) => { const a = th + rot, x = rho * Math.sin(a), z = rho * Math.cos(a); i ? Mm.lineTo(x, z) : Mm.moveTo(x, z); }); Mm.closePath(); }
+      for (const p of ly.polys) { p.forEach(([th, rho], i) => { const a = th + rot + spin, x = rho * Math.sin(a), z = rho * Math.cos(a); i ? Mm.lineTo(x, z) : Mm.moveTo(x, z); }); Mm.closePath(); }
       Mm.globalCompositeOperation = ly.lit ? 'source-over' : 'destination-out';
       Mm.fillStyle = ly.lit ? `rgba(255,168,88,${0.82 * k})` : '#000';
       Mm.fill();
@@ -532,7 +532,7 @@ function floorPolysScreen() {
 }
 function floorMotifsScreen() {
   if (st <= 0.02) return [];
-  const fy = sy(Y_FLOOR), P = ([th, rho]) => { const a = th + rot; return [CX + S * rho * Math.sin(a), fy + S * st * rho * Math.cos(a)]; };
+  const fy = sy(Y_FLOOR), P = ([th, rho]) => { const a = th + rot + spin; return [CX + S * rho * Math.sin(a), fy + S * st * rho * Math.cos(a)]; };
   return FLOOR_MOTIFS.map(m => ({ k: Math.min(1, m.I * FLOOR_GAIN), layers: m.layers.map(ly => ({ lit: ly.lit, polys: ly.polys.map(q => q.map(P)) })) }));
 }
 rebuildFloor();
@@ -571,7 +571,8 @@ ext = Math.max(ext, hi - lo);
 return Math.min(1, (H - 100) / ext);
 })();
 
-let ct = 1, st = 0, OY = YC, rot = 0, tiltDeg = 0, ellipses = [], body, bodyImg, bloomImg, G = {};
+// rot: 등 전체(몸통·띠·받침) 방향 — 고정. spin: 안쪽 종이창 무늬(매화·물결)만 도는 각도
+let ct = 1, st = 0, OY = YC, rot = 0, spin = 0, tiltDeg = 0, ellipses = [], body, bodyImg, bloomImg, G = {};
 
 // ===== ⑤ 핵심 투영 =====
 function project(th, y) {
@@ -581,8 +582,8 @@ const front = y > Y0 && y < Y1 - 1 && drdy(y) * st + Math.cos(a) * ct > 0;
 return { x: CX + S * x, y: OY - S * (u * ct - z * st), front, c: Math.cos(a) };
 }
 // 원통 표면 위 투각 꼭짓점: 실루엣 너머 점은 실루엣 위로 눌러 접힘 방지
-function projSurf(th, y) {
-let a = th + rot; a = Math.atan2(Math.sin(a), Math.cos(a));
+function projSurf(th, y, off = 0) {
+let a = th + rot + off; a = Math.atan2(Math.sin(a), Math.cos(a));
 a = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, a));
 const x = R * Math.sin(a), z = R * Math.cos(a);
 return [CX + S * x, OY - S * ((YC - y) * ct - z * st)];
@@ -670,8 +671,8 @@ return { poly, holes };
 }
 // 종이창 무늬: 앞쪽을 향한 것만 (가장자리 점은 projSurf가 실루엣에 붙여 준다)
 function motifParts() {
-return MOTIFS.filter(m => Math.cos(m.th + rot) > 0.12)
-.map(m => m.layers.map(ly => ({ lit: ly.lit, polys: ly.polys.map(q => q.map(([th, y]) => projSurf(th, y))) })));
+return MOTIFS.filter(m => Math.cos(m.th + rot + spin) > 0.12)
+.map(m => m.layers.map(ly => ({ lit: ly.lit, polys: ly.polys.map(q => q.map(([th, y]) => projSurf(th, y, spin))) })));
 }
 function caps() {
 const rx = S * R, out = [];
@@ -786,7 +787,10 @@ drawFaces(base.front);
 }
 
 // ===== SVG 스냅샷: 같은 계산 결과를 SVG 요소로 =====
-function buildSVG(withBg = true) {
+// o.layer: 'under' = 종이창 무늬 아래쪽만 (도는 무늬·바닥 종이무늬 제외), 'over' = 무늬 위쪽(띠·가로대·테·받침 앞)만.
+// 다른 장면에서 고정된 등 몸통 사이에 도는 무늬만 따로 그릴 때 쓴다. 생략하면 전체.
+function buildSVG(withBg = true, o = {}) {
+const U = o.layer !== 'over', O = o.layer !== 'under', M = !o.layer, on = (c, t) => c ? t : '';
 const f = n => n.toFixed(2);
 const stops = s => s.map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join('');
 const d = ellipses.map(([cy, rx, ry]) => `M${f(CX + rx)} ${f(cy)}A${f(rx)} ${f(ry)} 0 1 0 ${f(CX - rx)} ${f(cy)}A${f(rx)} ${f(ry)} 0 1 0 ${f(CX + rx)} ${f(cy)}Z`).join('');
@@ -810,15 +814,15 @@ const capSvg = caps().map(c => c.kind === 'top'
 : `<ellipse cx="${CX}" cy="${f(c.cy)}" rx="${f(c.rx)}" ry="${f(c.ry)}" fill="${COL.wood}"/><ellipse cx="${CX}" cy="${f(c.cy)}" rx="${f(c.rx * 0.8)}" ry="${f(c.ry * 0.8)}" fill="none" stroke="rgba(255,170,90,0.25)" stroke-width="1"/>`).join('');
 const floorMotifs = floorMotifsScreen();
 const floor = (st > -0.02 ?`<ellipse cx="${f(G.floor.cx)}" cy="${f(G.floor.cy)}" rx="${f(G.floor.rx)}" ry="${f(G.floor.ry)}" fill="url(#floor)"/>` : '') +
-`<g filter="url(#soft)">${floorMotifs.flatMap(m => m.layers.map(ly => `<path d="${ly.polys.map(q => 'M' + q.map(([x, y]) => f(x) + ' ' + f(y)).join('L') + 'Z').join('')}" ` +
-(ly.lit ? `fill="rgb(255,165,85)" fill-opacity="${f(0.8 * m.k)}"/>` : `fill="#0b0706" fill-opacity="0.9"/>`))).join('')}</g>` +
+(M ? `<g filter="url(#soft)">${floorMotifs.flatMap(m => m.layers.map(ly => `<path d="${ly.polys.map(q => 'M' + q.map(([x, y]) => f(x) + ' ' + f(y)).join('L') + 'Z').join('')}" ` +
+(ly.lit ? `fill="rgb(255,165,85)" fill-opacity="${f(0.8 * m.k)}"/>` : `fill="#0b0706" fill-opacity="0.9"/>`))).join('')}</g>` : '') +
 `<g filter="url(#soft)">${floorPolysScreen().map(q => `<polygon points="${pts(q.pts)}" fill="rgb(255,170,90)" fill-opacity="${f(Math.min(1, q.I * FLOOR_GAIN) * 0.8)}"/>`).join('')}</g>`;
 const mp = motifParts();
 const pathD = polys => polys.map(q => 'M' + q.map(([x, y]) => f(x) + ' ' + f(y)).join('L') + 'Z').join('');
 const motifSvg = mp.flatMap(m => (m.length === 2 && !m[0].lit && m[1].lit)
 ? [`<path d="${pathD([...m[0].polys, ...m[1].polys])}" fill="${MOTIF_COL.dark}" fill-rule="evenodd"/>`, `<path d="${pathD(m[1].polys)}" fill="${MOTIF_COL.lit}"/>`]
 : m.map(ly => `<path d="${pathD(ly.polys)}" fill="${ly.lit ? MOTIF_COL.lit : MOTIF_COL.dark}"/>`)).join('');
-const bg = withBg ? `<rect width="${W}" height="${H}" fill="url(#bg)"/>` : '';
+const bg = withBg && U ? `<rect width="${W}" height="${H}" fill="url(#bg)"/>` : '';
 const gx = `gradientUnits="userSpaceOnUse" x1="${f(G.paperH.x1)}" y1="0" x2="${f(G.paperH.x2)}" y2="0"`;
 return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
 <defs>
@@ -835,29 +839,30 @@ return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="$
 <filter id="bloom" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="8"/></filter>
 <filter id="soft" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="1.2"/></filter>
 </defs>
-${bg}${floor}
+${bg}${on(U, floor + `
 <rect width="${W}" height="${H}" fill="url(#halo)"/>
 <g fill="${COL.bloom}" opacity="0.55" filter="url(#bloom)">${ell}</g>
 <g stroke="${COL.faceEdge}" stroke-width="0.7" stroke-linejoin="round">${faceSvg(base.behind)}</g>
 <g fill="none" stroke="${COL.outline}" stroke-width="${OUTLINE * 2}">${ell}</g>
 <g fill="url(#paperH)">${ell}</g>
-<g fill="url(#paperV)">${ell}</g>
-<g clip-path="url(#body)">
+<g fill="url(#paperV)">${ell}</g>`)}
+<g clip-path="url(#body)">${on(U, `
 <g fill="none" stroke="${COL.back}" stroke-linecap="round" stroke-linejoin="round" filter="url(#soft)">${back.map(plB).join('')}</g>
-<rect width="${W}" height="${H}" fill="url(#hot)"/>
-${motifSvg}
+<rect width="${W}" height="${H}" fill="url(#hot)"/>`)}
+${on(M, motifSvg)}${on(O, `
 ${bandSvg}
 <g fill="none" stroke="${COL.wood}" stroke-linecap="round" stroke-linejoin="round">${front.map(pl).join('')}</g>
-${rims}${edgeSvg}${capSvg}
+${rims}${edgeSvg}${capSvg}`)}
 </g>
-<g stroke="${COL.faceEdge}" stroke-width="0.7" stroke-linejoin="round">${faceSvg(base.front)}</g>
+${on(O, `<g stroke="${COL.faceEdge}" stroke-width="0.7" stroke-linejoin="round">${faceSvg(base.front)}</g>`)}
 </svg>`;
 }
 
 let last = performance.now(), spinning = !matchMedia('(prefers-reduced-motion: reduce)').matches;
 function loop(t) {
 const dt = Math.min(0.1, (t - last) / 1000); last = t;
-if (spinning) { rot = (rot + dt * TAU / PERIOD) % TAU; draw(); }
+// spin 증가 = 위에서 볼 때 반시계 (앞면 무늬가 오른쪽으로 흐름)
+if (spinning) { spin = (spin + dt * TAU / PERIOD) % TAU; draw(); }
 requestAnimationFrame(loop);
 }
 const spinBtn = document.getElementById('spin');
@@ -905,7 +910,7 @@ catch { outEl.select(); m.textContent = '자동 복사가 막혀 있어 코드�
 
 syncSpin();
 setTilt(+tiltEl.value); draw(); requestAnimationFrame(loop);
-window.__api = { setTilt: d => { tiltEl.value = d; setTilt(d); draw(); }, buildSVG, setRot: r => { rot = r; draw(); }, pause: () => { spinning = false; syncSpin(); },
+window.__api = { setTilt: d => { tiltEl.value = d; setTilt(d); draw(); }, buildSVG, setRot: r => { rot = r; draw(); }, setSpin: s => { spin = s; draw(); }, pause: () => { spinning = false; syncSpin(); },
 setLight: y => { inLight.value = y; inLight.dispatchEvent(new Event('input')); },
 setStars: o => { if (o.vert != null) { STAR_VMUL = +o.vert; inVert.value = STAR_VMUL; } syncStarUI(); refreshStars(); } };
 </script>
