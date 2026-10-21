@@ -252,35 +252,36 @@ const MOTIFS = [];
     ] });
   };
 
-  // 물결(유수·카스미 무늬): 가운데는 합쳐지고 양끝은 두 갈래 둥근 물결 끝(U자 홈)으로 갈라지는 바깥쪽 링 띠
+  // 물결(유수 무늬): 바깥·가운데·안쪽 세 줄이 틈 없이 붙은 한 덩어리 띠.
+  // 가운데 줄이 가장 짧아서, 양끝에서만 세 갈래 둥근 끝으로 구분된다(윤곽선 없음).
   const wave = (s0, y0, len, amp, phase = 0, flip = 1, sc = 1) => {
     const hL = len * 0.5;
-    const Ll1 = hL * (flip > 0 ? 1.00 : 0.70), Ll2 = hL * (flip > 0 ? 0.68 : 0.98);
-    const Lm1 = hL * 0.28, Lm2 = hL * 0.26;
-    const Lr1 = hL * (flip > 0 ? 0.70 : 1.00), Lr2 = hL * (flip > 0 ? 0.98 : 0.68);
-    const wOut = 5.4 * sc, wIn = 4.8 * sc, rg = 1.55 * sc;
+    const Ll1 = hL * (flip > 0 ? 1.00 : 0.74), Ll2 = hL * (flip > 0 ? 0.74 : 1.00);
+    const Lr1 = hL * (flip > 0 ? 0.74 : 1.00), Lr2 = hL * (flip > 0 ? 1.00 : 0.74);
+    const Lm1 = Math.min(Ll1, Ll2) * 0.72, Lm2 = Math.min(Lr1, Lr2) * 0.72;
+    const wOut = 4.6 * sc, wIn = 4.2 * sc, rg = 1.9 * sc;   // rg = 가운데 줄 반폭
     const spine = u => { const t = u / hL; return y0 + amp * Math.sin(t * 1.65 + phase) + 0.7 * sc * Math.cos(t * 2.9 - phase); };
     const wO = u => wOut * (1 - 0.16 * Math.pow(Math.min(1, Math.abs(u) / Math.max(Ll1, Lr1)), 1.6));
     const wI = u => wIn * (1 - 0.16 * Math.pow(Math.min(1, Math.abs(u) / Math.max(Ll2, Lr2)), 1.6));
-    const uv = [], N1 = 36, N2 = 12, NC = 12;
+    const uv = [], N1 = 36, N2 = 10, NC = 12;
     for (let i = 0; i <= N1; i++) { const u = -Ll1 + (Ll1 + Lr1) * i / N1; uv.push([u, -(rg + wO(u))]); }
-    { const r = wO(Lr1) * 0.5, vc = -(rg + r); for (let i = 1; i <= NC; i++) { const a = -Math.PI / 2 + Math.PI * i / NC; uv.push([Lr1 + r * 1.15 * Math.cos(a), vc + r * Math.sin(a)]); } }
+    { const r = wO(Lr1) * 0.5, vc = -(rg + r); for (let i = 1; i <= NC; i++) { const a = -Math.PI / 2 + Math.PI * i / NC; uv.push([Lr1 + r * Math.cos(a), vc + r * Math.sin(a)]); } }
     for (let i = 1; i <= N2; i++) uv.push([Lr1 - (Lr1 - Lm2) * i / N2, -rg]);
-    for (let i = 1; i <= NC; i++) { const a = -Math.PI / 2 + Math.PI * i / NC; uv.push([Lm2 - rg * 1.15 * Math.cos(a), rg * Math.sin(a)]); }
+    for (let i = 1; i <= NC; i++) { const a = -Math.PI / 2 + Math.PI * i / NC; uv.push([Lm2 - rg * Math.cos(a), rg * Math.sin(a)]); }
     for (let i = 1; i <= N2; i++) uv.push([Lm2 + (Lr2 - Lm2) * i / N2, +rg]);
-    { const r = wI(Lr2) * 0.5, vc = +(rg + r); for (let i = 1; i <= NC; i++) { const a = -Math.PI / 2 + Math.PI * i / NC; uv.push([Lr2 + r * 1.15 * Math.cos(a), vc + r * Math.sin(a)]); } }
+    { const r = wI(Lr2) * 0.5, vc = +(rg + r); for (let i = 1; i <= NC; i++) { const a = -Math.PI / 2 + Math.PI * i / NC; uv.push([Lr2 + r * Math.cos(a), vc + r * Math.sin(a)]); } }
     for (let i = 1; i <= N1; i++) { const u = Lr2 - (Lr2 + Ll2) * i / N1; uv.push([u, +(rg + wI(u))]); }
-    { const r = wI(-Ll2) * 0.5, vc = +(rg + r); for (let i = 1; i <= NC; i++) { const a = Math.PI / 2 + Math.PI * i / NC; uv.push([-Ll2 + r * 1.15 * Math.cos(a), vc + r * Math.sin(a)]); } }
-    for (let i = 1; i <= N2; i++) uv.push([-Ll2 + (-Lm1 + Ll2) * i / N2, +rg]);
-    for (let i = 1; i <= NC; i++) { const a = Math.PI / 2 - Math.PI * i / NC; uv.push([-Lm1 + rg * 1.15 * Math.cos(a), rg * Math.sin(a)]); }
+    { const r = wI(-Ll2) * 0.5, vc = +(rg + r); for (let i = 1; i <= NC; i++) { const a = Math.PI / 2 + Math.PI * i / NC; uv.push([-Ll2 + r * Math.cos(a), vc + r * Math.sin(a)]); } }
+    for (let i = 1; i <= N2; i++) uv.push([-Ll2 + (Ll2 - Lm1) * i / N2, +rg]);
+    for (let i = 1; i <= NC; i++) { const a = Math.PI / 2 + Math.PI * i / NC; uv.push([-Lm1 - rg * Math.cos(a), rg * Math.sin(a)]); }
     for (let i = 1; i <= N2; i++) uv.push([-Lm1 - (Ll1 - Lm1) * i / N2, -rg]);
-    { const r = wO(-Ll1) * 0.5, vc = -(rg + r); for (let i = 1; i < NC; i++) { const a = Math.PI / 2 + Math.PI * i / NC; uv.push([-Ll1 + r * 1.15 * Math.cos(a), vc + r * Math.sin(a)]); } }
+    { const r = wO(-Ll1) * 0.5, vc = -(rg + r); for (let i = 1; i < NC; i++) { const a = Math.PI / 2 + Math.PI * i / NC; uv.push([-Ll1 + r * Math.cos(a), vc + r * Math.sin(a)]); } }
     const poly = uv.map(([u, v]) => [S2T(s0 + u), spine(u) + v]);
     MOTIFS.push({ kind: 'wave', th: S2T(s0), layers: [{ lit: true, polys: [poly] }] });
   };
 
   const C = TAU * R;
-  // 1) 바깥쪽 링 물결무늬 3구간 (육각별 그림자 바깥을 감싸는 두 갈래 유수 띠)
+  // 1) 바깥쪽 링 물결무늬 3구간 (육각별 그림자 바깥을 감싸는 세 줄 유수 띠)
   for (let k = 0; k < 3; k++) {
     const sBase = C * (k / 3 + 0.08);
     wave(sBase, 231.5, C / 3 * 0.78, 2.0, k * 1.1, k % 2 ? -1 : 1, 1);
@@ -288,23 +289,21 @@ const MOTIFS = [];
   // 2) 물결 띠 위에 겹쳐 맺히는 매화 군집 + 물결 사이 빈 공간의 매화 군집
   for (let k = 0; k < 3; k++) {
     const sW = C * (k / 3 + 0.08);
-    // 물결 띠 위를 가로지르는 꽃 군집 (4송이: 바깥 큰 꽃 2 + 안쪽 중간 꽃 2)
-    flower(sW - 14, 225.5, 9.2, 0.2 + k * 0.9);
-    flower(sW + 2,  228.5, 8.2, 0.8 + k * 0.9);
-    flower(sW - 5,  235.5, 6.8, 0.4 + k * 0.9);
-    flower(sW + 11, 234.0, 6.5, 1.1 + k * 0.9);
-    // 물결 갈래 끝 너머 사이 공간의 꽃 군집
+    // 물결 띠 위를 가로지르는 꽃 군집 (3송이)
+    flower(sW - 12, 226.0, 8.2, 0.2 + k * 0.9);
+    flower(sW + 5,  229.0, 7.2, 0.8 + k * 0.9);
+    flower(sW - 2,  236.0, 6.0, 0.4 + k * 0.9);
+    // 물결 갈래 끝 너머 사이 공간의 꽃 군집 (2송이)
     const sG = C * ((k + 0.56) / 3);
-    flower(sG - 7,  226.5, 9.6, 0.5 + k * 1.2);
-    flower(sG + 8,  233.5, 7.8, 1.3 + k * 1.2);
-    flower(sG - 16, 217.5, 8.5, 0.1 + k * 1.2);
+    flower(sG - 6,  226.5, 8.4, 0.5 + k * 1.2);
+    flower(sG + 9,  233.5, 6.8, 1.3 + k * 1.2);
   }
   // 3) 광원 위쪽 (등 몸통 윗부분에 보이는 물결 + 작은 매화)
   for (let k = 0; k < 3; k++) {
     const sU = C * (k / 3 + 0.22);
     wave(sU, 161, C / 3 * 0.55, 1.4, k * 0.8, 1, 0.58);
-    flower(sU - C / 6 * 0.48, 159, 5.2, k * 0.7);
-    flower(sU + C / 6 * 0.52, 164, 4.8, 0.4 + k * 0.7);
+    flower(sU - C / 6 * 0.48, 159, 4.6, k * 0.7);
+    flower(sU + C / 6 * 0.52, 164, 4.2, 0.4 + k * 0.7);
   }
 }
 const MOTIF_COL = { lit: 'rgba(255,248,222,0.45)', dark: 'rgba(120,48,10,0.5)' };
