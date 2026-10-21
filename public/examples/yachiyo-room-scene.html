@@ -24,10 +24,10 @@
   <p class="sub">정면·좌우대칭 1점 투시. 구조물은 <code>packages/yachiroom</code> 부품, 등불은 <code>사각뿔대 랜턴</code>·<code>원통 스탠딩 랜턴 수평투영</code> 예제에서 시점별로 뽑은 SVG. 중앙 전경 기둥 없음.</p>
   <div class="stage"><canvas id="cv" width="1600" height="900"></canvas><div id="wait">랜턴 불러오는 중…</div></div>
   <div class="ctl">
-    <label><span>실내 어둠 <b id="vDark"></b></span><input type="range" id="rDark" min="0" max="100" value="72"></label>
-    <label><span>바닥등(사각뿔대) 불빛 <b id="vGlowSq"></b></span><input type="range" id="rGlowSq" min="0" max="200" value="100"></label>
-    <label><span>스탠딩(원통) 불빛 <b id="vGlowCy"></b></span><input type="range" id="rGlowCy" min="0" max="200" value="100"></label>
-    <label><span>벽 빛무늬 <b id="vPat"></b></span><input type="range" id="rPat" min="0" max="200" value="100"></label>
+    <label><span>실내 어둠 <b id="vDark"></b></span><input type="range" id="rDark" min="0" max="100" value="94"></label>
+    <label><span>바닥등(사각뿔대) 불빛 <b id="vGlowSq"></b></span><input type="range" id="rGlowSq" min="0" max="200" value="35"></label>
+    <label><span>스탠딩(원통) 불빛 <b id="vGlowCy"></b></span><input type="range" id="rGlowCy" min="0" max="200" value="70"></label>
+    <label><span>벽 빛무늬 <b id="vPat"></b></span><input type="range" id="rPat" min="0" max="200" value="75"></label>
     <div><button id="flk" class="on">일렁임 ON</button> <button id="spn" class="on">무늬 회전 ON</button> <button id="tag">부품 표시</button></div>
   </div>
   <p class="note">카메라: 눈높이 1.6m, 뒷벽까지 17.5m. 뒷벽 5칸 = 회벽+원창 / 개구 3칸 / 회벽+원창. 바닥등 앞줄 6·뒷줄 4, 스탠드 2, 충립 2. 오른쪽 x≥3.9m는 한 단(0.3m) 높은 상단 — 카펫, 오른쪽 스탠드·충립은 단 위.</p>
@@ -322,16 +322,30 @@ async function buildLanterns() {
   }
   // 빛무늬 투영용 원통 랜턴 기하 (이미지 px 단위 θ·y 좌표)
   CYD = JSON.parse(wCy.eval('JSON.stringify({R, LIGHT_Y, Y_FLOOR, Y0, RAILS, BAND_UP, BAND_LO, BANDS, MOTIFS})'));
-  // 물결: 원본 인자로 굵고 크게, 끝 갈래는 짧게 다시 만든다 (랜턴 예제 원본은 그대로)
+  // 물결: 원본 인자로 굵고 크게 다시 만든다 (랜턴 예제 원본은 그대로).
+  // 광원 아래·위 줄에서 waveKeep개씩만 남겨 둘레를 아래·위 번갈아 칸으로 나눠 놓는다 → 물결끼리 겹치지 않음
   const WG = wCy.__waveGen;
-  if (WG) CYD.MOTIFS = CYD.MOTIFS.map(m => {
-    if (!m.gen) return m;
-    const [fn, a] = m.gen, z = PAT.waveSize, len = a[2] * PAT.waveLen, amp = a[3] * z;
-    const r = fn === 'wave'
-      ? WG.wave(a[0], a[1], len, amp, a[4], a[5], a[6] * z, { ...a[7], ...PAT.wave2 })
-      : WG.wave3(a[0], a[1], len, amp, a[4], { ...a[5], sc: (a[5].sc || 1) * z, ...PAT.wave3 });
-    return JSON.parse(JSON.stringify(r));
-  });
+  if (WG) {
+    const C = 2 * Math.PI * CYD.R, gens = CYD.MOTIFS.filter(m => m.gen);
+    const lo = gens.filter(m => m.gen[1][1] > CYD.LIGHT_Y).slice(0, PAT.waveKeep);
+    const up = gens.filter(m => m.gen[1][1] <= CYD.LIGHT_Y).slice(0, PAT.waveKeep);
+    const order = [], wLo = PAT.waveSlot, wUp = 2 / (lo.length + up.length) - wLo;   // 칸 너비(둘레 비율)
+    for (let i = 0; i < Math.max(lo.length, up.length); i++) {
+      if (lo[i]) order.push([lo[i], lo.length && up.length ? wLo : 1 / lo.length]);
+      if (up[i]) order.push([up[i], lo.length && up.length ? wUp : 1 / up.length]);
+    }
+    let s0 = order.length ? order[0][0].gen[1][0] : 0;
+    const waves = order.map(([m, w], i) => {
+      if (i) s0 += (order[i - 1][1] + w) / 2 * C;
+      const [fn, a] = m.gen, z = PAT.waveSize, amp = a[3] * z;
+      const len = Math.min(a[2] * PAT.waveLen, w * C * PAT.waveFit);
+      const r = fn === 'wave'
+        ? WG.wave(s0, a[1], len, amp, a[4], a[5], a[6] * z, { ...a[7], ...PAT.wave2 })
+        : WG.wave3(s0, a[1], len, amp, a[4], { ...a[5], sc: (a[5].sc || 1) * z, ...PAT.wave3 });
+      return JSON.parse(JSON.stringify(r));
+    });
+    CYD.MOTIFS = waves.concat(CYD.MOTIFS.filter(m => !m.gen));   // 물결 먼저 → 매화가 그 위에
+  }
   fSq.remove(); fCy.remove();
   LANTERNS.sort((a, b) => b.d - a.d);   // 먼 것부터
 }
@@ -356,8 +370,11 @@ const PAT = {
   // 벽 수평 투영: 가로는 실제 광선 방향, 세로는 종이창 띠(가로대 사이)를 랜턴 높이 × wallSpan 범위에 고르게 펼친다.
   // 띠 중앙 = 종이창 중앙 높이 → 위아래로 치우치지 않음. 무늬 묶음도 띠 중앙 기준 ± 오프셋에 둔다
   wallSpan: 1.5, motifFill: 0.92, motifRowGap: 1.2,
-  // 물결 무늬 다시 만들기: 굵기·흔들림(waveSize), 길이(waveLen) 배율. 끝 갈래는 짧게 (2갈래: stag·mid, 3갈래: stag·split)
-  waveSize: 2.2, waveLen: 1.15, wave2: { stag: 0.9, mid: 0.88 }, wave3: { stag: 0.45, split: 0.12 },
+  // 물결 무늬 다시 만들기: 굵기·흔들림(waveSize), 길이(waveLen) 배율.
+  // 2갈래: 끝 갈래 길고(mid 작을수록) 굵게(wk) / 3갈래: 줄은 가늘게(wk), 끝으로 갈수록 더 가늘게(taper)
+  // waveKeep: 광원 아래·위 줄마다 남길 물결 수, waveSlot: 아래 줄 물결 한 칸의 둘레 비율(위 줄은 나머지), waveFit: 칸 안에서 물결이 차지하는 비율
+  waveKeep: 2, waveSlot: 0.32, waveFit: 0.86,
+  waveSize: 2.7, waveLen: 1.35, wave2: { stag: 0.8, mid: 0.55, wk: 1.3 }, wave3: { stag: 0.45, split: 0.2, wk: 0.75, taper: 0.45 },
   D0: 1.6, TMAX: 30,
 };
 const SURF_ALL = (() => {
@@ -668,7 +685,7 @@ function lanternMotifs(g, L, sp) {
 }
 
 // ===== 그리기 =====
-const S = { dark: 72, glowSq: 100, glowCy: 100, pat: 100, flicker: true, spin: true, tags: false };
+const S = { dark: 94, glowSq: 35, glowCy: 70, pat: 75, flicker: false, spin: true, tags: false };
 let base = null;
 function buildBase() {
   base = document.createElement('canvas'); base.width = W * dpr; base.height = H * dpr;
