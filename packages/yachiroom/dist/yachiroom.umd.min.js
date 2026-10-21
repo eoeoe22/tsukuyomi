@@ -290,8 +290,8 @@ function createYachiRoom(t, o) { return new YachiRoom(t, o); }
 function mount(t, o) { return new YachiRoom(t, o); }
 
 { YachiRoom, createYachiRoom, mount, DEFAULTS, PARTS, PART_LABEL, buildPrims };
-const internals = { projectPt, boxPrims, panelPrims, buildPrims, S, C };
+const internals = { projectPt, boxPrims, panelPrims, buildPrims, drawPrims, sysOf, S, C };
 
-global.YachiRoom = { YachiRoom, createYachiRoom, mount, DEFAULTS, PARTS, PART_LABEL, buildPrims };
+global.YachiRoom = { YachiRoom, createYachiRoom, mount, DEFAULTS, PARTS, PART_LABEL, buildPrims, internals };
 if (typeof module !== "undefined" && module.exports) module.exports = global.YachiRoom;
 })(typeof globalThis !== "undefined" ? globalThis : window);

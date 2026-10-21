@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>야치요 방 · 장면 초안</title>
+<style>
+  body{margin:0;background:#0b0b0e;color:#eee;font:14px/1.5 system-ui,"Noto Sans KR",sans-serif;display:flex;justify-content:center}
+  main{width:100%;max-width:1280px;padding:16px 12px 28px}
+  h1{font-size:16px;margin:0 0 4px} .sub{font-size:12px;color:#999;margin:0 0 10px}
+  .stage{border-radius:10px;overflow:hidden;background:#05070d;position:relative}
+  canvas{width:100%;aspect-ratio:16/9;display:block}
+  #wait{position:absolute;inset:0;display:grid;place-items:center;color:#887;font-size:13px}
+  .ctl{margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;background:#18181c;border:1px solid #2c2c33;border-radius:10px;padding:12px;align-items:center}
+  label{display:grid;gap:2px;font-size:12px;color:#bbb} label b{color:#f0a050}
+  input[type=range]{width:100%;accent-color:#f0a050}
+  button{font:inherit;font-size:13px;padding:6px 12px;border-radius:8px;border:1px solid #444;background:#222;color:#eee;cursor:pointer}
+  button.on{border-color:#f0a050;color:#f0a050}
+  .note{font-size:12px;color:#888;margin:8px 0 0}
+  code{color:#f0a050}
+</style>
+</head><body>
+<main>
+  <h1>야치요 방 · 장면 초안</h1>
+  <p class="sub">정면·좌우대칭 1점 투시. 구조물은 <code>packages/yachiroom</code> 부품, 등불은 <code>사각뿔대 랜턴</code>·<code>원통 스탠딩 랜턴</code> 예제에서 시점별로 뽑은 SVG. 중앙 전경 기둥 없음.</p>
+  <div class="stage"><canvas id="cv" width="1600" height="900"></canvas><div id="wait">랜턴 불러오는 중…</div></div>
+  <div class="ctl">
+    <label><span>실내 어둠 <b id="vDark"></b></span><input type="range" id="rDark" min="0" max="100" value="72"></label>
+    <label><span>불빛 세기 <b id="vGlow"></b></span><input type="range" id="rGlow" min="0" max="150" value="100"></label>
+    <div><button id="flk" class="on">일렁임 ON</button> <button id="tag">부품 표시</button></div>
+  </div>
+  <p class="note">카메라: 눈높이 1.6m, 뒷벽까지 17.5m. 뒷벽 5칸 = 회벽+원창 / 개구 3칸 / 회벽+원창. 바닥등 앞줄 6·뒷줄 4, 스탠드 2, 충립 2 (모두 좌우 대칭 배치).</p>
+</main>
+<script src="./lib/yachiroom.umd.js"></script>
+<script>
+'use strict';
+const YR = window.YachiRoom, I = YR.internals;
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const W = 1600, H = 900;
+const dpr = Math.min(2, window.devicePixelRatio || 1);
+cv.width = W * dpr; cv.height = H * dpr; ctx.scale(dpr, dpr);
+
+// ===== 카메라 / 방 치수 (미터) =====
+// 카메라 (0, EYE, 0)에서 -z를 바라봄. 화면 = CX + F·x/d, CY − F·(y−EYE)/d
+const F = 1400, CX = 800, CY = 502, EYE = 1.6;
+const ZB = -17.5;            // 뒷벽
+const HX = 7.5;              // 방 반폭
+const YK = 4.0, YR_ = 5.2, YC = 6.0;   // 가모이(개구 윗선), 란마 윗선, 천장
+const BAYS = [-7.5, -4.5, -1.5, 1.5, 4.5, 7.5];
+const proj = (x, y, z) => [CX + F * x / -z, CY - F * (y - EYE) / -z];
+const kAt = z => F / -z;
+const deg = r => r * 180 / Math.PI;
+const D = YR.DEFAULTS;
+
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function poly(g, pts, fill, stroke, sw) {
+  g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath();
+  if (fill) { g.fillStyle = fill; g.fill(); }
+  if (stroke) { g.strokeStyle = stroke; g.lineWidth = sw || 1; g.stroke(); }
+}
+function line3(g, a, b, stroke, sw) {
+  const p = proj(...a), q = proj(...b);
+  g.strokeStyle = stroke; g.lineWidth = sw; g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke();
+}
+// 투시 상자 (천장보·측벽 기둥처럼 깊이 방향으로 긴 것). 카메라 쪽 면만.
+function boxP(g, x0, x1, y0, y1, z0, z1, c) {
+  const Q = pts => pts.map(p => proj(...p));
+  const st = 'rgba(0,0,0,0.35)';
+  if (x1 < 0) poly(g, Q([[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]]), c.s, st, 0.8);
+  if (x0 > 0) poly(g, Q([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]]), c.s, st, 0.8);
+  if (y1 < EYE) poly(g, Q([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]]), c.t || c.f, st, 0.8);
+  if (y0 > EYE) poly(g, Q([[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]]), c.b || c.s, st, 0.8);
+  poly(g, Q([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]), c.f, st, 0.8);
+}
+// yachiroom 부품 배치: 부품 원점을 월드 (X,Y,Z)에 두고, 부품 1단위 = ux·uy 미터.
+// 같은 깊이 평면 위 물체라 정사영 + 깊이 배율이면 정면은 정확한 투시와 같다.
+// 측면 노출은 rot = atan(x/d), 위아래 노출은 tilt = atan((EYE−y)/d)로 근사.
+const TAGS = [];
+function comp(g, part, X, Y, Z, ux, uy, opts = {}, mirror = false, post) {
+  const [sx, sy] = proj(X, Y, Z), k = kAt(Z), d = -Z;
+  const o = { ...D, part, rot: deg(Math.atan(X / d)), tilt: deg(Math.atan((EYE - Y) / d)), ...opts };
+  if (mirror) o.rot = -o.rot;
+  let prims = YR.buildPrims(o);
+  if (post) prims = post(prims);
+  g.save(); g.translate(sx, sy); g.scale(k * ux / 150 * (mirror ? -1 : 1), k * uy / 150); g.translate(-I.C, -(I.C + 10));
+  I.drawPrims(g, prims);
+  g.restore();
+  TAGS.push({ x: sx, y: sy, t: YR.PART_LABEL[part] || part });
+}
+// 평면 판 (뒷벽 회벽 등): yachiroom boxPrims를 정면 정사영으로 → 부품과 같은 음영
+function wallBox(g, x0, x1, y0, y1, z, colors) {
+  const k = kAt(z), o = { wood: colors[0], woodD: colors[1] };
+  const prims = I.boxPrims((x0 + x1) / 2, (y0 + y1) / 2, 0, x1 - x0, y1 - y0, 0.1, 0, I.sysOf(0), k, CX, CY + k * EYE, o);
+  prims.forEach(p => p.stroke = null);
+  I.drawPrims(g, prims);
+}
+
+// ===== 정적 레이어 =====
+function sky(g) {
+  const kb = kAt(ZB);
+  const hz = CY;   // 바다 수평선 = 눈높이
+  const gr = g.createLinearGradient(0, CY - kb * 3, 0, hz);
+  gr.addColorStop(0, '#22356a'); gr.addColorStop(0.7, '#2e4683'); gr.addColorStop(1, '#3a5290');
+  g.fillStyle = gr; g.fillRect(0, 0, W, hz);
+  // 구름 (어두운 덩어리 + 옅은 윗가장자리)
+  const r = mulberry32(11);
+  for (let i = 0; i < 26; i++) {
+    const x = 180 + r() * 1240, y = hz - 20 - r() * 150, rx = 60 + r() * 140, ry = 12 + r() * 22;
+    const cg = g.createRadialGradient(x, y, 0, x, y, rx);
+    cg.addColorStop(0, 'rgba(70,92,150,0.55)'); cg.addColorStop(1, 'rgba(70,92,150,0)');
+    g.save(); g.translate(x, y); g.scale(1, ry / rx); g.translate(-x, -y);
+    g.fillStyle = cg; g.beginPath(); g.arc(x, y, rx, 0, Math.PI * 2); g.fill(); g.restore();
+  }
+  for (let i = 0; i < 220; i++) {
+    const x = r() * W, y = r() * (hz - 30), a = 0.25 + r() * 0.6, s = r() < 0.1 ? 1.6 : 0.9;
+    g.fillStyle = `rgba(220,230,255,${a})`; g.fillRect(x, y, s, s);
+  }
+  // 바다
+  const sg = g.createLinearGradient(0, hz, 0, hz + 140);
+  sg.addColorStop(0, '#1a2650'); sg.addColorStop(1, '#0c1330');
+  g.fillStyle = sg; g.fillRect(0, hz, W, H - hz);
+  g.strokeStyle = 'rgba(140,160,220,0.08)'; g.lineWidth = 1;
+  for (let i = 1; i < 12; i++) { const y = hz + i * i * 1.2; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+}
+function outside(g) {
+  // 개구 밖 툇마루 + 난간 (yachiroom kouran)
+  const zo = ZB - 2.2;
+  poly(g, [proj(-4.5, 0, ZB), proj(4.5, 0, ZB), proj(4.5, 0, zo), proj(-4.5, 0, zo)], '#3a2c20');
+  for (const xc of [-3, 0, 3]) comp(g, 'kouran', xc, 0.48, zo + 0.15, 3.0 / 2.6, 0.95 / 0.57, { bars: 9 });
+}
+function ceiling(g) {
+  const z1 = -9;
+  poly(g, [proj(-HX, YC, ZB), proj(HX, YC, ZB), proj(HX, YC, z1), proj(-HX, YC, z1)], '#2a2018');
+  for (let z = ZB + 0.6; z < z1; z += 0.6) line3(g, [-HX, YC, z], [HX, YC, z], 'rgba(0,0,0,0.35)', 1);
+  const beam = { f: '#3c2a1b', s: '#2e2015', b: '#4a3421' };
+  for (const x of [-4.5, -1.5, 1.5, 4.5]) boxP(g, x - 0.16, x + 0.16, YC - 0.32, YC, ZB, z1, beam);
+  for (const z of [-14.5, -11.5]) boxP(g, -HX, HX, YC - 0.4, YC, z - 0.16, z + 0.16, beam);
+}
+function sideWalls(g) {
+  const z1 = -9;
+  for (const sd of [-1, 1]) {
+    const x = sd * HX;
+    poly(g, [proj(x, 0, ZB), proj(x, 0, z1), proj(x, YK, z1), proj(x, YK, ZB)], '#4c3f31');
+    poly(g, [proj(x, 0, ZB), proj(x, 0, z1), proj(x, 0.9, z1), proj(x, 0.9, ZB)], '#3a2f24');
+    // 측면 란마 띠
+    poly(g, [proj(x, YK, ZB), proj(x, YK, z1), proj(x, YC, z1), proj(x, YC, ZB)], '#1a1510');
+    for (let z = ZB + 0.2; z < z1; z += 0.22) line3(g, [x, YK, z], [x, YR_, z], 'rgba(120,95,70,0.55)', 1.6);
+    const wood = { f: '#4a3421', s: '#3d2a1b', b: '#2e2015', t: '#5a4030' };
+    const xi = x - sd * 0.18;
+    boxP(g, Math.min(x, xi), Math.max(x, xi), YK - 0.12, YK + 0.12, ZB, z1, wood);
+    boxP(g, Math.min(x, xi), Math.max(x, xi), YR_ - 0.12, YR_ + 0.14, ZB, z1, wood);
+    for (const z of [-14.5, -11.5]) {
+      const xa = x - sd * 0.36;
+      boxP(g, Math.min(x, xa), Math.max(x, xa), 0, YC, z - 0.18, z + 0.18, wood);
+    }
+  }
+}
+function floor(g) {
+  const z1 = -5;
+  const r = mulberry32(3);
+  const step = 0.25;
+  for (let x = -HX; x < HX - 1e-6; x += step) {
+    const v = (r() - 0.5) * 14;
+    const c = [64 + v, 45 + v * 0.7, 31 + v * 0.5].map(n => n | 0);
+    poly(g, [proj(x, 0, ZB), proj(x + step, 0, ZB), proj(x + step, 0, z1), proj(x, 0, z1)], `rgb(${c})`);
+    line3(g, [x, 0, ZB], [x, 0, z1], 'rgba(15,8,4,0.55)', 1);
+    for (let z = ZB + r() * 2; z < z1; z += 1.8 + r() * 2.2) line3(g, [x, 0, z], [x + step, 0, z], 'rgba(15,8,4,0.5)', 1);
+  }
+  // 문지방
+  boxP(g, -HX, HX, 0, 0.1, ZB, ZB + 0.25, { f: '#3a2818', s: '#2c1e12', t: '#5a4030' });
+  emblem(g, 0, -11, 1.05);
+}
+function emblem(g, xc, zc, R) {
+  const ring = (r, n = 72) => Array.from({ length: n }, (_, i) => { const a = i / n * Math.PI * 2; return proj(xc + Math.cos(a) * r, 0.001, zc + Math.sin(a) * r); });
+  poly(g, ring(R), '#1d140d', 'rgba(0,0,0,0.6)', 2);
+  poly(g, ring(R * 0.93), '#8c6a2c');
+  poly(g, ring(R * 0.82), '#22180f');
+  // 8분할 금색 띠 문양
+  for (let i = 0; i < 8; i++) {
+    const a0 = i / 8 * Math.PI * 2 + 0.12, a1 = a0 + Math.PI / 4 - 0.24, pts = [];
+    for (let t = 0; t <= 8; t++) { const a = a0 + (a1 - a0) * t / 8; pts.push(proj(xc + Math.cos(a) * R * 0.72, 0.001, zc + Math.sin(a) * R * 0.72)); }
+    for (let t = 8; t >= 0; t--) { const a = a0 + (a1 - a0) * t / 8; pts.push(proj(xc + Math.cos(a) * R * 0.55, 0.001, zc + Math.sin(a) * R * 0.55)); }
+    poly(g, pts, '#6e5222');
+  }
+  poly(g, ring(R * 0.4), '#2a1e13', '#6e5222', 1.5);
+}
+function backWall(g) {
+  const plaster = [D.plaster, D.plasterD];
+  // 란마 뒤 (밖이 비치는 어두운 남색) + 란마 위 벽
+  wallBox(g, -HX, HX, YK, YR_, ZB - 0.05, ['#16203a', '#0b1020']);
+  wallBox(g, -HX, HX, YR_, YC, ZB, ['#3a2a1c', '#241a12']);
+  // 양끝 회벽 + 원창
+  for (const [x0, x1] of [[BAYS[0], BAYS[1]], [BAYS[4], BAYS[5]]]) {
+    const xc = (x0 + x1) / 2;
+    wallBox(g, x0, x1, 0, YK, ZB, plaster);
+    wallBox(g, x0, x1, 0, 0.9, ZB + 0.01, ['#4a3e30', '#2c241b']);   // 허리벽
+    // 원창: 부품 1단위 = 1.5m → 벽판 3.0×2.25m, 창 반지름 1.05m. 부품 벽판 테두리선은 지움
+    comp(g, 'marumado', xc, 2.3, ZB + 0.02, 1.5, 1.5, { roundR: 1.13, rot: 0, tilt: 0 }, false,
+      ps => ps.map(p => (p.fill === '#0d162e' || p.k === 'line') ? p : { ...p, stroke: null }));
+  }
+  // 란마 (칸마다)
+  for (let i = 0; i < 5; i++) {
+    const x0 = BAYS[i], x1 = BAYS[i + 1];
+    comp(g, 'ranma', (x0 + x1) / 2, (YK + YR_) / 2, ZB + 0.05, (x1 - x0 - 0.36) / 2.4, (YR_ - YK) / 0.48, { slats: 15, rot: 0 });
+  }
+  // 가모이 2단 (전폭)
+  comp(g, 'kamoi', 0, YK, ZB + 0.12, (2 * HX) / 3.0, 0.26 / 0.16, { rot: 0 });
+  comp(g, 'kamoi', 0, YR_, ZB + 0.12, (2 * HX) / 3.0, 0.3 / 0.16, { rot: 0 });
+  // 기둥 6
+  for (const x of BAYS) comp(g, 'hashira', x, YC / 2, ZB + 0.18, 0.36 / 0.34, YC / 2.6);
+  // 기둥·가모이 이음 금구
+  for (const x of BAYS) for (const y of [YK, YR_]) {
+    const [sx, sy] = proj(x, y, ZB + 0.3), k = kAt(ZB + 0.3);
+    g.fillStyle = '#9a7a34'; g.fillRect(sx - k * 0.28, sy - k * 0.07, k * 0.56, k * 0.14);
+    g.fillStyle = 'rgba(255,230,160,0.25)'; g.fillRect(sx - k * 0.28, sy - k * 0.07, k * 0.56, k * 0.035);
+  }
+}
+function screens(g) {
+  // 충립: 좌는 그대로, 우는 거울상. 접힌 폭이 벽 쪽으로 가도록 회전
+  for (const sd of [-1, 1]) {
+    const X = sd * 6.6, Z = -15.6, d = -Z;
+    const view = deg(Math.atan(Math.abs(X) / d));
+    comp(g, 'tsuitate', X, 0.82, Z, 1.07, 1.07, { rot: 58 - view, fold: 34 }, sd > 0);
+  }
+}
+
+// ===== 등불 =====
+// type: sq(사각뿔대 바닥등) | cy(원통 스탠딩). h = 실제 높이(m)
+const LANTERNS = [];
+for (const sd of [-1, 1]) {
+  LANTERNS.push({ type: 'cy', x: sd * 5.5, z: -15.9, h: 1.75 });
+  for (const x of [0.95, 3.1]) LANTERNS.push({ type: 'sq', x: sd * x, z: -15.4, h: 0.5 });
+  for (const x of [0.7, 2.1, 3.5]) LANTERNS.push({ type: 'sq', x: sd * x, z: -7.9, h: 0.5 });
+}
+LANTERNS.forEach(L => { L.d = -L.z; L.k = kAt(L.z); });
+
+function loadFrame(src) {
+  return new Promise(res => {
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;left:-3000px;top:0;width:420px;height:1000px;border:0';
+    f.onload = () => res(f);
+    f.src = src; document.body.appendChild(f);
+  });
+}
+const svgImg = svg => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
+
+async function buildLanterns() {
+  const [fSq, fCy] = await Promise.all([loadFrame('./사각뿔대 랜턴.html'), loadFrame('./원통 스탠딩 랜턴.html')]);
+  const wSq = fSq.contentWindow, wCy = fCy.contentWindow;
+  wCy.__api.pause(); wSq.__api.setFlick(1);
+  // 랜턴 자체 후광·바닥 빛웅덩이는 이미지 경계에서 잘려 윤곽이 생기므로 빼고, 장면 쪽 빛으로 대신한다.
+  // 사각뿔대: 최상위 screen 타원 중 큰 것(바닥 웅덩이 175·S, 블룸 165·S)만 제거. 안쪽 바닥빛(56·S)은 유지
+  const sqScene = wSq.scene, sqS = wSq.eval('S');
+  wSq.scene = bg => sqScene(bg).filter(p => !(p.k === 'ell' && p.blend === 'screen' && p.rx > 120 * sqS));
+  // 원통: 바닥 타원(url(#floor)), 후광 사각형(url(#halo)) 제거
+  const cySVG = () => wCy.__api.buildSVG(false)
+    .replace(/<ellipse[^>]*fill="url\(#floor\)"[^>]*\/>/g, '')
+    .replace(/<rect[^>]*fill="url\(#halo\)"[^>]*\/>/g, '');
+  for (const L of LANTERNS) {
+    const tilt = deg(Math.atan((EYE - L.h / 2) / L.d)), rot = Math.atan(L.x / L.d);
+    let g, svg;
+    if (L.type === 'sq') {
+      wSq.__api.setTilt(tilt); wSq.__api.setRot(rot);
+      g = wSq.eval('({S, OY, ct, CX, W, H, HH})');
+      svg = wSq.__api.buildSVG(false);
+      g.ax = g.CX; g.ay = g.OY + g.S * g.HH * g.ct;   // 바닥 중심의 이미지 좌표
+      g.units = 2 * g.HH;
+    } else {
+      wCy.__api.setTilt(tilt); wCy.__api.setRot(Math.PI / 4 + rot);
+      g = wCy.eval('({S, OY, ct, CX, W, H, YC, Y_FLOOR, Y0})');
+      svg = cySVG();
+      g.ax = g.CX; g.ay = g.OY - g.S * (g.YC - g.Y_FLOOR) * g.ct;
+      g.units = g.Y_FLOOR - g.Y0;
+    }
+    L.img = await svgImg(svg);
+    const m = (L.k * L.h / g.units) / g.S;              // 화면 px / 이미지 px
+    const [sx, sy] = proj(L.x, 0, L.z);
+    L.sx = sx; L.sy = sy; L.m = m;
+    L.dx = sx - g.ax * m; L.dy = sy - g.ay * m; L.dw = g.W * m; L.dh = g.H * m;
+  }
+  fSq.remove(); fCy.remove();
+  LANTERNS.sort((a, b) => b.d - a.d);   // 먼 것부터
+}
+
+// ===== 그리기 =====
+const S = { dark: 72, glow: 100, flicker: true, tags: false };
+let base = null;
+function buildBase() {
+  base = document.createElement('canvas'); base.width = W * dpr; base.height = H * dpr;
+  const g = base.getContext('2d'); g.scale(dpr, dpr);
+  TAGS.length = 0;
+  sky(g); outside(g); ceiling(g); sideWalls(g); floor(g); backWall(g); screens(g);
+  // 밤 실내: 곱하기로 전체를 어둡게 (푸른 기)
+  const a = S.dark / 100;
+  const c = [255 - 190 * a, 255 - 192 * a, 255 - 170 * a].map(n => n | 0);
+  g.globalCompositeOperation = 'multiply'; g.fillStyle = `rgb(${c})`; g.fillRect(0, 0, W, H);
+  g.globalCompositeOperation = 'source-over';
+}
+// 중심 색 rgb, 세기 a. 반경 끝에서 값과 기울기가 함께 0이 되어 경계선이 생기지 않는다.
+function glow(rgb, a, n = 16) {
+  return Array.from({ length: n + 1 }, (_, i) => { const t = i / n, f = Math.pow(1 - t * t, 3); return [t, `rgba(${rgb},${(a * f).toFixed(4)})`]; });
+}
+function radial(g, x, y, rx, ry, stops) {
+  g.save(); g.translate(x, y); g.scale(1, ry / rx);
+  const gr = g.createRadialGradient(0, 0, 0, 0, 0, rx);
+  stops.forEach(([o, c]) => gr.addColorStop(o, c));
+  g.fillStyle = gr; g.beginPath(); g.arc(0, 0, rx, 0, Math.PI * 2); g.fill(); g.restore();
+}
+let clock = 0;
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(base, 0, 0, W, H);
+  const G = S.glow / 100;
+  if (!window.__sceneReady) { vignette(); return; }
+  ctx.globalCompositeOperation = 'screen';
+  // 일렁임: 모든 등불이 같은 타이밍
+  const fl = S.flicker ? 1 + 0.06 * Math.sin(clock * 3.65) + 0.04 * Math.sin(clock * 6.55) : 1;
+  for (const L of LANTERNS) {
+    L.fl = fl;
+    const big = L.type === 'cy';
+    const r = (big ? 3.4 : 1.5) * L.k;
+    const ry = r * Math.sin(Math.atan(EYE / L.d)) * 1.15;
+    radial(ctx, L.sx, L.sy, r, ry, glow('255,150,70', 0.55 * G * fl));
+    // 주변 벽·공기로 번지는 빛
+    const cy = L.sy - L.h * 0.55 * L.k, rr = (big ? 4.2 : 1.6) * L.k;
+    radial(ctx, L.sx, cy, rr, rr, glow('255,145,60', (big ? 0.32 : 0.16) * G * fl));
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  for (const L of LANTERNS) ctx.drawImage(L.img, L.dx, L.dy, L.dw, L.dh);
+  // 등불 블룸
+  ctx.globalCompositeOperation = 'screen';
+  for (const L of LANTERNS) {
+    const cy = L.sy - L.h * (L.type === 'cy' ? 0.62 : 0.45) * L.k, r = L.h * 0.9 * L.k;
+    radial(ctx, L.sx, cy, r, r, glow('255,190,110', 0.22 * G * L.fl));
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  vignette();
+  if (S.tags) drawTags();
+}
+function vignette() {
+  const v = ctx.createRadialGradient(W / 2, H * 0.55, H * 0.35, W / 2, H * 0.55, W * 0.62);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+function drawTags() {
+  ctx.save(); ctx.font = '12px system-ui';
+  const seen = new Set();
+  for (const t of TAGS) {
+    const key = t.t + Math.round(t.y / 40);
+    ctx.fillStyle = '#ffd27a'; ctx.beginPath(); ctx.arc(t.x, t.y, 3, 0, Math.PI * 2); ctx.fill();
+    if (seen.has(key)) continue; seen.add(key);
+    const w = ctx.measureText(t.t).width + 10;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(t.x + 5, t.y - 16, w, 18);
+    ctx.fillStyle = '#ffd27a'; ctx.fillText(t.t, t.x + 10, t.y - 3);
+  }
+  for (const L of LANTERNS) {
+    const t = L.type === 'cy' ? '원통 스탠딩' : '사각뿔대';
+    ctx.fillStyle = 'rgba(0,0,0,0.7)'; const w = ctx.measureText(t).width + 10;
+    ctx.fillRect(L.sx - w / 2, L.sy + 4, w, 18); ctx.fillStyle = '#9fd0ff'; ctx.fillText(t, L.sx - w / 2 + 5, L.sy + 17);
+  }
+  ctx.restore();
+}
+
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+if (reduce) S.flicker = false;
+let last = performance.now();
+function loop(t) { clock += Math.min(0.1, (t - last) / 1000); last = t; if (S.flicker) draw(); requestAnimationFrame(loop); }
+
+const $ = id => document.getElementById(id);
+function bind(id, vid, key, fmt, rebuild) {
+  const r = $(id);
+  const f = () => { S[key] = +r.value; $(vid).textContent = fmt(+r.value); if (rebuild && base) buildBase(); if (base) draw(); };
+  r.addEventListener('input', f); f();
+}
+bind('rDark', 'vDark', 'dark', v => v + '%', true);
+bind('rGlow', 'vGlow', 'glow', v => v + '%', false);
+$('flk').classList.toggle('on', S.flicker); $('flk').textContent = S.flicker ? '일렁임 ON' : '일렁임 OFF';
+$('flk').onclick = e => { S.flicker = !S.flicker; e.target.classList.toggle('on', S.flicker); e.target.textContent = S.flicker ? '일렁임 ON' : '일렁임 OFF'; draw(); };
+$('tag').onclick = e => { S.tags = !S.tags; e.target.classList.toggle('on', S.tags); draw(); };
+
+buildBase(); draw();
+buildLanterns().then(() => { $('wait').remove(); window.__sceneReady = true; draw(); requestAnimationFrame(loop); })
+  .catch(e => { $('wait').textContent = '랜턴 불러오기 실패: ' + e.message; console.error(e); });
+window.__scene = { S, LANTERNS, draw, buildBase };
+</script>
+</body></html>

@@ -289,4 +289,4 @@ function mount(t, o) { return new YachiRoom(t, o); }
 
 export { YachiRoom, createYachiRoom, mount, DEFAULTS, PARTS, PART_LABEL, buildPrims };
 export default { YachiRoom, createYachiRoom, mount, DEFAULTS, PARTS, PART_LABEL, buildPrims };
-export const internals = { projectPt, boxPrims, panelPrims, buildPrims, S, C };
+export const internals = { projectPt, boxPrims, panelPrims, buildPrims, drawPrims, sysOf, S, C };

@@ -18,10 +18,14 @@ const stripped = esm
 const umd = `(function (global) {
 "use strict";
 ${stripped}
-global.YachiRoom = { YachiRoom, createYachiRoom, mount, DEFAULTS, PARTS, PART_LABEL, buildPrims };
+global.YachiRoom = { YachiRoom, createYachiRoom, mount, DEFAULTS, PARTS, PART_LABEL, buildPrims, internals };
 if (typeof module !== "undefined" && module.exports) module.exports = global.YachiRoom;
 })(typeof globalThis !== "undefined" ? globalThis : window);
 `;
 writeFileSync(join(outDir, "yachiroom.umd.js"), umd);
 writeFileSync(join(outDir, "yachiroom.umd.min.js"), umd);
+// 정적 서빙(public/) 쪽 예제 장면에서 쓰도록 복사
+const pubLib = join(root, "..", "..", "public", "examples", "lib");
+mkdirSync(pubLib, { recursive: true });
+writeFileSync(join(pubLib, "yachiroom.umd.js"), umd);
 console.log("dist done:", ["yachiroom.esm.js", "yachiroom.umd.js", "yachiroom.umd.min.js"].join(", "));
