@@ -25,7 +25,7 @@ const DEFAULTS = {
   roundR: 0.62,    // marumado 반지름(벽폭 대비)
   fold: 28,        // tsuitate 두 번째 폭 꺾임(도)
   bars: 9,         // kouran 동자 수
-  size: 0, autoplay: false, period: 24,
+  size: 0, autoplay: false, period: 24, label: true,
 };
 const PARTS = ['hashira', 'marumado', 'ranma', 'kamoi', 'hari', 'yuka', 'dan', 'tsuitate', 'kouran'];
 const PART_LABEL = { hashira: '기둥', marumado: '원창+회벽', ranma: '란마', kamoi: '가모이', hari: '종보', yuka: '마루판', dan: '우측 단', tsuitate: '충립(병풍)', kouran: '바깥 난간' };
@@ -268,8 +268,10 @@ class YachiRoom {
     this._prims = prims;
     this.g.clearRect(0, 0, S, S);
     drawPrims(this.g, prims);
-    this.g.fillStyle = 'rgba(255,255,255,0.55)'; this.g.font = '13px system-ui';
-    this.g.fillText(`${PART_LABEL[this.o.part] || this.o.part} · rot ${Math.round(this.rot)}° tilt ${this.o.tilt}°`, 12, 20);
+    if (this.o.label !== false) {
+      this.g.fillStyle = 'rgba(255,255,255,0.55)'; this.g.font = '13px system-ui';
+      this.g.fillText(`${PART_LABEL[this.o.part] || this.o.part} · rot ${Math.round(this.rot)}° tilt ${this.o.tilt}°`, 12, 20);
+    }
   }
   set(p = {}) {
     Object.assign(this.o, p);
