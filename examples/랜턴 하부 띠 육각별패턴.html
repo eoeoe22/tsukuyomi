@@ -1,0 +1,545 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>랜턴 무늬 실시간 조절기</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #0f0a07;
+      color: #f1e7d0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px 16px;
+      min-height: 100vh;
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 500;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+      color: #ffc266;
+    }
+
+    /* 상단 안내 바 */
+    .paste-guide {
+      font-size: 0.8rem;
+      color: #d1b89d;
+      margin-bottom: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-align: center;
+    }
+
+    .key-badge {
+      background: #332014;
+      border: 1px solid #5a351f;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #ffb347;
+    }
+
+    .file-btn {
+      background: #25160d;
+      border: 1px solid #5a351f;
+      color: #f1e7d0;
+      padding: 3px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    .file-btn:hover { background: #3a2215; }
+
+    /* SVG 캔버스 래퍼 */
+    .canvas-container {
+      position: relative;
+      width: 100%;
+      max-width: 800px;
+      height: 480px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+      border: 1px solid #3d2314;
+      background: #0d0603;
+      /* 모바일에서 두 손가락 핀치 시 브라우저 기본 확대 방지 */
+      touch-action: none;
+      cursor: default;
+      user-select: none;
+    }
+
+    .canvas-container.has-image {
+      cursor: grab;
+    }
+    .canvas-container.has-image:active {
+      cursor: grabbing;
+    }
+
+    svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* 조절 패널 UI */
+    .controls-panel {
+      margin-top: 20px;
+      width: 100%;
+      max-width: 800px;
+      background: #1b120c;
+      border: 1px solid #362013;
+      border-radius: 12px;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.85rem;
+      color: #d1b89d;
+    }
+
+    .value-display {
+      font-weight: bold;
+      color: #ffb347;
+      font-family: monospace;
+    }
+
+    input[type=range] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      background: #332014;
+      border-radius: 3px;
+      outline: none;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ffb300;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(255, 179, 0, 0.6);
+      transition: transform 0.1s;
+    }
+
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+    }
+
+    input[type=color] {
+      -webkit-appearance: none;
+      border: 1px solid #5a351f;
+      border-radius: 6px;
+      width: 100%;
+      height: 32px;
+      background: #25160d;
+      cursor: pointer;
+      padding: 2px 4px;
+    }
+
+    input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
+    input[type=color]::-webkit-color-swatch { border: none; border-radius: 4px; }
+
+    .btn-action {
+      background: transparent;
+      border: 1px solid #ffb347;
+      color: #ffb347;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      margin-left: 4px;
+    }
+    .btn-action:hover { background: rgba(255, 179, 71, 0.15); }
+    .btn-danger {
+      border-color: #ff5252;
+      color: #ff5252;
+    }
+    .btn-danger:hover { background: rgba(255, 82, 82, 0.15); }
+  </style>
+</head>
+<body>
+
+  <h1>랜턴 하부 타공 패턴 조절기</h1>
+
+  <div class="paste-guide">
+    <span>클립보드 붙여넣기 <span class="key-badge">Ctrl + V</span></span>
+    <span>|</span>
+    <label class="file-btn" for="imageFileInput">파일 선택</label>
+    <input type="file" id="imageFileInput" accept="image/*" style="display: none;">
+    <span>(이미지 조작: 드래그로 이동, 두 손가락 핀치 또는 휠로 줌)</span>
+  </div>
+
+  <!-- SVG 캔버스 영역 -->
+  <div class="canvas-container" id="canvasContainer">
+    <svg id="patternSvg" viewBox="0 0 800 480" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- 배경 조명 -->
+        <radialGradient id="bgLight" cx="50%" cy="50%" r="70%">
+          <stop offset="0%" stop-color="#2c160c" />
+          <stop offset="100%" stop-color="#0a0503" />
+        </radialGradient>
+
+        <!-- 육각별 단위체 (중심점 0, 0) -->
+        <g id="star">
+          <polygon points="40,0 -20,-34.64 -20,34.64" />
+          <polygon points="-40,0 20,-34.64 20,34.64" />
+        </g>
+      </defs>
+
+      <!-- 1. 배경 -->
+      <rect width="800" height="480" fill="url(#bgLight)" />
+
+      <!-- 2. 타공 패턴 그룹 -->
+      <g id="patternGroup"></g>
+
+      <!-- 3. 인터랙티브 오버레이 이미지 그룹 -->
+      <g id="overlayGroup" opacity="0.5" style="display: none;">
+        <image id="overlayImage" width="800" height="480" preserveAspectRatio="xMidYMid meet" />
+      </g>
+    </svg>
+  </div>
+
+  <!-- 슬라이더 컨트롤 패널 -->
+  <div class="controls-panel">
+    <!-- 오버레이 조작 및 투명도 -->
+    <div class="control-group">
+      <div class="label-row">
+        <span>오버레이 투명도</span>
+        <div>
+          <button id="btnResetTransform" class="btn-action" style="display: none;">위치 리셋</button>
+          <button id="btnClearImage" class="btn-action btn-danger" style="display: none;">제거</button>
+          <span class="value-display" id="valOverlayOpacity">50%</span>
+        </div>
+      </div>
+      <input type="range" id="overlayOpacity" min="0" max="1" step="0.05" value="0.5">
+    </div>
+
+    <!-- 별 크기 -->
+    <div class="control-group">
+      <div class="label-row">
+        <span>별 크기 (Scale)</span>
+        <span class="value-display" id="valStarScale">1.00x</span>
+      </div>
+      <input type="range" id="starScale" min="0.2" max="2.0" step="0.05" value="1.0">
+    </div>
+
+    <!-- 별 단색 색상 -->
+    <div class="control-group">
+      <div class="label-row">
+        <span>별 색상 (단색)</span>
+        <span class="value-display" id="valStarColor">#ffb300</span>
+      </div>
+      <input type="color" id="starColor" value="#ffb300">
+    </div>
+
+    <!-- 가로 줄 간격 -->
+    <div class="control-group">
+      <div class="label-row">
+        <span>가로 줄 간격 (dx)</span>
+        <span class="value-display" id="valColSpacing">90px</span>
+      </div>
+      <input type="range" id="colSpacing" min="40" max="150" value="90">
+    </div>
+
+    <!-- 세로 별 간격 -->
+    <div class="control-group">
+      <div class="label-row">
+        <span>상하 간격 (dy)</span>
+        <span class="value-display" id="valRowSpacing">80px</span>
+      </div>
+      <input type="range" id="rowSpacing" min="40" max="150" value="80">
+    </div>
+
+    <!-- 세로줄 교차 오프셋 -->
+    <div class="control-group">
+      <div class="label-row">
+        <span>교차 정도 (Shift Y)</span>
+        <span class="value-display" id="valStagger">40px</span>
+      </div>
+      <input type="range" id="stagger" min="0" max="100" value="40">
+    </div>
+  </div>
+
+  <script>
+    const canvasContainer = document.getElementById('canvasContainer');
+    const overlayGroup = document.getElementById('overlayGroup');
+    const overlayImage = document.getElementById('overlayImage');
+    const overlayOpacityInput = document.getElementById('overlayOpacity');
+    const valOverlayOpacity = document.getElementById('valOverlayOpacity');
+    const btnResetTransform = document.getElementById('btnResetTransform');
+    const btnClearImage = document.getElementById('btnClearImage');
+    const imageFileInput = document.getElementById('imageFileInput');
+
+    const colSpacingInput = document.getElementById('colSpacing');
+    const rowSpacingInput = document.getElementById('rowSpacing');
+    const staggerInput = document.getElementById('stagger');
+    const starScaleInput = document.getElementById('starScale');
+    const starColorInput = document.getElementById('starColor');
+
+    const valColSpacing = document.getElementById('valColSpacing');
+    const valRowSpacing = document.getElementById('valRowSpacing');
+    const valStagger = document.getElementById('valStagger');
+    const valStarScale = document.getElementById('valStarScale');
+    const valStarColor = document.getElementById('valStarColor');
+
+    const patternGroup = document.getElementById('patternGroup');
+
+    const SVG_WIDTH = 800;
+    const SVG_HEIGHT = 480;
+
+    /* -------------------------------------------
+       1. 패턴 렌더링 로직
+    ------------------------------------------- */
+    function renderPattern() {
+      const colSpacing = parseFloat(colSpacingInput.value);
+      const rowSpacing = parseFloat(rowSpacingInput.value);
+      const stagger = parseFloat(staggerInput.value);
+      const scale = parseFloat(starScaleInput.value);
+      const color = starColorInput.value;
+
+      valColSpacing.textContent = `${colSpacing}px`;
+      valRowSpacing.textContent = `${rowSpacing}px`;
+      valStagger.textContent = `${stagger}px`;
+      valStarScale.textContent = `${scale.toFixed(2)}x`;
+      valStarColor.textContent = color.toUpperCase();
+
+      patternGroup.setAttribute('fill', color);
+
+      const cols = Math.ceil(SVG_WIDTH / colSpacing) + 2;
+      const rows = Math.ceil(SVG_HEIGHT / rowSpacing) + 3;
+
+      let elements = '';
+      for (let c = 0; c < cols; c++) {
+        const x = c * colSpacing + (colSpacing / 2);
+        const yOffset = (c % 2 === 1) ? stagger : 0;
+
+        for (let r = -1; r < rows; r++) {
+          const y = r * rowSpacing + yOffset;
+          elements += `<use href="#star" transform="translate(${x.toFixed(1)}, ${y.toFixed(1)}) scale(${scale})" />`;
+        }
+      }
+
+      patternGroup.innerHTML = elements;
+    }
+
+    [colSpacingInput, rowSpacingInput, staggerInput, starScaleInput, starColorInput].forEach(input => {
+      input.addEventListener('input', renderPattern);
+    });
+
+    /* -------------------------------------------
+       2. 이미지 로드 및 투명도 관리
+    ------------------------------------------- */
+    let hasImage = false;
+
+    function applyOverlayImage(dataUrl) {
+      overlayImage.setAttribute('href', dataUrl);
+      overlayGroup.style.display = 'block';
+      btnClearImage.style.display = 'inline-block';
+      btnResetTransform.style.display = 'inline-block';
+      canvasContainer.classList.add('has-image');
+      hasImage = true;
+      resetImageTransform();
+    }
+
+    function removeOverlayImage() {
+      overlayImage.removeAttribute('href');
+      overlayGroup.style.display = 'none';
+      btnClearImage.style.display = 'none';
+      btnResetTransform.style.display = 'none';
+      canvasContainer.classList.remove('has-image');
+      imageFileInput.value = '';
+      hasImage = false;
+    }
+
+    overlayOpacityInput.addEventListener('input', () => {
+      const opacity = parseFloat(overlayOpacityInput.value);
+      overlayGroup.setAttribute('opacity', opacity);
+      valOverlayOpacity.textContent = `${Math.round(opacity * 100)}%`;
+    });
+
+    btnClearImage.addEventListener('click', removeOverlayImage);
+
+    // Ctrl+V 클립보드 붙여넣기
+    window.addEventListener('paste', (e) => {
+      const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+      for (let item of items) {
+        if (item.type.indexOf('image') !== -1) {
+          const file = item.getAsFile();
+          const reader = new FileReader();
+          reader.onload = (event) => applyOverlayImage(event.target.result);
+          reader.readAsDataURL(file);
+          break;
+        }
+      }
+    });
+
+    // 파일 업로드
+    imageFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => applyOverlayImage(event.target.result);
+        reader.readAsDataURL(file);
+      }
+    });
+
+    /* -------------------------------------------
+       3. 이미지 드래그(이동) & 두 손가락 핀치/휠 줌
+    ------------------------------------------- */
+    let imgX = 0;
+    let imgY = 0;
+    let imgScale = 1.0;
+
+    function updateImageTransform() {
+      // SVG 중심 (400, 240)을 기준으로 확대/축소 및 이동 적용
+      overlayImage.setAttribute(
+        'transform',
+        `translate(${imgX}, ${imgY}) translate(${SVG_WIDTH / 2}, ${SVG_HEIGHT / 2}) scale(${imgScale}) translate(${-SVG_WIDTH / 2}, ${-SVG_HEIGHT / 2})`
+      );
+    }
+
+    function resetImageTransform() {
+      imgX = 0;
+      imgY = 0;
+      imgScale = 1.0;
+      updateImageTransform();
+    }
+
+    btnResetTransform.addEventListener('click', resetImageTransform);
+
+    // 포인터(터치/마우스) 통합 추적
+    const pointers = new Map();
+    let initialPinchDistance = null;
+    let initialPinchScale = 1.0;
+    let lastMidpoint = null;
+
+    function getDistance(p1, p2) {
+      return Math.hypot(p2.clientX - p1.clientX, p2.clientY - p1.clientY);
+    }
+
+    function getMidpoint(p1, p2) {
+      return {
+        x: (p1.clientX + p2.clientX) / 2,
+        y: (p1.clientY + p2.clientY) / 2
+      };
+    }
+
+    // 화면 픽셀 -> SVG 좌표 비율 계산
+    function getSvgScaleFactor() {
+      const rect = canvasContainer.getBoundingClientRect();
+      return SVG_WIDTH / rect.width;
+    }
+
+    canvasContainer.addEventListener('pointerdown', (e) => {
+      if (!hasImage) return;
+      canvasContainer.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, e);
+
+      if (pointers.size === 2) {
+        const [p1, p2] = Array.from(pointers.values());
+        initialPinchDistance = getDistance(p1, p2);
+        initialPinchScale = imgScale;
+        lastMidpoint = getMidpoint(p1, p2);
+      }
+    });
+
+    canvasContainer.addEventListener('pointermove', (e) => {
+      if (!hasImage || !pointers.has(e.pointerId)) return;
+
+      const prevPoint = pointers.get(e.pointerId);
+      pointers.set(e.pointerId, e);
+
+      const factor = getSvgScaleFactor();
+
+      if (pointers.size === 1) {
+        // 단일 손가락 / 마우스 드래그 이동
+        const dx = (e.clientX - prevPoint.clientX) * factor;
+        const dy = (e.clientY - prevPoint.clientY) * factor;
+        imgX += dx;
+        imgY += dy;
+        updateImageTransform();
+      } else if (pointers.size === 2) {
+        // 두 손가락 핀치 줌 + 이동
+        const [p1, p2] = Array.from(pointers.values());
+        const currentDistance = getDistance(p1, p2);
+        const currentMidpoint = getMidpoint(p1, p2);
+
+        if (initialPinchDistance) {
+          const scaleChange = currentDistance / initialPinchDistance;
+          imgScale = Math.max(0.1, Math.min(10.0, initialPinchScale * scaleChange));
+        }
+
+        if (lastMidpoint) {
+          const dx = (currentMidpoint.x - lastMidpoint.x) * factor;
+          const dy = (currentMidpoint.y - lastMidpoint.y) * factor;
+          imgX += dx;
+          imgY += dy;
+        }
+
+        lastMidpoint = currentMidpoint;
+        updateImageTransform();
+      }
+    });
+
+    function handlePointerEnd(e) {
+      if (pointers.has(e.pointerId)) {
+        pointers.delete(e.pointerId);
+        try { canvasContainer.releasePointerCapture(e.pointerId); } catch (_) {}
+      }
+      if (pointers.size < 2) {
+        initialPinchDistance = null;
+        lastMidpoint = null;
+      }
+    }
+
+    canvasContainer.addEventListener('pointerup', handlePointerEnd);
+    canvasContainer.addEventListener('pointercancel', handlePointerEnd);
+
+    // PC 데스크톱용: 마우스 휠로 확대/축소
+    canvasContainer.addEventListener('wheel', (e) => {
+      if (!hasImage) return;
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+      imgScale = Math.max(0.1, Math.min(10.0, imgScale * zoomFactor));
+      updateImageTransform();
+    }, { passive: false });
+
+    // 초기 실행
+    renderPattern();
+  </script>
+</body>
+</html>
+<!--
+별 크기 (Scale)
+1.05x
+
+가로 줄 간격 (dx)
+74px
+
+상하 간격 (dy)
+82px
+
+교차 정도 (Shift Y)
+45px-->
