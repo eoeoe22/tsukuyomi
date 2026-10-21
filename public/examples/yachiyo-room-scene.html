@@ -290,11 +290,15 @@ async function buildLanterns() {
 let CYD = null, albedo = null, litLayer = null;
 const PAT = {
   col: '255,170,95',
-  star: 0.2, starFall: 0.7,          // 위 띠 육각별: 천장·윗벽 넓게, 흐리게 (거리 감쇠 완만)
+  star: 0.2, starFall: 0.7, starLift: 0.75,   // 위 띠 육각별: 천장·윗벽 넓게, 흐리게. starLift: 종이창 띠 위로 밀어 올림
   starBlur: [4, 9, 16], starBins: [3, 7],   // 맺힌 거리(m)별 번짐(px): 멀수록 흐림
-  low: 0.5, lowBlur: 2.5,             // 아래 띠 → 바닥
-  paper: 0.2, lit: 0.42, dark: 0.6, paperFall: 2.2, paperBlur: 2.5,   // 종이창: 바탕빛 / 매화·물결 / 어두운 윤곽
-  paperVS: 0.35, paperTMAX: 5,        // 종이창 빛: 위아래 퍼짐을 눌러 수평 띠로, 랜턴 가까운 벽에만
+  low: 0.5, lowBlur: 2.5, lowTMAX: 3, // 아래 띠 → 등 바로 아래 바닥에만 (원본처럼)
+  paper: 0.24, lit: 0.22, dark: 0.38, paperFall: 1.1, paperBlur: 2.5,   // 종이창: 바탕빛 / 매화·물결 / 어두운 윤곽
+  paperRows: 16, paperEdge: 0.3, paperBaseBlur: 16,   // 바탕빛: 가로 줄로 나눠 위아래 가장자리로 갈수록 옅게(가장자리 비율) + 크게 번지게 → 띠 경계가 부드럽게
+  paperVS: 0.9, paperLift: 0.06, paperTMAX: 16, paperFloorTMAX: 3,   // 종이창 빛: 위아래 퍼짐을 눌러 수평~살짝 위로, 벽 넓게 (바닥엔 등 근처만)
+  // 종이창 무늬 재배치: 원본은 바닥 투영용이라 무늬가 종이창 아래쪽(y≈231)·광원 바로 위(y≈161)에 몰려 있다.
+  // 수평 투영이 되도록 두 묶음을 광원 높이 바로 아래·위(이미지 px 오프셋)로 옮긴다. 광원에 가까울수록 벽에 크게 맺힌다.
+  motifLo: 11, motifHi: -11, motifVS: 1,
   D0: 1.6, TMAX: 30,
 };
 const SURF = (() => {
@@ -321,11 +325,12 @@ function cylPt(L, th, y) {
   return [L.x + L.sd * CYD.R * s * Math.sin(a), (CYD.Y_FLOOR - y) * s, L.z + CYD.R * s * Math.cos(a)];
 }
 // (θ,y) 다각형을 평면 s에 투영 → 화면 점, 평균 거리. 한 점이라도 안 닿으면 null
-// vs: 빛 방향의 세로 성분 배율(1 = 실제 투영, 작을수록 수평으로 납작), tmax: 최대 도달 거리
-function projPoly(L, Lp, pts, s, vs = 1, tmax = PAT.TMAX) {
+// vs: 빛 방향의 세로 성분 배율(1 = 실제 투영, 작을수록 수평으로 납작), lift: 위로 꺾는 양(수평거리 대비), tmax: 최대 도달 거리
+function projPoly(L, Lp, pts, s, vs = 1, tmax = PAT.TMAX, lift = 0) {
   const out = []; let dsum = 0;
   for (const [th, y] of pts) {
-    const P = cylPt(L, th, y), d = [P[0] - Lp[0], (P[1] - Lp[1]) * vs, P[2] - Lp[2]];
+    const P = cylPt(L, th, y), dx = P[0] - Lp[0], dz = P[2] - Lp[2];
+    const d = [dx, (P[1] - Lp[1]) * vs + lift * Math.hypot(dx, dz), dz];
     const n = Math.hypot(...d), dd = d[s.ax] / n;
     if (Math.abs(dd) < 1e-4) return null;
     const t = (s.v - Lp[s.ax]) / dd;
@@ -355,28 +360,60 @@ function buildPatterns() {
   // 위 띠 별 / 아래 띠 별 (한 바퀴분만)
   const holes = b => b.holes.filter(h => h.th >= 0 && h.th < TAU).map(h => h.pts);
   const upHoles = holes(CYD.BANDS[0]), loHoles = holes(CYD.BANDS[1]);
-  // 종이창 바탕: 가로대 사이 띠를 조각내고 광원 높이에서 위·아래로 나눔 (천장·바닥은 한쪽만 닿음)
-  const paperSegs = [], N = 96;
-  for (const [y0, y1] of [[CYD.RAILS[0], LY - 0.5], [LY + 0.5, CYD.RAILS[1]]]) for (let k = 0; k < N; k++) {
-    const p = [];
-    for (let i = 0; i <= 3; i++) p.push([TAU * (k + i / 3) / N, y0]);
-    for (let i = 3; i >= 0; i--) p.push([TAU * (k + i / 3) / N, y1]);
-    paperSegs.push(p);
+  // 종이창 바탕: 가로대 사이 띠를 조각내고 광원 높이에서 위·아래로 나눔 (천장·바닥은 한쪽만 닿음).
+  // 세로로도 여러 줄로 나눠, 가로대 쪽 가장자리일수록 옅게 (w) → 벽에 맺힌 띠 윗선·아랫선이 딱 끊기지 않는다
+  const paperSegs = [], N = 96, [RA, RB] = CYD.RAILS;
+  const taper = y => { const u = (y - RA) / (RB - RA), e = Math.min(1, Math.min(u, 1 - u) / PAT.paperEdge); return e * e * (3 - 2 * e); };
+  const rowsOf = (y0, y1, n) => Array.from({ length: n }, (_, i) => [y0 + (y1 - y0) * i / n, y0 + (y1 - y0) * (i + 1) / n]);
+  const nUp = Math.max(1, Math.round(PAT.paperRows * (LY - RA) / (RB - RA)));
+  for (const [y0, y1] of [...rowsOf(RA, LY - 0.5, nUp), ...rowsOf(LY + 0.5, RB, PAT.paperRows - nUp)]) {
+    const w = taper((y0 + y1) / 2);
+    if (w < 0.02) continue;
+    for (let k = 0; k < N; k++) {
+      const p = [];
+      for (let i = 0; i <= 3; i++) p.push([TAU * (k + i / 3) / N, y0]);
+      for (let i = 3; i >= 0; i--) p.push([TAU * (k + i / 3) / N, y1]);
+      p.w = w; paperSegs.push(p);
+    }
   }
-  const splitLY = P => [clipYPoly(P, -1e9, LY - 0.5), clipYPoly(P, LY + 0.5, 1e9)].filter(Boolean);
+  // 모든 면을 합친 영역 (번진 바탕빛이 개구부·하늘로 새지 않게)
+  const clipAll = g => { g.beginPath(); for (const s of SURF) for (const q of s.quads) { q.forEach((p, i) => { const [x, y] = proj(...p); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath(); } g.clip(); };
+  // 벽(수직면)은 광원 높이를 지나도 투영이 이어지므로 나누지 않는다. 천장·바닥만 광원 위·아래로 나눈다
+  const splitLY = (P, s) => s.ax !== 1 ? [P] : [clipYPoly(P, -1e9, LY - 0.5), clipYPoly(P, LY + 0.5, 1e9)].filter(Boolean);
+  // 무늬 묶음(광원 아래 / 위)을 통째로 옮겨 묶음 중심이 광원 높이 ± 오프셋에 오게 한다 (모양은 그대로)
+  const motifs = (() => {
+    const yc = m => { let lo = 1e9, hi = -1e9; for (const l of m.layers) for (const p of l.polys) for (const [, y] of p) { lo = Math.min(lo, y); hi = Math.max(hi, y); } return (lo + hi) / 2; };
+    const grp = [[], []];
+    for (const m of CYD.MOTIFS) grp[yc(m) > LY ? 0 : 1].push(m);
+    return grp.flatMap((ms, gi) => {
+      if (!ms.length) return [];
+      const c = ms.reduce((s, m) => s + yc(m), 0) / ms.length, dy = LY + (gi ? PAT.motifHi : PAT.motifLo) - c;
+      return ms.map(m => ({ ...m, layers: m.layers.map(l => ({ ...l, polys: l.polys.map(p => p.map(([th, y]) => [th, y + dy])) })) }));
+    });
+  })();
   for (const L of LANTERNS) {
     if (L.type !== 'cy') continue;
     L.sd = Math.sign(L.x) || 1;
     const Lp = cylPt(L, 0, LY); Lp[0] = L.x; Lp[2] = L.z;
-    // 1) 종이창: 바탕빛 → 어두운 윤곽 파내기 → 밝은 무늬
+    // 1) 종이창: 바탕빛(크게 번짐) → 어두운 윤곽 파내기 → 밝은 무늬
+    const ptmOf = s => s.ax === 1 && s.v === 0 ? PAT.paperFloorTMAX : PAT.paperTMAX;
+    const [bc, bgc] = mkLayer();
+    for (const s of SURF) {
+      bgc.save(); clipSurf(bgc, s);
+      for (const P of paperSegs) { const r = projPoly(L, Lp, P, s, PAT.paperVS, ptmOf(s), PAT.paperLift); if (!r) continue; bgc.fillStyle = `rgba(${PAT.col},${PAT.paper * P.w * fall(r.d, PAT.paperFall)})`; fillPts(bgc, r.pts); }
+      bgc.restore();
+    }
     const [pc, pg] = mkLayer();
+    pg.save(); clipAll(pg);
+    if (CAN_FILTER) pg.filter = `blur(${PAT.paperBaseBlur * dpr}px)`;
+    pg.drawImage(bc, 0, 0, W, H); pg.filter = 'none'; pg.restore();
     for (const s of SURF) {
       pg.save(); clipSurf(pg, s);
-      for (const P of paperSegs) { const r = projPoly(L, Lp, P, s, PAT.paperVS, PAT.paperTMAX); if (!r) continue; pg.fillStyle = `rgba(${PAT.col},${PAT.paper * fall(r.d, PAT.paperFall)})`; fillPts(pg, r.pts); }
-      for (const m of CYD.MOTIFS) for (const layer of m.layers) {
+      const ptm = ptmOf(s);
+      for (const m of motifs) for (const layer of m.layers) {
         pg.globalCompositeOperation = layer.lit ? 'lighter' : 'destination-out';
-        for (const poly of layer.polys) for (const P of splitLY(poly)) {
-          const r = projPoly(L, Lp, P, s, PAT.paperVS, PAT.paperTMAX); if (!r) continue;
+        for (const poly of layer.polys) for (const P of splitLY(poly, s)) {
+          const r = projPoly(L, Lp, P, s, PAT.motifVS, ptm, PAT.paperLift); if (!r) continue;
           const a = layer.lit ? PAT.lit * fall(r.d, PAT.paperFall) : PAT.dark;
           pg.fillStyle = layer.lit ? `rgba(${PAT.col},${a})` : `rgba(0,0,0,${a})`; fillPts(pg, r.pts);
         }
@@ -392,12 +429,12 @@ function buildPatterns() {
       for (const [c, g] of bins) { g.save(); clipSurf(g, s); }
       og.save(); clipSurf(og, s);
       for (const P of upHoles) {
-        const r = projPoly(L, Lp, P, s); if (!r) continue;
+        const r = projPoly(L, Lp, P, s, 1, PAT.TMAX, PAT.starLift); if (!r) continue;
         const bi = r.d < PAT.starBins[0] ? 0 : r.d < PAT.starBins[1] ? 1 : 2, g = bins[bi][1];
         g.fillStyle = `rgba(${PAT.col},${PAT.star * fall(r.d, PAT.starFall)})`; fillPts(g, r.pts);
       }
-      for (const P of loHoles) {
-        const r = projPoly(L, Lp, P, s); if (!r) continue;
+      if (s.ax === 1 && s.v === 0) for (const P of loHoles) {
+        const r = projPoly(L, Lp, P, s, 1, PAT.lowTMAX); if (!r) continue;
         og.fillStyle = `rgba(${PAT.col},${PAT.low * fall(r.d, 1)})`; fillPts(og, r.pts);
       }
       for (const [c, g] of bins) g.restore();
