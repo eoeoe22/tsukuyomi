@@ -256,14 +256,14 @@
 
   // ---------- 세계 드롭다운 (각 패널 맨 왼쪽) ----------
   // 아이콘: 16px 단색(currentColor). 토리이는 reference-images/done/torii.svg를 줄인 examples/torii-icon.svg,
-  // 산은 examples/mountain-icon.svg, 지구는 bootstrap-icons
+  // 산은 examples/mountain-icon.svg, 바다·지구는 bootstrap-icons
   const svg16 = d => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="' + d + '"/></svg>';
   const MENU = [
     {
       id: 'moon', label: '츠쿠요미 수면',
       icon: svg16('M.07 1.41Q8 3.04 15.93 1.41L15.7 2.19 15.19 2.22 15.11 3.04Q8 4.44.89 3.04L.81 2.22.3 2.19ZM7.5 3.5H8.5V6.1H7.5ZM1.63 6H14.37V7H1.63ZM3.41 3.2H4.44L4.56 13.7H3.3ZM3.19 13.56H4.67V14.59H3.19ZM11.56 3.2H12.59L12.7 13.7H11.44ZM11.33 13.56H12.81V14.59H11.33Z'),
     },
-    { id: 'sea', label: '츠쿠요미 바다', icon: '<i class="bi bi-cloud-fill" aria-hidden="true"></i>' },
+    { id: 'sea', label: '츠쿠요미 바다', icon: '<i class="bi bi-tsunami" aria-hidden="true"></i>' },
     {
       id: 'mount', label: '산 정상',
       icon: svg16('M11.225 6.553a.5.5 0 0 0-.577.093l-3.71 4.71-2.66-2.772a.5.5 0 0 0-.63.062L.002 13v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4.5z'),
