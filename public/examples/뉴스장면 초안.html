@@ -293,7 +293,35 @@ canvas.layer{pointer-events:none}
   }
   buildWaves();
 
+  // 별 패턴 기본값 (바닥패턴.html에서 가져옴 — ` 패널에서 조절, 이 브라우저에만 저장)
+  const STAR_DEFAULT={KMODE:'linear',SMODE:'linear',T:.51,G:2.2};
+  const STAR_STORE='news-scene-star-params';
+  const SP=(()=>{
+    const p=JSON.parse(JSON.stringify(STAR_DEFAULT));
+    try { const s=JSON.parse(localStorage.getItem(STAR_STORE)||'null'); if (s) for (const k in p) if (k in s) p[k]=s[k]; } catch(e){}
+    if (!['linear','log','log-rev'].includes(p.KMODE)) p.KMODE='linear';
+    if (!['linear','log','log-rev'].includes(p.SMODE)) p.SMODE='linear';
+    if (!(p.T>0)) p.T=STAR_DEFAULT.T;
+    if (!(p.G>0)) p.G=STAR_DEFAULT.G;
+    return p;
+  })();
+  // p: 시간 진행도 0→1, 반환 k: 곡률 100%→0% (p에는 확대 속도가 이미 반영된 크기 진행도를 넘김)
+  function starKFor(p,mode){
+    p=Math.min(1,Math.max(0,p));
+    if (mode==='log') return 1-Math.log10(1+9*p);
+    if (mode==='log-rev') return Math.log10(1+9*(1-p));
+    return 1-p;
+  }
+  // p: 시간 진행도 0→1, 반환 ps: 크기 진행도 0→1
+  function starScaleFor(p,mode){
+    p=Math.min(1,Math.max(0,p));
+    if (mode==='log') return Math.log10(1+9*p);
+    if (mode==='log-rev') return 1-Math.log10(1+9*(1-p));
+    return p;
+  }
+
   // ` 키: 파도 파라미터 조절 패널 (확인용 — 값은 이 브라우저에만 저장, '기본값으로'로 되돌림)
+  // 별 패턴 속도(바닥패턴.html에서 이식: KMODE, SMODE, T, G)도 같은 패널에서 조절한다.
   (()=>{
     const SPEC=[
       ['배치',[['SEED','난수 시드',1,999,1]]],
@@ -335,6 +363,7 @@ canvas.layer{pointer-events:none}
 #wavePanel input[type=range]{flex:1;min-width:0;accent-color:#5fb1aa}
 #wavePanel input[type=number]{width:64px;background:#0f323b;color:#e3f1ef;border:1px solid #2d5a63;border-radius:4px;padding:2px 4px;font:inherit}
 #wavePanel input[type=color]{width:28px;height:22px;padding:0;border:none;background:none}
+#wavePanel select{background:#0f323b;color:#e3f1ef;border:1px solid #2d5a63;border-radius:4px;padding:2px 4px;font:inherit;max-width:100%}
 #wavePanel .btns{display:flex;gap:6px;margin:12px 0 8px}
 #wavePanel button{flex:1;padding:6px;background:#1d4a54;color:#e3f1ef;border:1px solid #2d6b74;border-radius:4px;font:inherit;cursor:pointer}
 #wavePanel button:hover{background:#25606c}
@@ -349,8 +378,9 @@ canvas.layer{pointer-events:none}
     const fmt=v=>Array.isArray(v)?`[${v.map(fmt).join(',')}]`:typeof v==='string'?`'${v}'`:fmtNum(v);
     const out=document.createElement('textarea'); out.readOnly=true;
     const dump=()=>{
-      const lines=Object.keys(WAVE_DEFAULT).map(k=>`    ${k}:${fmt(WP[k])},`);
-      out.value=`  const WAVE_DEFAULT={\n${lines.join('\n')}\n  };`;
+      const wlines=Object.keys(WAVE_DEFAULT).map(k=>`    ${k}:${fmt(WP[k])},`);
+      const slines=Object.keys(STAR_DEFAULT).map(k=>`    ${k}:${fmt(SP[k])},`);
+      out.value=`  const WAVE_DEFAULT={\n${wlines.join('\n')}\n  };\n  const STAR_DEFAULT={\n${slines.join('\n')}\n  };`;
     };
     let queued=false;
     const changed=()=>{
@@ -358,16 +388,21 @@ canvas.layer{pointer-events:none}
       dump();
       if (!queued){ queued=true; requestAnimationFrame(()=>{ queued=false; buildWaves(); }); }
     };
+    const starChanged=()=>{
+      try { localStorage.setItem(STAR_STORE,JSON.stringify(SP)); } catch(e){}
+      dump();
+    };
     const refreshers=[];
-    // 숫자 하나 = 슬라이더 + 숫자 칸. get/set으로 WP 안의 값과 연결
-    const numCtl=(parent,get,set,min,max,step,extra)=>{
+    // 숫자 하나 = 슬라이더 + 숫자 칸. get/set으로 WP(또는 SP) 안의 값과 연결
+    const numCtl=(parent,get,set,min,max,step,extra,onChange)=>{
+      const fire=onChange||changed;
       const box=document.createElement('div'); box.className='ctl';
       if (extra) box.appendChild(extra);
       const rg=Object.assign(document.createElement('input'),{type:'range',min,max,step});
       const nb=Object.assign(document.createElement('input'),{type:'number',step});
       const show=()=>{ rg.value=get(); nb.value=String(+(+get()).toFixed(4)); };
-      rg.addEventListener('input',()=>{ set(+rg.value); nb.value=rg.value; changed(); });
-      nb.addEventListener('input',()=>{ if (nb.value==='' || isNaN(+nb.value)) return; set(+nb.value); rg.value=nb.value; changed(); });
+      rg.addEventListener('input',()=>{ set(+rg.value); nb.value=rg.value; fire(); });
+      nb.addEventListener('input',()=>{ if (nb.value==='' || isNaN(+nb.value)) return; set(+nb.value); rg.value=nb.value; fire(); });
       box.append(rg,nb); parent.appendChild(box); refreshers.push(show); show();
     };
     for (const [title,items] of SPEC){
@@ -399,6 +434,33 @@ canvas.layer{pointer-events:none}
       });
       panel.appendChild(row);
     }
+    // 별 패턴 속도 (바닥패턴.html에서 이식: 곡률 변화 KMODE, 확대 속도 SMODE, 등장 간격 T, 확대 시간 G)
+    {
+      const h=document.createElement('h3'); h.textContent='별 패턴 속도 — KMODE, SMODE, T, G'; panel.appendChild(h);
+      const row=document.createElement('div'); row.className='row';
+      const lb=document.createElement('span'); lb.textContent='곡률 변화 — KMODE / 확대 속도 — SMODE (선형·로그·역로그)'; row.appendChild(lb);
+      const box=document.createElement('div'); box.className='ctl';
+      const mkSel=(get,set)=>{
+        const se=document.createElement('select');
+        [['linear','선형'],['log','로그스케일'],['log-rev','역로그스케일']].forEach(([v,t])=>{
+          const op=document.createElement('option'); op.value=v; op.textContent=t; se.appendChild(op);
+        });
+        se.addEventListener('change',()=>{ set(se.value); starChanged(); });
+        refreshers.push(()=>{ se.value=get(); });
+        se.value=get();
+        return se;
+      };
+      box.append(mkSel(()=>SP.KMODE,v=>{SP.KMODE=v;}), mkSel(()=>SP.SMODE,v=>{SP.SMODE=v;}));
+      row.appendChild(box); panel.appendChild(row);
+      const rowT=document.createElement('div'); rowT.className='row';
+      const lbT=document.createElement('span'); lbT.textContent='등장 간격 — T (초)'; rowT.appendChild(lbT);
+      numCtl(rowT,()=>SP.T,v=>{SP.T=Math.max(.05,v);},.05,2,.01,null,starChanged);
+      panel.appendChild(rowT);
+      const rowG=document.createElement('div'); rowG.className='row';
+      const lbG=document.createElement('span'); lbG.textContent='확대 시간 — G (초)'; rowG.appendChild(lbG);
+      numCtl(rowG,()=>SP.G,v=>{SP.G=Math.max(.3,v);},.3,5,.05,null,starChanged);
+      panel.appendChild(rowG);
+    }
     refreshers.forEach(f=>f());
     const btns=document.createElement('div'); btns.className='btns';
     const bCopy=Object.assign(document.createElement('button'),{type:'button',textContent:'값 복사'});
@@ -412,7 +474,9 @@ canvas.layer{pointer-events:none}
     bReset.addEventListener('click',()=>{
       const d=JSON.parse(JSON.stringify(WAVE_DEFAULT));
       for (const k in d) WP[k]=d[k];
-      refreshers.forEach(f=>f()); changed();
+      const sd=JSON.parse(JSON.stringify(STAR_DEFAULT));
+      for (const k in sd) SP[k]=sd[k];
+      refreshers.forEach(f=>f()); changed(); starChanged();
     });
     btns.append(bCopy,bReset); panel.appendChild(btns);
     panel.appendChild(out);
@@ -712,7 +776,7 @@ canvas.layer{pointer-events:none}
        깊이 Z = DEPTH / dy (칸 단위),  칸 한 변의 화면 폭 = TILE_K · dy.
      바닥은 FAR_Y부터 화면 아래까지만 보인다. FAR_Y는 맨 앞 파도 띠(y 720–728)보다 위라서 띠와 봉우리 밑동을 덮는다.
      칸 줄(깊이 1칸)마다 평면 띠 캔버스에 타일을 그린 뒤, 화면 가로줄 단위로 잘라 붙인다(정확한 원근).
-     깊이 BAND_ROW 칸부터 먼 쪽(파도 언덕·랜턴 바로 앞)은 밝은 띠 구간 — 무늬 미정이라 정적 플레이스홀더 타일. */
+     깊이 BAND_ROW 칸부터 먼 쪽(파도 언덕·랜턴 바로 앞)은 별 패턴 띠 구간 — 가로등과 같은 속도로 스크롤. */
   const HORIZON=537, FAR_Y=704, TILE_K=0.355, DEPTH=3500;
   const BAND_ROW=14;
   // 뒤쪽 띠 바닥 + 가로등 슬라이드 (news.mp4 9.5–12초: 오른쪽으로. 가로등 하나가 왼쪽 끝에서 들어와 화면 가운데까지 LAMP_IN초)
@@ -722,13 +786,56 @@ canvas.layer{pointer-events:none}
   const SLIDE_TILES=SLIDE/(TILE_K*(LAMP_BASE_Y-HORIZON)); // 같은 속도를 바닥 칸 단위로 (깊이와 무관하게 월드 속도 동일)
   const FOG='150,206,219';
 
-  // 띠 구간 플레이스홀더: 밝은 칸 + 격자 + 옅은 대각선(나중에 무늬로 교체)
-  function drawBandTile(g){
-    g.fillStyle='#a6d4de'; g.fillRect(0,0,100,100);
-    g.strokeStyle='#d9eef2'; g.lineWidth=2; g.globalAlpha=.6;
-    g.beginPath(); g.moveTo(12,12); g.lineTo(88,88); g.moveTo(88,12); g.lineTo(12,88); g.stroke();
-    g.globalAlpha=1; g.strokeStyle='#5f9db0'; g.lineWidth=5;
-    g.strokeRect(0,0,100,100);
+  /* ───────── 띠 구간 별 패턴 (바닥패턴.html에서 가져옴) ─────────
+     값은 위 STAR_DEFAULT/SP — ` 패널에서 조절. 모든 띠 칸이 같은 박자·같은 색.
+     45° 회전은 바닥패턴.html의 patternTransform="rotate(45)" 재현 — 타일 격자는
+     월드 X축 그대로 두고 별만 돌린다. */
+  const STAR_R=50, STAR_ROT=Math.PI/4;
+  const STAR_COLORS=['#123E4B','#C9F2F4','#375757','#A9B7A2'];
+  const starF=n=>Math.round(n*10)/10;
+  function starPathFor(k){
+    const c=STAR_R/2*(1-k);
+    return `M0 ${-STAR_R} Q${starF(c)} ${starF(-c)} ${STAR_R} 0 Q${starF(c)} ${starF(c)} 0 ${STAR_R} Q${starF(-c)} ${starF(c)} ${-STAR_R} 0 Q${starF(-c)} ${starF(-c)} 0 ${-STAR_R}Z`;
+  }
+  function starCoverFor(k){
+    const c=50*(1-k); // 원본 R=100 기준 배율 (R=50 별에 곱해도 같은 값)
+    return 100/(25+c/2);
+  }
+  // sec 시점의 별 세대 목록 (오래된→최신 순). 다 자란 마지막 세대 1개를 배경으로 포함한다.
+  // sec=0 이전부터 계속 생성돼 왔다고 가정해 첫 프레임부터 빈칸 없이 보인다.
+  // 안전 상한: T 최소·G 최대 조합에서 세대가 100개까지 늘어날 수 있어 배경+최신 23개만 둔다.
+  const STAR_MAX_GENS=24;
+  function starGens(sec){
+    const T=Math.max(.05,SP.T), G=Math.max(.3,SP.G);
+    const i0=Math.floor(sec/T), done=Math.floor((sec-G)/T);
+    const out=[];
+    for (let k=done;k<=i0;k++){
+      const pRaw=Math.min(1,Math.max(0,(sec-k*T)/G));
+      if (pRaw<=0) continue;
+      const ps=starScaleFor(pRaw,SP.SMODE); // 크기 진행도: 시간→크기
+      const kk=starKFor(ps,SP.KMODE);       // 곡률: 크기에 동기화 (커질수록 100%→0%)
+      out.push({color:STAR_COLORS[((k%4)+4)%4], path:new Path2D(starPathFor(kk)), s:starCoverFor(kk)*ps});
+    }
+    // 배경(맨 앞 다 자란 세대)은 남기고 중간 세대만 솎아낸다
+    if (out.length>STAR_MAX_GENS) out.splice(1,out.length-STAR_MAX_GENS);
+    return out;
+  }
+  function drawBandTile(g,gens){
+    g.globalAlpha=1;
+    g.save();
+    g.beginPath(); g.rect(0,0,100,100); g.clip();
+    g.fillStyle=gens.length?gens[0].color:CELL;
+    g.fillRect(0,0,100,100);
+    g.translate(50,50);
+    g.rotate(STAR_ROT);
+    for (const gen of gens){
+      g.save();
+      g.scale(gen.s,gen.s);
+      g.fillStyle=gen.color;
+      g.fill(gen.path);
+      g.restore();
+    }
+    g.restore();
   }
 
   const cv=document.getElementById('floor'), ctx=cv.getContext('2d');
@@ -745,13 +852,14 @@ canvas.layer{pointer-events:none}
   const strips=[];
   const stripFor=i=>strips[i]||(strips[i]=document.createElement('canvas'));
 
-  function render(frame,slide){
+  function render(frame,slide,sec){
     const W=cv.width, H=cv.height;
     const hy=oy+HORIZON*s, c=DEPTH*s, cx=ox+VW/2*s, far=Math.max(0,oy+FAR_Y*s);
     ctx.setTransform(1,0,0,1,0,0);
     ctx.clearRect(0,0,W,H);
     ctx.fillStyle=CELL; ctx.fillRect(0,far,W,H-far);
     rtCache.clear();
+    const bandGens=starGens(sec);
 
     const rMin=Math.max(1,Math.floor(c/(H-hy))), rMax=Math.ceil(c/(far-hy));
     for (let r=rMin, si=0; r<rMax; r++, si++){
@@ -766,7 +874,7 @@ canvas.layer{pointer-events:none}
       if (st.width!==sw||st.height!==R){ st.width=sw; st.height=R; }
       for (let x=x0;x<x1;x++){
         sg.setTransform(R/100,0,0,R/100,(x-x0)*R,0);
-        if (isBand) drawBandTile(sg);
+        if (isBand) drawBandTile(sg,bandGens);
         else drawTile(sg,(frame+offsetOf(x,gy))%TOTAL);
       }
       // 가로줄 단위로 원근 투영
@@ -814,7 +922,7 @@ canvas.layer{pointer-events:none}
       last=ts;
     }
     for (const fn of anim) fn(sec);
-    render(frame, sec*SLIDE_TILES);
+    render(frame, sec*SLIDE_TILES, sec);
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
