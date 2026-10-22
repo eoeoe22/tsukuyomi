@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>뉴스 장면 초안</title>
+<!--
+  참조: references/news.png
+  - 움직이는 것은 앞쪽 바닥 패턴 타일뿐(뉴스장면 바닥 타일.html의 흩뿌림 배열·타일 애니메이션을 그대로 옮겨 원근 투영).
+  - 나머지(하늘·태양·구름·토리이·파도 언덕·가로등)는 정적 배치.
+  - 에셋: references/newslamp.svg(기둥 길이만 줄임), references/newscloud.svg(배경 사각형 제외한 글리프),
+          references/done/torii.svg(색만 팔레트스왑).
+  레이어: 뒤 SVG(하늘~토리이) → 바닥 캔버스 → 앞 SVG(파도 언덕·가로등).
+  두 SVG와 캔버스는 같은 1600×1066 설계 좌표를 "가운데 맞춰 꽉 채우기(slice)"로 공유한다.
+-->
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#173f4e}
+.layer{position:fixed;inset:0;width:100%;height:100%;display:block}
+canvas.layer{pointer-events:none}
+</style>
+</head>
+<body>
+
+<svg class="layer" id="back" viewBox="0 0 1600 1066" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#163d4c"/>
+      <stop offset=".35" stop-color="#2a6070"/>
+      <stop offset=".62" stop-color="#5b98a6"/>
+      <stop offset=".75" stop-color="#8fc3cb"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fffbe9" stop-opacity=".95"/>
+      <stop offset=".35" stop-color="#f6efcf" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#f6efcf" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sunBody" x1="0.2" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#7fbcc4"/>
+      <stop offset=".45" stop-color="#3f8291"/>
+      <stop offset="1" stop-color="#245a6a"/>
+    </linearGradient>
+    <filter id="blur18" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="18"/></filter>
+    <filter id="blur6" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="6"/></filter>
+
+    <!-- newscloud.svg 글리프 (배경 사각형 제외) -->
+    <symbol id="cloud" viewBox="20 41 117 55">
+      <rect x="63" y="43" width="42" height="9" rx="4.5"/>
+      <rect x="85" y="47" width="9" height="20"/>
+      <rect x="22" y="63" width="113" height="10" rx="5"/>
+      <rect x="43" y="68" width="10" height="20"/>
+      <rect x="25" y="84" width="56" height="10" rx="5"/>
+    </symbol>
+
+    <!-- torii.svg 팔레트스왑: 주홍 → --tr, 검정 → --tb -->
+    <symbol id="torii" viewBox="124 62 432 360">
+      <path style="fill:var(--tr)" d="M216 110H244L247 410H213Z M436 110H464L467 410H433Z M331 118h18v76h-18Z M168 192h344v20h-344Z M146 86Q340 124 534 86L532 108Q340 146 148 108Z"/>
+      <path style="fill:var(--tb)" d="M210 392h40v28h-40Z M430 392h40v28h-40Z M126 64Q340 108 554 64L548 85Q340 126 132 85Z"/>
+    </symbol>
+  </defs>
+
+  <rect width="1600" height="1066" fill="url(#sky)"/>
+
+  <!-- 태양: 후광 → 빛줄기 → 본체 -->
+  <g id="sun">
+    <circle cx="900" cy="300" r="520" fill="url(#glow)" opacity=".55"/>
+    <g id="rays" fill="#fffbe9" filter="url(#blur6)"></g>
+    <circle cx="830" cy="512" r="298" fill="#fff7dc" filter="url(#blur18)"/>
+    <circle cx="815" cy="523" r="287" fill="url(#sunBody)"/>
+  </g>
+
+  <g id="clouds" fill="#eaf4f3"></g>
+
+  <!-- 토리이 (발 = 기준점, 파도 언덕 뒤로 묻힘) -->
+  <g id="toriis"></g>
+</svg>
+
+<canvas class="layer" id="floor" aria-label="움직이는 바닥 타일"></canvas>
+
+<svg class="layer" id="front" viewBox="0 0 1600 1066" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <defs>
+    <!-- newslamp.svg (기둥 길이만 줄임: 원본 452 → 242) -->
+    <symbol id="lamp" viewBox="0 0 200 264">
+      <rect x="95" y="18" width="10" height="236" fill="#c9b28c"/>
+      <rect x="101" y="18" width="4" height="236" fill="#a8916d"/>
+      <rect x="91" y="252" width="18" height="10" rx="2" fill="#8f7a5a"/>
+      <polygon points="44,30 156,30 162,78 38,78" fill="#d8c7a0" stroke="#d8c7a0" stroke-width="2" stroke-linejoin="round"/>
+      <polygon points="47,34 81.3,34 79.7,74 42,74" fill="#1b3048"/>
+      <polygon points="83.3,34 116.7,34 118.3,74 81.7,74" fill="#1b3048"/>
+      <polygon points="118.7,34 153,34 158,74 120.3,74" fill="#1b3048"/>
+      <rect x="58" y="78" width="84" height="5" rx="1.5" fill="#2a3a4a"/>
+      <rect x="63" y="83" width="30" height="5" rx="1" fill="#3a4a5a"/>
+      <rect x="60" y="87" width="36" height="40" rx="10" fill="#f4f6f5"/>
+      <rect x="66" y="92" width="6" height="26" rx="3" fill="#ffffff" opacity="0.9"/>
+      <rect x="65" y="125" width="26" height="4" rx="1" fill="#3a4a5a"/>
+      <rect x="107" y="83" width="30" height="5" rx="1" fill="#3a4a5a"/>
+      <rect x="104" y="87" width="36" height="40" rx="10" fill="#f4f6f5"/>
+      <rect x="110" y="92" width="6" height="26" rx="3" fill="#ffffff" opacity="0.9"/>
+      <rect x="109" y="125" width="26" height="4" rx="1" fill="#3a4a5a"/>
+    </symbol>
+  </defs>
+  <g id="waves"></g>
+  <g id="lamps"></g>
+</svg>
+
+<script>
+(function(){
+  'use strict';
+  const NS='http://www.w3.org/2000/svg';
+  const VW=1600, VH=1066;
+  const mod=(a,n)=>((a%n)+n)%n;
+  const anim=[]; // 매 프레임 호출: fn(초)
+  const el=(tag,attrs,parent)=>{ const n=document.createElementNS(NS,tag); for (const k in attrs) n.setAttribute(k,attrs[k]); if (parent) parent.appendChild(n); return n; };
+  // 고정 시드 난수 (배치가 매번 같도록)
+  function rng(seed){ let s=seed>>>0; return ()=>{ s=(s+0x6D2B79F5)>>>0; let t=s; t=Math.imul(t^(t>>>15),t|1); t^=t+Math.imul(t^(t>>>7),t|61); return ((t^(t>>>14))>>>0)/4294967296; }; }
+
+  /* ───────── 정적 배치 ───────── */
+
+  // 빛줄기: 태양 오른쪽 위에서 바깥으로 퍼지는 쐐기
+  (()=>{
+    const g=document.getElementById('rays'), R=rng(11), cx=905, cy=330;
+    for (let i=0;i<9;i++){
+      const a=(-115+i*10+R()*6)*Math.PI/180, w=(1.2+R()*2.2)*Math.PI/180, L=520+R()*260;
+      const p=[[cx,cy],[cx+Math.cos(a-w)*L,cy+Math.sin(a-w)*L],[cx+Math.cos(a+w)*L,cy+Math.sin(a+w)*L]];
+      el('polygon',{points:p.map(q=>q.map(v=>v.toFixed(1)).join(',')).join(' '),opacity:(.07+R()*.12).toFixed(2)},g);
+    }
+  })();
+
+  // 구름 글리프: 작은 것 다수 + 큰 것 몇 개
+  (()=>{
+    const g=document.getElementById('clouds'), R=rng(7);
+    const list=[], SPAN=VW+500;
+    const put=(x,y,w,op,flip,col)=>{
+      const h=w*55/117;
+      const u=el('use',{href:'#cloud',width:w.toFixed(1),height:h.toFixed(1),opacity:op.toFixed(2)},g);
+      if (col) u.setAttribute('fill',col);
+      // 속도: 설계 단위/초, 방향 무작위, 큰 구름일수록 조금 빠르게(가까워 보이게)
+      const v=(R()<.5?-1:1)*(2+R()*5)*(0.7+w/180);
+      list.push({u,x,y,w,flip,v});
+    };
+    anim.push(t=>{
+      for (const c of list){
+        const x=mod(c.x+c.v*t+250,SPAN)-250;
+        c.u.setAttribute('transform',c.flip?`translate(${(x+c.w).toFixed(1)},${c.y.toFixed(1)}) scale(-1,1)`:`translate(${x.toFixed(1)},${c.y.toFixed(1)})`);
+      }
+    });
+    put(10,150,190,.95,false); put(1380,90,120,.9,true); put(120,30,110,.85,false); put(760,15,95,.85,true);
+    for (let i=0;i<78;i++){
+      const x=-40+R()*1680, y=20+Math.pow(R(),1.25)*470;
+      const w=34+Math.pow(R(),2.2)*80;
+      put(x,y,w,.55+R()*.4,R()<.45,R()<.25?'#bfdde1':null);
+    }
+  })();
+
+  // 토리이: [발 x, 발 y, 크기, 기울기(도), 앞/뒤 팔레트]
+  (()=>{
+    const g=document.getElementById('toriis');
+    const NEAR='--tr:#c3e2e2;--tb:#4f8f9b', MID='--tr:#d3ebe9;--tb:#77acb4', FAR='--tr:#dff1ef;--tb:#9cc8cc';
+    const list=[
+      [ 250,560,.30, 3,FAR],[ 720,535,.24,-4,FAR],[ 905,545,.22, 5,FAR],[1300,540,.28,-3,FAR],
+      [ 600,560,.40,-9,MID],[1020,555,.44, 5,MID],[1190,545,.34,-7,MID],
+      [  70,590,.50, 6,NEAR],[ 400,600,.66,-14,NEAR],[1530,600,.66,15,NEAR],
+    ];
+    for (const [x,y,s,a,pal] of list){
+      const u=el('use',{href:'#torii',x:124,y:62,width:432,height:360,style:pal},g);
+      u.setAttribute('transform',`translate(${x},${y}) rotate(${a}) scale(${s}) translate(-340,-420)`);
+    }
+  })();
+
+  // 파도 언덕: 뒤에서 앞으로 줄마다 반타원 봉우리, 일부는 안쪽 띠(세이가이하 느낌)
+  (()=>{
+    const g=document.getElementById('waves'), R=rng(23);
+    const PAL=['#e8dfc4','#c9b88e','#2d6b7c','#86bcc5','#d7ecea','#163a50','#4f8f9c','#a9d3d8'];
+    const W=[2,3,3,3,2,2,3,2];
+    const pick=()=>{ let t=R()*W.reduce((a,b)=>a+b,0); for (let i=0;i<PAL.length;i++){ t-=W[i]; if (t<=0) return i; } return 0; };
+    // skirt: 봉우리 밑을 바닥(SKIRT_Y)까지 그대로 내려 칠한다. 앞줄이 덮으므로 겉모습은 같고,
+    //        뒷줄 밑동과 앞줄 골 사이 틈으로 하늘이 비치던 것을 막는다.
+    const SKIRT_Y=724; // 맨 앞 띠(y 720–728) 안에서 끝나야 띠 아래로 삐져나오지 않음
+    const dome=(cx,base,rx,ry,fill,parent,skirt)=>el('path',{d:`M${(cx-rx).toFixed(1)} ${(skirt?SKIRT_Y:base).toFixed(1)}V${base.toFixed(1)}A${rx.toFixed(1)} ${ry.toFixed(1)} 0 0 1 ${(cx+rx).toFixed(1)} ${base.toFixed(1)}V${(skirt?SKIRT_Y:base).toFixed(1)}Z`,fill},parent);
+    // news.mp4 10–11초: 봉우리들이 서로 다른 방향으로 엇갈려 흐른다.
+    // 봉우리마다 속도를 따로 주면 몰리고 벌어지면서 하늘이 비치므로, 줄마다 흐름(stream) 두 개로 나눈다.
+    //   - 바탕 흐름: 빈틈없이 촘촘한 간격, 한 방향. 흐름 안에서는 속도가 같아 간격이 그대로 → 빈 곳이 안 생김.
+    //   - 덧 흐름: 듬성듬성, 반대 방향. 바탕 위아래로 엇갈려 지나간다.
+    //   그리기 순서를 섞어서 두 흐름이 서로 위아래로 겹치게 한다.
+    // 흐름 하나 = 길이 L(=VW+2M)짜리 고리. 간격 합을 L에 맞춰 감싸는 이음매도 보통 간격과 같다.
+    const V_MIN=.3;              // 흐름 속도 = SLIDE × [V_MIN, 1] (최대 = 바닥 스크롤 속도), 맨 앞줄은 항상 1
+    const V_SKEW=2.5;             // 속도 쏠림: V_MIN + u^V_SKEW·(1−V_MIN). 1이면 고른 분포, 클수록 느린 쪽이 많아짐
+    const SIZE_VAR=.08;           // 봉우리 크기 = 줄 반지름 × (1 ± SIZE_VAR) — 줄끼리 크기 범위가 안 겹쳐 뒤로 갈수록 작아짐
+    const DRIFT=.08;              // 봉우리별 제자리 흔들림 진폭(× 줄 반지름)
+    const moving=[];
+    anim.push(t=>{
+      for (const m of moving){
+        const x=mod(m.x+m.v*SLIDE*t+m.M,m.L)-m.M + m.a*Math.sin(t*m.w+m.ph);
+        m.g.setAttribute('transform',`translate(${(x-m.x).toFixed(2)},0)`);
+      }
+    });
+    const rows=[[560,46],[588,54],[616,62],[646,72],[680,86],[722,104]];
+    rows.forEach(([base,r],ri)=>{
+      const front=ri===rows.length-1;
+      const streamSpeed=()=>front?1:V_MIN+Math.pow(R(),V_SKEW)*(1-V_MIN);
+      const M=r*1.4, L=VW+2*M; // M: 가장 넓은 봉우리 반폭(1.08r) + 흔들림보다 크게
+      const dir=R()<.5?-1:1;
+      const made=[];
+      // [간격 최소, 간격 폭, 방향] — 바탕은 최대 간격 1.5r + 흔들림 2×0.08r < 봉우리 최소 지름 1.84r, 덧은 듬성하게
+      for (const [s0,sw,sg] of [[0.9,0.6,dir],[2.0,1.6,-dir]]){
+        const v=sg*streamSpeed();
+        const steps=[]; let sum=0;
+        while (sum<L){ const st=r*(s0+R()*sw); steps.push(st); sum+=st; }
+        const k=L/sum; // 마지막 간격까지 합이 정확히 L이 되도록 (k ≤ 1이라 촘촘함 유지)
+        let x=-M+R()*r*s0, prev=-1;
+        for (const st of steps){
+          const rx=r*(1+(R()*2-1)*SIZE_VAR), ry=rx*(0.58+R()*0.06), b=base+(R()-.5)*10;
+          let c=pick(); if (c===prev) c=(c+1+Math.floor(R()*(PAL.length-1)))%PAL.length; prev=c;
+          made.push({x,b,rx,ry,c,v,band:R()<0.35,c2:Math.floor(R()*4),w:1.5+R()*1.5,ph:R()*6.283,key:R()});
+          x+=st*k;
+        }
+      }
+      made.sort((p,q)=>p.key-q.key); // 그리기 순서 섞기
+      for (const d of made){
+        const dg=el('g',{},g);
+        dome(d.x,d.b,d.rx,d.ry,PAL[d.c],dg,!front); // 맨 앞줄은 밑이 바닥이라 skirt 불필요
+        if (d.band) dome(d.x,d.b,d.rx*0.62,d.ry*0.62,PAL[(d.c+2+d.c2)%PAL.length],dg);
+        moving.push({g:dg, x:d.x, M, L, v:d.v, a:r*DRIFT, w:d.w, ph:d.ph});
+      }
+      if (front) el('rect',{x:-200,y:base-2,width:VW+400,height:8,fill:'#163a50'},g);
+    });
+  })();
+
+  /* ───────── 바닥 타일 (뉴스장면 바닥 타일.html에서 가져옴) ───────── */
+
+  const FPS=24, TOTAL=118, SPEED=1.35*0.8; // 원본 타일 1.35배속의 0.8배
+  const K={ pairOut:[10,22], rectIn:[18,28], circIn:[25,35], rcOut:[42,51], rtDraw:[51,77], rtOut:[82,108], pairIn:[94,108] };
+  const CELL='#0d2b31', SAND='#d9c79c';
+  const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+  const prog=(f,[a,b])=>clamp((f-a)/(b-a),0,1);
+  const eIn=t=>t*t*t, eOut=t=>1-Math.pow(1-t,3);
+  const eIO=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+
+  const RT_C=[[5.07,97.9],[97.9,97.9],[97.9,5.07]], RT_W=2.1, RT_R=8;
+  const RT=(()=>{
+    const n=RT_C.length;
+    const cx=RT_C.reduce((s,p)=>s+p[0],0)/n, cy=RT_C.reduce((s,p)=>s+p[1],0)/n;
+    const E=[];
+    for (let i=0;i<n;i++){
+      const A=RT_C[i], B=RT_C[(i+1)%n];
+      const dx=B[0]-A[0], dy=B[1]-A[1], len=Math.hypot(dx,dy), d=[dx/len,dy/len];
+      let nn=[-d[1],d[0]];
+      if (nn[0]*((A[0]+B[0])/2-cx)+nn[1]*((A[1]+B[1])/2-cy)<0) nn=[-nn[0],-nn[1]];
+      E.push({A,d,n:nn,len});
+    }
+    const isect=(P,d1,Q,d2)=>{
+      const den=d1[0]*d2[1]-d1[1]*d2[0];
+      const t=((Q[0]-P[0])*d2[1]-(Q[1]-P[1])*d2[0])/den;
+      return [P[0]+d1[0]*t, P[1]+d1[1]*t];
+    };
+    const off=(e,sg)=>[e.A[0]+sg*RT_W*e.n[0], e.A[1]+sg*RT_W*e.n[1]];
+    let acc=0;
+    E.forEach((e,i)=>{
+      e.start=acc; acc+=e.len;
+      const pv=E[(i+n-1)%n], nx=E[(i+1)%n];
+      e.side={};
+      for (const sg of [1,-1]){
+        const base=off(e,sg);
+        const cs=isect(base,e.d,off(pv,sg),pv.d), ce=isect(base,e.d,off(nx,sg),nx.d);
+        const proj=p=>(p[0]-base[0])*e.d[0]+(p[1]-base[1])*e.d[1];
+        e.side[sg]={base, s0:proj(cs), s1:proj(ce)};
+      }
+    });
+    return {E, P:acc};
+  })();
+  function rtPiece(e,u0,u1){
+    const b0=clamp(1-u0/RT_R,0,1), b1=clamp(1-(e.len-u1)/RT_R,0,1);
+    const pt=(S,u)=>`${(S.base[0]+e.d[0]*u).toFixed(3)} ${(S.base[1]+e.d[1]*u).toFixed(3)}`;
+    const seg={};
+    for (const sg of [1,-1]){
+      const S=e.side[sg];
+      let a=u0*(1-b0)+S.s0*b0, b=u1*(1-b1)+S.s1*b1;
+      if (a>b) a=b=(a+b)/2;
+      seg[sg]=[pt(S,a),pt(S,b)];
+    }
+    return `M${seg[1][0]}L${seg[1][1]}L${seg[-1][1]}L${seg[-1][0]}Z`;
+  }
+  function rtPath(T,H){
+    const P=RT.P; let d='';
+    if (H-T>=1-1e-6){ for (const e of RT.E) d+=rtPiece(e,0,e.len); return d; }
+    const x0=T*P, x1=H*P;
+    for (let k=Math.floor(x0/P)-1;k<=Math.floor(x1/P)+1;k++){
+      for (const e of RT.E){
+        const s=k*P+e.start, t=s+e.len;
+        const a=Math.max(x0,s), b=Math.min(x1,t);
+        if (b-a>1e-6) d+=rtPiece(e,a-s,b-s);
+      }
+    }
+    return d;
+  }
+
+  // 칸 좌표 → 시작 오프셋 (흩뿌림 배열)
+  function hash(x,y){
+    let h=Math.imul(x|0,0x27d4eb2d)^Math.imul(y|0,0x165667b1);
+    h=Math.imul(h^(h>>>15),0x85ebca6b); h^=h>>>13; h=Math.imul(h,0xc2b2ae35); h^=h>>>16;
+    return h>>>0;
+  }
+  const rnd=(x,y,s)=>(hash(x^Math.imul(s,0x632be5ab),y+s*7919)>>>0)/4294967296;
+  function vnoise(x,y){
+    const X=Math.floor(x),Y=Math.floor(y),fx=x-X,fy=y-Y,sm=t=>t*t*(3-2*t);
+    const v=(i,j)=>rnd(i,j,3)*2-1;
+    const p=v(X,Y)+(v(X+1,Y)-v(X,Y))*sm(fx), q=v(X,Y+1)+(v(X+1,Y+1)-v(X,Y+1))*sm(fx);
+    return p+(q-p)*sm(fy);
+  }
+  const SIG=25, AMP=50, SCALE=8, DIAG=12;
+  const cdist=(a,b)=>{const d=mod(a-b,TOTAL); return Math.min(d,TOTAL-d);};
+  const memo=new Map();
+  function computeCell(x,y,sx,sy){
+    const deps=[]; if (sx) deps.push(memo.get(`${x-sx},${y}`)); if (sy) deps.push(memo.get(`${x},${y-sy}`));
+    const diag=(sx&&sy)?memo.get(`${x-sx},${y-sy}`):null;
+    const t=mod(Math.round(AMP*vnoise(x/SCALE+.37,y/SCALE+.71)),TOTAL);
+    if (!deps.length) return t;
+    const cands=[], w=[]; let tot=0;
+    for (let c=0;c<TOTAL;c++){
+      let ok=true; for (const n of deps){ const d=cdist(c,n); if (d<10||d>30){ok=false;break;} }
+      if (!ok) continue;
+      const dt=cdist(c,t); let ww=Math.exp(-dt*dt/(2*SIG*SIG));
+      if (diag!==null){ const dd=cdist(c,diag); ww*=1-Math.exp(-dd*dd/(2*DIAG*DIAG)); }
+      cands.push(c); w.push(ww+1e-9); tot+=ww+1e-9;
+    }
+    let r=rnd(x,y,7)*tot;
+    for (let i=0;i<cands.length;i++){ r-=w[i]; if (r<=0) return cands[i]; }
+    return cands[cands.length-1];
+  }
+  function offsetOf(x,y){
+    const key=`${x},${y}`; let v=memo.get(key); if (v!==undefined) return v;
+    const stack=[[x,y]];
+    while (stack.length){
+      const [cx,cy]=stack[stack.length-1];
+      const k=`${cx},${cy}`; if (memo.has(k)){ stack.pop(); continue; }
+      const sx=Math.sign(cx), sy=Math.sign(cy), need=[];
+      if (sx && !memo.has(`${cx-sx},${cy}`)) need.push([cx-sx,cy]);
+      if (sy && !memo.has(`${cx},${cy-sy}`)) need.push([cx,cy-sy]);
+      if (sx && sy && !memo.has(`${cx-sx},${cy-sy}`)) need.push([cx-sx,cy-sy]);
+      if (need.length){ stack.push(...need); continue; }
+      memo.set(k,computeCell(cx,cy,sx,sy)); stack.pop();
+    }
+    return memo.get(key);
+  }
+
+  const TRI_TOP=new Path2D('M5.07 2.1L94.93 2.1L50 47.03Z');
+  const TRI_BOT=new Path2D('M5.07 97.9L94.93 97.9L50 52.97Z');
+  const rtCache=new Map();
+  function rtFor(f){
+    const k=f.toFixed(3);
+    let p=rtCache.get(k);
+    if (p!==undefined) return p;
+    let T,Hd;
+    if (f < K.rtOut[0]) { const q=eIO(prog(f,K.rtDraw)); Hd=2*q; T=q; }
+    else { const q=eIO(prog(f,K.rtOut)); Hd=1+q; T=2*q; }
+    p = Hd-T>0.0005 ? new Path2D(rtPath(T,Hd)) : null;
+    rtCache.set(k,p); return p;
+  }
+  function drawTile(g,f){
+    const scaleAt=(cx,cy,s)=>{ g.translate(cx,cy); g.scale(s,s); g.translate(-cx,-cy); };
+    g.fillStyle=CELL; g.fillRect(0,0,100,100);
+    g.save();
+    g.beginPath(); g.rect(0,0,100,100); g.clip();
+    g.strokeStyle=SAND; g.fillStyle=SAND; g.lineJoin='miter'; g.miterLimit=10;
+    let off, op;
+    if (f < K.pairIn[0]) { const p=eIn(prog(f,K.pairOut)); off=30*p; op=1-p; }
+    else { const q=eOut(prog(f,K.pairIn)); off=30*(1-q); op=q; }
+    if (op>0.001){
+      g.globalAlpha=op; g.lineWidth=4.2;
+      g.save(); g.translate(0,-off); g.stroke(TRI_TOP); g.restore();
+      g.save(); g.translate(0,off); g.stroke(TRI_BOT); g.restore();
+    }
+    const shapeState=(inSeg)=>{
+      if (f < inSeg[0] || f >= K.rcOut[1]) return {s:0,o:0};
+      if (f < K.rcOut[0]) return {s:eOut(prog(f,inSeg)), o:1};
+      const p=eOut(prog(f,K.rcOut)); return {s:1+0.12*p, o:1-p};
+    };
+    const r=shapeState(K.rectIn), c=shapeState(K.circIn);
+    g.lineWidth=4.8;
+    if (r.o>0.001 && r.s>0.0005){
+      g.globalAlpha=r.o; g.save(); scaleAt(50,97.3,r.s);
+      g.strokeRect(3.15,78.8,93.7,18.5); g.restore();
+    }
+    if (c.o>0.001 && c.s>0.0005){
+      g.globalAlpha=c.o; g.save(); scaleAt(49.4,37.4,c.s);
+      g.beginPath(); g.arc(49.4,37.4,27.6,0,Math.PI*2); g.stroke(); g.restore();
+    }
+    if (f >= K.rtDraw[0] && f < K.rtOut[1]){
+      const p=rtFor(f);
+      if (p){ g.globalAlpha=1; g.fill(p); }
+    }
+    g.restore();
+    g.globalAlpha=1;
+  }
+
+  /* ───────── 원근 투영 ─────────
+     설계 좌표 기준. 화면 y의 지평선 거리 dy = y − HORIZON 일 때
+       깊이 Z = DEPTH / dy (칸 단위),  칸 한 변의 화면 폭 = TILE_K · dy.
+     바닥은 FAR_Y(파도 언덕 아래)부터 화면 아래까지만 보인다.
+     칸 줄(깊이 1칸)마다 평면 띠 캔버스에 타일을 그린 뒤, 화면 가로줄 단위로 잘라 붙인다(정확한 원근).
+     깊이 BAND_ROW 칸부터 먼 쪽(파도 언덕·랜턴 바로 앞)은 밝은 띠 구간 — 무늬 미정이라 정적 플레이스홀더 타일. */
+  const HORIZON=537, FAR_Y=712, TILE_K=0.355, DEPTH=3500;
+  const BAND_ROW=14;
+  // 뒤쪽 띠 바닥 + 가로등 슬라이드 (news.mp4 9.5–12초: 오른쪽으로, 원본은 가로등 간격 한 칸 ≈ 2.2초, 현재 0.7배 → ≈ 3.1초)
+  const LAMP_BASE_Y=741, LAMP_GAP=557, LAMP_W=280, LAMP_TOP=374;
+  const SLIDE=LAMP_GAP/2.2*0.7;                     // 가로등 밑동 깊이에서 설계 단위/초 (원본의 0.7배 감속)
+  const SLIDE_TILES=SLIDE/(TILE_K*(LAMP_BASE_Y-HORIZON)); // 같은 속도를 바닥 칸 단위로 (깊이와 무관하게 월드 속도 동일)
+  const FOG='150,206,219';
+
+  // 띠 구간 플레이스홀더: 밝은 칸 + 격자 + 옅은 대각선(나중에 무늬로 교체)
+  function drawBandTile(g){
+    g.fillStyle='#a6d4de'; g.fillRect(0,0,100,100);
+    g.strokeStyle='#d9eef2'; g.lineWidth=2; g.globalAlpha=.6;
+    g.beginPath(); g.moveTo(12,12); g.lineTo(88,88); g.moveTo(88,12); g.lineTo(12,88); g.stroke();
+    g.globalAlpha=1; g.strokeStyle='#5f9db0'; g.lineWidth=5;
+    g.strokeRect(0,0,100,100);
+  }
+
+  const cv=document.getElementById('floor'), ctx=cv.getContext('2d');
+  let s=1, ox=0, oy=0;
+  function resize(){
+    const dpr=Math.min(window.devicePixelRatio||1,2);
+    const w=innerWidth, h=innerHeight;
+    cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr);
+    s=Math.max(cv.width/VW, cv.height/VH);
+    ox=(cv.width-VW*s)/2; oy=(cv.height-VH*s)/2;
+  }
+  addEventListener('resize',resize); resize();
+
+  const strips=[];
+  const stripFor=i=>strips[i]||(strips[i]=document.createElement('canvas'));
+
+  function render(frame,slide){
+    const W=cv.width, H=cv.height;
+    const hy=oy+HORIZON*s, c=DEPTH*s, cx=ox+VW/2*s, far=Math.max(0,oy+FAR_Y*s);
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle=CELL; ctx.fillRect(0,far,W,H-far);
+    rtCache.clear();
+
+    const rMin=Math.max(1,Math.floor(c/(H-hy))), rMax=Math.ceil(c/(far-hy));
+    for (let r=rMin, si=0; r<rMax; r++, si++){
+      const yTop=Math.max(hy+c/(r+1),far), yBot=Math.min(hy+c/r,H);
+      if (yBot<=yTop) continue;
+      const kFar=TILE_K*(yTop-hy);
+      const gy=-r, isBand=r>=BAND_ROW, sh0=isBand?slide:0; // 화면 x = cx + (X + sh0)·k
+      const x0=Math.floor(-cx/kFar-sh0)-1, x1=Math.ceil((W-cx)/kFar-sh0)+1;
+      const R=Math.max(8,Math.min(512,Math.ceil(TILE_K*(yBot-hy))));
+      const st=stripFor(si), sg=st.getContext('2d');
+      const sw=(x1-x0)*R;
+      if (st.width!==sw||st.height!==R){ st.width=sw; st.height=R; }
+      for (let x=x0;x<x1;x++){
+        sg.setTransform(R/100,0,0,R/100,(x-x0)*R,0);
+        if (isBand) drawBandTile(sg);
+        else drawTile(sg,(frame+offsetOf(x,gy))%TOTAL);
+      }
+      // 가로줄 단위로 원근 투영
+      for (let y=Math.floor(yTop); y<Math.ceil(yBot); y++){
+        const yc=Math.max(y,yTop)+0.5, dy=yc-hy;
+        const Z=c/dy, kk=TILE_K*dy;
+        let sh=Math.max(0.5,Math.min(R,c/(dy*dy)*R));
+        const sy=clamp((r+1-Z)*R-sh/2,0,R-sh);
+        const sx=((0-cx)/kk-sh0-x0)*R, swid=W/kk*R;
+        ctx.drawImage(st,sx,sy,swid,sh,0,y,W,1);
+      }
+    }
+
+    // 띠 구간 먼 쪽 안개 (움직이는 타일 경계까지만)
+    const bandEnd=hy+c/BAND_ROW;
+    if (bandEnd>far){
+      const gr=ctx.createLinearGradient(0,far,0,bandEnd);
+      gr.addColorStop(0,`rgba(${FOG},.85)`); gr.addColorStop(1,`rgba(${FOG},0)`);
+      ctx.fillStyle=gr; ctx.fillRect(0,far,W,bandEnd-far);
+    }
+  }
+
+  // 재생
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)');
+  // 가로등: 간격 LAMP_GAP으로 반복, 슬라이드만큼 오른쪽으로 밀고 감싸기
+  const lampG=document.getElementById('lamps');
+  const lamps=[];
+  for (let i=0;i<Math.ceil((VW+LAMP_W)/LAMP_GAP)+1;i++)
+    lamps.push(el('use',{href:'#lamp',y:LAMP_TOP,width:LAMP_W,height:(LAMP_W*264/200).toFixed(1)},lampG));
+  anim.push(t=>{
+    const off=mod(102+t*SLIDE,LAMP_GAP)-LAMP_GAP; // 원래 첫 가로등 x=102
+    lamps.forEach((u,i)=>u.setAttribute('x',(off+i*LAMP_GAP).toFixed(2)));
+  });
+
+  // ?t=초 : 그 시점부터 시작 (확인·캡처용)
+  let sec=Math.max(0,parseFloat(new URLSearchParams(location.search).get('t'))||0);
+  let frame=(sec*FPS*SPEED)%TOTAL, last=null;
+  function tick(ts){
+    if (!reduce.matches){
+      if (last!==null){
+        const dt=Math.min(ts-last,100)/1000;
+        frame=(frame+dt*FPS*SPEED)%TOTAL;
+        sec+=dt;
+      }
+      last=ts;
+    }
+    for (const fn of anim) fn(sec);
+    render(frame, sec*SLIDE_TILES);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
