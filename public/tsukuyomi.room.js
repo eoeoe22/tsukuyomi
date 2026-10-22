@@ -925,7 +925,7 @@ function drawTags() {
 }
 
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-S.flicker = !reduce; S.spin = !reduce;
+S.flicker = false; S.spin = !reduce;
 let ready = false, built = false, building = null;
 const view = document.getElementById('roomScene');
 const vg = view ? view.getContext('2d') : null;
