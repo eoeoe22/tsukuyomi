@@ -530,8 +530,18 @@ canvas.layer{pointer-events:none}
 
   /* ───────── 바닥 타일 (뉴스장면 바닥 타일.html에서 가져옴) ───────── */
 
-  const FPS=24, TOTAL=118, SPEED=1.35*0.8; // 원본 타일 1.35배속의 0.8배
-  const K={ pairOut:[10,22], rectIn:[18,28], circIn:[25,35], rcOut:[42,51], rtDraw:[51,77], rtOut:[82,108], pairIn:[94,108] };
+  // 사각형·원이 다 그려진 뒤(35) 사라지기 시작(rcOut)까지의 유지 시간을 1.4배(7 → 9.8프레임)로 늘림.
+  // 늘어난 2.8프레임만큼 rcOut 이후 키와 TOTAL을 함께 뒤로 민다.
+  const HOLD_EXTRA=(42-35)*0.4;
+  // 삼각형 두 개가 다 보이는 시간(pairIn 끝 → 루프 끝 → 다음 루프 pairOut 시작, 원래 20프레임)을 0.7배로 줄임.
+  // 그 구간은 루프 끝을 넘어가므로 TOTAL에서 6프레임을 뺀다.
+  const PAIR_CUT=(118-108+10)*0.3;
+  const FPS=24, TOTAL=118+HOLD_EXTRA-PAIR_CUT, SPEED=1.35*0.8; // 원본 타일 1.35배속의 0.8배
+  const K=(()=>{
+    const k={ pairOut:[10,22], rectIn:[18,28], circIn:[25,35], rcOut:[42,51], rtDraw:[51,77], rtOut:[82,108], pairIn:[94,108] };
+    for (const n of ['rcOut','rtDraw','rtOut','pairIn']) k[n]=k[n].map(v=>v+HOLD_EXTRA);
+    return k;
+  })();
   const CELL='#0d2b31', SAND='#d9c79c';
   const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
   const prog=(f,[a,b])=>clamp((f-a)/(b-a),0,1);
