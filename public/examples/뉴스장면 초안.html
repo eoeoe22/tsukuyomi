@@ -10,7 +10,8 @@
   - 나머지(하늘·태양·구름·토리이·파도 언덕·가로등)는 정적 배치.
   - 에셋: references/newslamp.svg(기둥 길이만 줄임), references/newscloud.svg(배경 사각형 제외한 글리프),
           references/done/torii.svg(색만 팔레트스왑).
-  레이어: 뒤 SVG(하늘~토리이) → 바닥 캔버스 → 앞 SVG(파도 언덕·가로등).
+  레이어: 뒤 SVG(하늘~토리이·파도 언덕) → 바닥 캔버스 → 앞 SVG(가로등).
+  파도 언덕 밑동(맨 앞 진한 띠 포함)은 바닥 캔버스가 덮는다.
   두 SVG와 캔버스는 같은 1600×1066 설계 좌표를 "가운데 맞춰 꽉 채우기(slice)"로 공유한다.
 -->
 <style>
@@ -72,6 +73,9 @@ canvas.layer{pointer-events:none}
 
   <!-- 토리이 (발 = 기준점, 파도 언덕 뒤로 묻힘) -->
   <g id="toriis"></g>
+
+  <!-- 파도 언덕 (밑동은 바닥 캔버스에 가려짐) -->
+  <g id="waves"></g>
 </svg>
 
 <canvas class="layer" id="floor" aria-label="움직이는 바닥 타일"></canvas>
@@ -98,7 +102,6 @@ canvas.layer{pointer-events:none}
       <rect x="109" y="125" width="26" height="4" rx="1" fill="#3a4a5a"/>
     </symbol>
   </defs>
-  <g id="waves"></g>
   <g id="lamps"></g>
 </svg>
 
@@ -166,63 +169,363 @@ canvas.layer{pointer-events:none}
     }
   })();
 
-  // 파도 언덕: 뒤에서 앞으로 줄마다 반타원 봉우리, 일부는 안쪽 띠(세이가이하 느낌)
-  (()=>{
-    const g=document.getElementById('waves'), R=rng(23);
-    const PAL=['#e8dfc4','#c9b88e','#2d6b7c','#86bcc5','#d7ecea','#163a50','#4f8f9c','#a9d3d8'];
-    const W=[2,3,3,3,2,2,3,2];
-    const pick=()=>{ let t=R()*W.reduce((a,b)=>a+b,0); for (let i=0;i<PAL.length;i++){ t-=W[i]; if (t<=0) return i; } return 0; };
-    // skirt: 봉우리 밑을 바닥(SKIRT_Y)까지 그대로 내려 칠한다. 앞줄이 덮으므로 겉모습은 같고,
-    //        뒷줄 밑동과 앞줄 골 사이 틈으로 하늘이 비치던 것을 막는다.
-    const SKIRT_Y=724; // 맨 앞 띠(y 720–728) 안에서 끝나야 띠 아래로 삐져나오지 않음
-    const dome=(cx,base,rx,ry,fill,parent,skirt)=>el('path',{d:`M${(cx-rx).toFixed(1)} ${(skirt?SKIRT_Y:base).toFixed(1)}V${base.toFixed(1)}A${rx.toFixed(1)} ${ry.toFixed(1)} 0 0 1 ${(cx+rx).toFixed(1)} ${base.toFixed(1)}V${(skirt?SKIRT_Y:base).toFixed(1)}Z`,fill},parent);
-    // news.mp4 10–11초: 봉우리들이 서로 다른 방향으로 엇갈려 흐른다.
-    // 봉우리마다 속도를 따로 주면 몰리고 벌어지면서 하늘이 비치므로, 줄마다 흐름(stream) 두 개로 나눈다.
-    //   - 바탕 흐름: 빈틈없이 촘촘한 간격, 한 방향. 흐름 안에서는 속도가 같아 간격이 그대로 → 빈 곳이 안 생김.
-    //   - 덧 흐름: 듬성듬성, 반대 방향. 바탕 위아래로 엇갈려 지나간다.
-    //   그리기 순서를 섞어서 두 흐름이 서로 위아래로 겹치게 한다.
-    // 흐름 하나 = 길이 L(=VW+2M)짜리 고리. 간격 합을 L에 맞춰 감싸는 이음매도 보통 간격과 같다.
-    const V_MIN=.3;              // 흐름 속도 = SLIDE × [V_MIN, 1] (최대 = 바닥 스크롤 속도), 맨 앞줄은 항상 1
-    const V_SKEW=2.5;             // 속도 쏠림: V_MIN + u^V_SKEW·(1−V_MIN). 1이면 고른 분포, 클수록 느린 쪽이 많아짐
-    const SIZE_VAR=.08;           // 봉우리 크기 = 줄 반지름 × (1 ± SIZE_VAR) — 줄끼리 크기 범위가 안 겹쳐 뒤로 갈수록 작아짐
-    const DRIFT=.08;              // 봉우리별 제자리 흔들림 진폭(× 줄 반지름)
-    const moving=[];
-    anim.push(t=>{
-      for (const m of moving){
-        const x=mod(m.x+m.v*SLIDE*t+m.M,m.L)-m.M + m.a*Math.sin(t*m.w+m.ph);
-        m.g.setAttribute('transform',`translate(${(x-m.x).toFixed(2)},0)`);
+  // 파도 언덕: 뒤에서 앞으로 줄마다 단색 반타원 봉우리
+  // news.mp4 10–11초: 봉우리마다 속도가 제각각이다.
+  //   - 봉우리마다 '스크롤과 비슷한 속도(SYNC)'와 '느린 속도(SLOW)' 중 하나를 따로 정한다.
+  //     맨 앞줄과 뒷줄 몇 개(빠른 줄)는 SYNC가 많고, 나머지 줄은 SLOW가 많다.
+  //     줄 단위로 속도를 묶지 않고 한 줄 안에 빠른 봉우리·느린 봉우리를 섞어, 한 줄이 뭉쳐서 움직이지 않게 한다
+  //   - 범위 안에서도 봉우리마다 속도를 따로 뽑는다
+  //   - 아주 드물게 봉우리 한두 개가 스크롤보다 빠르게 앞질러 간다
+  // 봉우리는 서로 앞지르거나 엇갈리며 위아래로 겹친다(그리기 순서 무작위). 방향은 봉우리마다 REVERSE_P 확률로 반대.
+  // 봉우리 하나 = 단색 반타원. 줄마다 길이 L(=VW+2M)짜리 고리를 돈다.
+  // 속도가 달라 간격이 계속 바뀌므로 촘촘하게 깔고, 맨 뒷줄 뒤에는 빈틈으로 하늘이 비치지 않게 바탕 띠를 둔다.
+  // ` 키: 아래 값들을 실시간으로 바꿔 보는 조절 패널. '값 복사'로 이 블록 형태 그대로 뽑을 수 있다.
+  const WAVE_DEFAULT={
+    SEED:23,                 // 배치 난수 시드
+    // 원본 캡처 색 분석(K-means 5색)과 비율
+    PAL:['#5fb1aa','#d3f5f3','#c6cab4','#058ea4','#225963'],
+    W:[40.9,19.4,15.8,12.1,11.8],
+    // 속도는 모두 SLIDE(가로등 스크롤 속도)에 대한 배율
+    SYNC_V:[.55,.63],        // 스크롤과 비슷한 봉우리: [최소, 최대]
+    SLOW_V:[.15,.6],         // 느린 봉우리: [최소, 최대]
+    SYNC_BACK:2,             // 맨 앞줄 말고 빠른 줄로 삼을 뒷줄 수
+    SYNC_P:[.7,.3],          // 봉우리가 SYNC일 확률: [빠른 줄, 나머지 줄]
+    REVERSE_P:.5,            // 봉우리가 스크롤 반대 방향으로 움직일 확률
+    FAST_V:[1.2,1.45],       // 아주 빠른 봉우리: [최소, 최대]
+    FAST_N:5,                // 아주 빠른 봉우리 수(화면 전체, 줄마다 최대 1개)
+    GAP:.75,                 // 봉우리 평균 간격(× 줄 반지름)
+    POS_JITTER:.6,           // 처음 위치 흔들기(× 평균 간격)
+    SIZE_VAR:.08,            // 봉우리 크기 = 줄 반지름 × (1 ± SIZE_VAR)
+    RY:[.58,.64],            // 봉우리 높이 = 반폭 × [최소, 최대]
+    BASE_JITTER:10,          // 봉우리 밑동 높이 흔들기(설계 단위, ±절반)
+    DRIFT:.035,              // 봉우리별 제자리 흔들림 진폭(× 줄 반지름)
+    DRIFT_W:[.5,1.0],        // 제자리 흔들림 각속도(rad/초): [최소, 최대]
+    // 원근: 맨 뒷줄 배율 → 맨 앞줄 1까지 줄마다 고르게 커짐
+    DEPTH_SPEED:.35,         // 맨 뒷줄 속도 배율 (아주 빠른 봉우리는 제외)
+    DEPTH_SIZE:.96,          // 맨 뒷줄 크기 배율 (줄 반지름에 곱함)
+  };
+  const WAVE_STORE='news-scene-wave-params';
+  const WP=(()=>{
+    const p=JSON.parse(JSON.stringify(WAVE_DEFAULT));
+    try { const s=JSON.parse(localStorage.getItem(WAVE_STORE)||'null'); if (s) for (const k in p) if (k in s) p[k]=s[k]; } catch(e){}
+    return p;
+  })();
+  const waveG=document.getElementById('waves');
+  const waveMoving=[];
+  anim.push(t=>{
+    for (const m of waveMoving){
+      const x=mod(m.x+m.v*SLIDE*t+m.M,m.L)-m.M + m.a*Math.sin(t*m.w+m.ph);
+      m.g.setAttribute('transform',`translate(${(x-m.x).toFixed(2)},0)`);
+    }
+  });
+  // 줄이 촘촘해 틈은 앞줄들이 덮는다. 드물게 남는 틈으로 하늘이 비치지 않게만 맨 뒤 바탕 띠를 둔다.
+  const SKIRT_Y=724; // 바탕 띠 하한: 맨 앞 띠(y 720–728) 안에서 끝나야 띠 아래로 삐져나오지 않음
+  // [밑동 y, 줄 반지름]. 줄 간격을 봉우리 높이보다 충분히 좁게(영상처럼 촘촘히) 둬야
+  // 봉우리끼리 속도가 달라 생기는 틈을 앞줄들이 덮는다. 간격이 넓으면 틈으로 바탕이 드러남.
+  const WAVE_ROWS=[[560,46],[573,50],[585,53],[598,57],[611,61],[624,65],[638,69],[652,75],[668,81],[684,88],[703,96],[722,104]];
+  function buildWaves(){
+    const P=WP, R=rng(P.SEED), g=waveG;
+    g.replaceChildren(); waveMoving.length=0;
+    const PAL=P.PAL, W=P.W.some(w=>w>0)?P.W:P.W.map(()=>1);
+    const WSUM=W.reduce((a,b)=>a+b,0);
+    const lerp=([a,b],u)=>a+(b-a)*u;
+    const pick=()=>{ let t=R()*WSUM; for (let i=0;i<PAL.length;i++){ t-=W[i]; if (t<=0) return i; } return 0; };
+    // 한 줄(n개)의 색: 비율대로 개수를 정확히 나눈 뒤(최대 나머지 반올림) 섞고, 이웃이 같은 색이면 자리를 바꿔 떼어 놓는다
+    const rowColors=n=>{
+      const q=W.map(w=>w/WSUM*n), cnt=q.map(Math.floor);
+      q.map((v,i)=>[v-cnt[i],i]).sort((a,b)=>b[0]-a[0]).slice(0,n-cnt.reduce((a,b)=>a+b,0)).forEach(([,i])=>cnt[i]++);
+      const out=[]; cnt.forEach((k,i)=>{ for (let j=0;j<k;j++) out.push(i); });
+      for (let i=out.length-1;i>0;i--){ const j=Math.floor(R()*(i+1)); [out[i],out[j]]=[out[j],out[i]]; }
+      for (let i=1;i<out.length;i++){
+        if (out[i]!==out[i-1]) continue;
+        let done=false;
+        for (let j=i+1;j<out.length;j++) if (out[j]!==out[i]){ [out[i],out[j]]=[out[j],out[i]]; done=true; break; }
+        if (done) continue;
+        // 뒤에 다른 색이 없으면(줄 끝 몰림) 앞쪽에서 양옆과 안 겹치는 자리를 찾아 끼운다
+        const c=out[i], ok=(k,v)=>out[k]!==v && (k===0||out[k-1]!==v) && (k+1>=out.length||out[k+1]!==v);
+        for (let k=0;k<i-1;k++) if (ok(k,c) && out[k]!==out[i-1] && (i+1>=out.length||out[k]!==out[i+1])){ [out[i],out[k]]=[out[k],out[i]]; break; }
       }
-    });
-    const rows=[[560,46],[588,54],[616,62],[646,72],[680,86],[722,104]];
-    rows.forEach(([base,r],ri)=>{
-      const front=ri===rows.length-1;
-      const streamSpeed=()=>front?1:V_MIN+Math.pow(R(),V_SKEW)*(1-V_MIN);
-      const M=r*1.4, L=VW+2*M; // M: 가장 넓은 봉우리 반폭(1.08r) + 흔들림보다 크게
-      const dir=R()<.5?-1:1;
+      return out;
+    };
+    // 밑이 평평한 반타원(높이 ry)
+    const dome=(cx,base,rx,ry,fill,parent)=>{
+      const L=(cx-rx).toFixed(1), Rt=(cx+rx).toFixed(1), B=base.toFixed(1);
+      const d=`M${L} ${B}A${rx.toFixed(1)} ${ry.toFixed(1)} 0 0 1 ${Rt} ${B}Z`;
+      return el('path',{d,fill},parent);
+    };
+    const rows=WAVE_ROWS, last=rows.length-1;
+    // 맨 뒷줄 바탕 띠: 봉우리 사이 빈틈으로 하늘·토리이 밑동이 비치지 않게 (가장 비율이 큰 색)
+    const main=W.indexOf(Math.max(...W));
+    el('rect',{x:-200,y:rows[0][0]-8,width:VW+400,height:SKIRT_Y-rows[0][0]+8,fill:PAL[main]},g);
+    // 빠른 줄: 맨 앞줄 + 뒷줄 중 SYNC_BACK개 무작위
+    const back=[...Array(last).keys()];
+    for (let i=back.length-1;i>0;i--){ const j=Math.floor(R()*(i+1)); [back[i],back[j]]=[back[j],back[i]]; }
+    const sync=new Set([last,...back.slice(0,P.SYNC_BACK)]);
+    // 아주 빠른 봉우리가 들어갈 줄 (서로 다른 줄)
+    const fastRows=new Set(), fastN=Math.min(P.FAST_N,rows.length);
+    while (fastRows.size<fastN) fastRows.add(Math.floor(R()*rows.length));
+    rows.forEach(([base,r0],ri)=>{
+      const front=ri===last;
+      const depth=last?ri/last:1; // 0=맨 뒷줄, 1=맨 앞줄
+      const r=r0*(P.DEPTH_SIZE+(1-P.DEPTH_SIZE)*depth), vk=P.DEPTH_SPEED+(1-P.DEPTH_SPEED)*depth;
+      const pSync=P.SYNC_P[sync.has(ri)?0:1];
+      // M: 가장 넓은 봉우리 반폭 + 흔들림보다 크게 (고리 이음매가 화면 밖에 있도록)
+      const M=r*(1+P.SIZE_VAR+P.DRIFT+.3), L=VW+2*M;
+      const n=Math.max(1,Math.round(L/(r*P.GAP)));
       const made=[];
-      // [간격 최소, 간격 폭, 방향] — 바탕은 최대 간격 1.5r + 흔들림 2×0.08r < 봉우리 최소 지름 1.84r, 덧은 듬성하게
-      for (const [s0,sw,sg] of [[0.9,0.6,dir],[2.0,1.6,-dir]]){
-        const v=sg*streamSpeed();
-        const steps=[]; let sum=0;
-        while (sum<L){ const st=r*(s0+R()*sw); steps.push(st); sum+=st; }
-        const k=L/sum; // 마지막 간격까지 합이 정확히 L이 되도록 (k ≤ 1이라 촘촘함 유지)
-        let x=-M+R()*r*s0, prev=-1;
-        for (const st of steps){
-          const rx=r*(1+(R()*2-1)*SIZE_VAR), ry=rx*(0.58+R()*0.06), b=base+(R()-.5)*10;
-          let c=pick(); if (c===prev) c=(c+1+Math.floor(R()*(PAL.length-1)))%PAL.length; prev=c;
-          made.push({x,b,rx,ry,c,v,band:R()<0.35,c2:Math.floor(R()*4),w:1.5+R()*1.5,ph:R()*6.283,key:R()});
-          x+=st*k;
-        }
+      const cols=rowColors(n);
+      for (let i=0;i<=n;i++){
+        const fast=i===n;
+        if (fast && !fastRows.has(ri)) break;
+        const x=fast?-M+R()*L:-M+(i+(R()-.5)*P.POS_JITTER)*L/n;
+        const rx=r*(1+(R()*2-1)*P.SIZE_VAR), ry=rx*lerp(P.RY,R()), b=base+(R()-.5)*P.BASE_JITTER;
+        const c=fast?pick():cols[i];
+        made.push({x,b,rx,ry,c,v:(R()<P.REVERSE_P?-1:1)*lerp(fast?P.FAST_V:R()<pSync?P.SYNC_V:P.SLOW_V,R())*(fast?1:vk),w:lerp(P.DRIFT_W,R()),ph:R()*6.283,key:R()});
       }
       made.sort((p,q)=>p.key-q.key); // 그리기 순서 섞기
       for (const d of made){
         const dg=el('g',{},g);
-        dome(d.x,d.b,d.rx,d.ry,PAL[d.c],dg,!front); // 맨 앞줄은 밑이 바닥이라 skirt 불필요
-        if (d.band) dome(d.x,d.b,d.rx*0.62,d.ry*0.62,PAL[(d.c+2+d.c2)%PAL.length],dg);
-        moving.push({g:dg, x:d.x, M, L, v:d.v, a:r*DRIFT, w:d.w, ph:d.ph});
+        dome(d.x,d.b,d.rx,d.ry,PAL[d.c],dg);
+        waveMoving.push({g:dg, x:d.x, M, L, v:d.v, a:r*P.DRIFT, w:d.w, ph:d.ph});
       }
       if (front) el('rect',{x:-200,y:base-2,width:VW+400,height:8,fill:'#163a50'},g);
     });
+  }
+  buildWaves();
+
+  // ` 키: 파도 파라미터 조절 패널 (확인용 — 값은 이 브라우저에만 저장, '기본값으로'로 되돌림)
+  (()=>{
+    const SPEC=[
+      ['배치',[['SEED','난수 시드',1,999,1]]],
+      ['속도 (× 가로등 스크롤 속도)',[
+        ['SYNC_V','스크롤과 비슷한 봉우리 [최소, 최대]',0,2,.01],
+        ['SLOW_V','느린 봉우리 [최소, 최대]',0,2,.01],
+        ['SYNC_BACK','빠른 줄로 삼을 뒷줄 수',0,WAVE_ROWS.length-1,1],
+        ['SYNC_P','SYNC 확률 [빠른 줄, 나머지 줄]',0,1,.01],
+        ['REVERSE_P','반대 방향 확률',0,1,.01],
+        ['FAST_V','아주 빠른 봉우리 [최소, 최대]',0,3,.01],
+        ['FAST_N','아주 빠른 봉우리 수',0,WAVE_ROWS.length,1],
+      ]],
+      ['모양·간격',[
+        ['GAP','평균 간격 (× 줄 반지름)',.2,2,.01],
+        ['POS_JITTER','처음 위치 흔들기 (× 간격)',0,1,.01],
+        ['SIZE_VAR','크기 편차 (±)',0,.3,.005],
+        ['RY','높이 / 반폭 [최소, 최대]',.2,1.2,.01],
+        ['BASE_JITTER','밑동 높이 편차',0,40,1],
+      ]],
+      ['원근',[
+        ['DEPTH_SPEED','맨 뒷줄 속도 배율',0,1.5,.01],
+        ['DEPTH_SIZE','맨 뒷줄 크기 배율',.3,1.5,.01],
+      ]],
+      ['제자리 흔들림',[
+        ['DRIFT','진폭 (× 줄 반지름)',0,.5,.005],
+        ['DRIFT_W','각속도 rad/초 [최소, 최대]',0,4,.05],
+      ]],
+    ];
+    const css=document.createElement('style');
+    css.textContent=`
+#wavePanel{position:fixed;top:12px;right:12px;z-index:10;width:340px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:auto;box-sizing:border-box;
+  padding:12px 14px;background:rgba(8,24,30,.93);color:#e3f1ef;font:12px/1.4 system-ui,sans-serif;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+#wavePanel[hidden]{display:none}
+#wavePanel h3{margin:12px 0 6px;font-size:12px;color:#8fd0c9;font-weight:600}
+#wavePanel h3:first-child{margin-top:0}
+#wavePanel .row{margin:0 0 8px}
+#wavePanel .row>span{display:block;margin-bottom:2px;color:#b9d6d3}
+#wavePanel .ctl{display:flex;gap:6px;align-items:center;margin-bottom:2px}
+#wavePanel input[type=range]{flex:1;min-width:0;accent-color:#5fb1aa}
+#wavePanel input[type=number]{width:64px;background:#0f323b;color:#e3f1ef;border:1px solid #2d5a63;border-radius:4px;padding:2px 4px;font:inherit}
+#wavePanel input[type=color]{width:28px;height:22px;padding:0;border:none;background:none}
+#wavePanel .btns{display:flex;gap:6px;margin:12px 0 8px}
+#wavePanel button{flex:1;padding:6px;background:#1d4a54;color:#e3f1ef;border:1px solid #2d6b74;border-radius:4px;font:inherit;cursor:pointer}
+#wavePanel button:hover{background:#25606c}
+#wavePanel textarea{width:100%;height:150px;box-sizing:border-box;background:#0b2a31;color:#cfe8e5;border:1px solid #2d5a63;border-radius:4px;font:11px/1.35 ui-monospace,Consolas,monospace;resize:vertical}
+#wavePanel .hint{color:#7fa9a5;margin-top:4px}`;
+    document.head.appendChild(css);
+    const panel=document.createElement('div');
+    panel.id='wavePanel'; panel.hidden=true;
+    document.body.appendChild(panel);
+
+    const fmtNum=v=>String(+(+v).toFixed(4)).replace(/^(-?)0\./,'$1.');
+    const fmt=v=>Array.isArray(v)?`[${v.map(fmt).join(',')}]`:typeof v==='string'?`'${v}'`:fmtNum(v);
+    const out=document.createElement('textarea'); out.readOnly=true;
+    const dump=()=>{
+      const lines=Object.keys(WAVE_DEFAULT).map(k=>`    ${k}:${fmt(WP[k])},`);
+      out.value=`  const WAVE_DEFAULT={\n${lines.join('\n')}\n  };`;
+    };
+    let queued=false;
+    const changed=()=>{
+      try { localStorage.setItem(WAVE_STORE,JSON.stringify(WP)); } catch(e){}
+      dump();
+      if (!queued){ queued=true; requestAnimationFrame(()=>{ queued=false; buildWaves(); }); }
+    };
+    const refreshers=[];
+    // 숫자 하나 = 슬라이더 + 숫자 칸. get/set으로 WP 안의 값과 연결
+    const numCtl=(parent,get,set,min,max,step,extra)=>{
+      const box=document.createElement('div'); box.className='ctl';
+      if (extra) box.appendChild(extra);
+      const rg=Object.assign(document.createElement('input'),{type:'range',min,max,step});
+      const nb=Object.assign(document.createElement('input'),{type:'number',step});
+      const show=()=>{ rg.value=get(); nb.value=String(+(+get()).toFixed(4)); };
+      rg.addEventListener('input',()=>{ set(+rg.value); nb.value=rg.value; changed(); });
+      nb.addEventListener('input',()=>{ if (nb.value==='' || isNaN(+nb.value)) return; set(+nb.value); rg.value=nb.value; changed(); });
+      box.append(rg,nb); parent.appendChild(box); refreshers.push(show); show();
+    };
+    for (const [title,items] of SPEC){
+      const h=document.createElement('h3'); h.textContent=title; panel.appendChild(h);
+      for (const [key,label,min,max,step] of items){
+        const row=document.createElement('div'); row.className='row';
+        const lb=document.createElement('span'); lb.textContent=`${label} — ${key}`; row.appendChild(lb);
+        if (typeof WAVE_DEFAULT[key]==='string'){
+          const box=document.createElement('div'); box.className='ctl';
+          const cp=Object.assign(document.createElement('input'),{type:'color'});
+          cp.addEventListener('input',()=>{ WP[key]=cp.value; changed(); });
+          refreshers.push(()=>{ cp.value=WP[key]; });
+          box.appendChild(cp); row.appendChild(box);
+        }
+        else if (Array.isArray(WAVE_DEFAULT[key])) WAVE_DEFAULT[key].forEach((_,i)=>numCtl(row,()=>WP[key][i],v=>{WP[key][i]=v;},min,max,step));
+        else numCtl(row,()=>WP[key],v=>{WP[key]=v;},min,max,step);
+        panel.appendChild(row);
+      }
+    }
+    // 색과 비율
+    {
+      const h=document.createElement('h3'); h.textContent='색 · 비율 — PAL, W'; panel.appendChild(h);
+      const row=document.createElement('div'); row.className='row';
+      WAVE_DEFAULT.PAL.forEach((_,i)=>{
+        const cp=Object.assign(document.createElement('input'),{type:'color'});
+        cp.addEventListener('input',()=>{ WP.PAL[i]=cp.value; changed(); });
+        refreshers.push(()=>{ cp.value=WP.PAL[i]; });
+        numCtl(row,()=>WP.W[i],v=>{WP.W[i]=v;},0,100,.1,cp);
+      });
+      panel.appendChild(row);
+    }
+    refreshers.forEach(f=>f());
+    const btns=document.createElement('div'); btns.className='btns';
+    const bCopy=Object.assign(document.createElement('button'),{type:'button',textContent:'값 복사'});
+    const bReset=Object.assign(document.createElement('button'),{type:'button',textContent:'기본값으로'});
+    bCopy.addEventListener('click',async()=>{
+      dump();
+      try { await navigator.clipboard.writeText(out.value); }
+      catch(e){ out.select(); document.execCommand('copy'); }
+      bCopy.textContent='복사됨'; setTimeout(()=>{ bCopy.textContent='값 복사'; },1200);
+    });
+    bReset.addEventListener('click',()=>{
+      const d=JSON.parse(JSON.stringify(WAVE_DEFAULT));
+      for (const k in d) WP[k]=d[k];
+      refreshers.forEach(f=>f()); changed();
+    });
+    btns.append(bCopy,bReset); panel.appendChild(btns);
+    panel.appendChild(out);
+    const hint=document.createElement('div'); hint.className='hint';
+    hint.textContent='` 키로 열고 닫기. 바꾼 값은 이 브라우저에 저장됩니다.';
+    panel.appendChild(hint);
+    dump();
+    addEventListener('keydown',e=>{
+      if (e.code!=='Backquote' || e.target.closest?.('input,textarea')) return;
+      e.preventDefault(); panel.hidden=!panel.hidden;
+      dispatchEvent(new Event('debugtoggle'));
+    });
+  })();
+
+  /* ───────── 참고 영상 오버레이 (비교용) ─────────
+     ` 디버그 패널 맨 위: 켜기/끄기, 투명도, 원위치. 영상은 패널이 열려 있을 때만 보인다.
+     영상 위: 한 손가락(마우스) 드래그로 이동, 두 손가락으로 크기, 휠로 크기, 더블클릭으로 원위치. */
+  (()=>{
+    const SRC='https://vialinks.xyz/newstemp?raw=1';
+    const STORE='news-scene-ref-video';
+    const panel=document.getElementById('wavePanel');
+    const home=()=>{ const w=Math.round(Math.min(innerWidth*.4,640)); return {x:16, y:16, w}; }; // 패널(오른쪽 위)과 안 겹치게 왼쪽 위
+    const S=Object.assign({on:false, op:.5}, home());
+    try { Object.assign(S, JSON.parse(localStorage.getItem(STORE)||'{}')); } catch(e){}
+    const save=()=>{ try { localStorage.setItem(STORE, JSON.stringify(S)); } catch(e){} };
+
+    const css=document.createElement('style');
+    css.textContent=`
+#refVideo{position:fixed;z-index:8;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;outline:1px dashed rgba(255,255,255,.35)}
+#refVideo.drag{cursor:grabbing}
+#refVideo[hidden]{display:none}
+#refVideo video{display:block;width:100%;height:auto;pointer-events:none}
+#refBar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#refBar label{display:flex;gap:5px;align-items:center;cursor:pointer}
+#refBar input[type=range]{width:110px;accent-color:#5fb1aa}
+#refBar button{flex:none;padding:3px 8px}`;
+    document.head.appendChild(css);
+
+    const box=document.createElement('div'); box.id='refVideo';
+    const vid=document.createElement('video');
+    vid.muted=true; vid.loop=true; vid.playsInline=true; vid.preload='none';
+    box.appendChild(vid); document.body.appendChild(box);
+
+    const bar=document.createElement('div'); bar.id='refBar';
+    const onLbl=document.createElement('label');
+    const onChk=document.createElement('input'); onChk.type='checkbox';
+    onLbl.append(onChk, '참고 영상');
+    const opLbl=document.createElement('label');
+    const opIn=document.createElement('input'); opIn.type='range'; opIn.min=0; opIn.max=1; opIn.step=.01;
+    const opTxt=document.createElement('span');
+    opLbl.append('투명도', opIn, opTxt);
+    const bHome=document.createElement('button'); bHome.textContent='원위치';
+    bar.append(onLbl, opLbl, bHome);
+    const head=document.createElement('h3'); head.textContent='참고 영상';
+    const row=document.createElement('div'); row.className='row'; row.appendChild(bar);
+    panel.prepend(head, row);
+
+    const apply=()=>{
+      const show=S.on && !panel.hidden;
+      box.hidden=!show;
+      box.style.left=S.x+'px'; box.style.top=S.y+'px'; box.style.width=S.w+'px';
+      vid.style.opacity=S.op;
+      onChk.checked=S.on; opIn.value=S.op; opTxt.textContent=Math.round(S.op*100)+'%';
+      if (show){ if (!vid.src) vid.src=SRC; vid.play().catch(()=>{}); }
+      else vid.pause();
+    };
+    addEventListener('debugtoggle', apply);
+    onChk.onchange=()=>{ S.on=onChk.checked; apply(); save(); };
+    opIn.oninput=()=>{ S.op=+opIn.value; apply(); save(); };
+    const reset=()=>{ Object.assign(S, home()); apply(); save(); };
+    bHome.onclick=reset;
+    box.addEventListener('dblclick', reset);
+
+    // 기준점 p(화면 좌표)를 고정한 채 크기를 base.w×s로 바꿈
+    const MIN_W=80;
+    const scaleAt=(base,s,p)=>{
+      const w=Math.min(Math.max(base.w*s, MIN_W), innerWidth*4);
+      const k=w/base.w;
+      S.w=w; S.x=p.x-(base.px-base.x)*k; S.y=p.y-(base.py-base.y)*k;
+    };
+
+    // 포인터 수가 바뀔 때마다 기준을 다시 잡아서 이동↔확대 전환이 튀지 않게 함
+    const pts=new Map(); let g=null;
+    const mid=()=>{ const a=[...pts.values()]; return a.length<2?a[0]:{x:(a[0].x+a[1].x)/2, y:(a[0].y+a[1].y)/2}; };
+    const dist=()=>{ const [a,b]=[...pts.values()]; return Math.hypot(a.x-b.x, a.y-b.y)||1; };
+    const begin=()=>{
+      if (!pts.size){ g=null; box.classList.remove('drag'); save(); return; }
+      const m=mid();
+      g={x:S.x, y:S.y, w:S.w, px:m.x, py:m.y, d:pts.size>1?dist():0};
+      box.classList.add('drag');
+    };
+    box.addEventListener('pointerdown', e=>{
+      box.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, {x:e.clientX, y:e.clientY}); begin(); e.preventDefault();
+    });
+    box.addEventListener('pointermove', e=>{
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, {x:e.clientX, y:e.clientY});
+      const m=mid();
+      if (pts.size>1) scaleAt(g, dist()/g.d, m);
+      else { S.x=g.x+m.x-g.px; S.y=g.y+m.y-g.py; }
+      apply();
+    });
+    const up=e=>{ if (pts.delete(e.pointerId)) begin(); };
+    box.addEventListener('pointerup', up);
+    box.addEventListener('pointercancel', up);
+    box.addEventListener('wheel', e=>{
+      e.preventDefault();
+      scaleAt({x:S.x, y:S.y, w:S.w, px:e.clientX, py:e.clientY}, Math.exp(-e.deltaY*.0015), {x:e.clientX, y:e.clientY});
+      apply(); save();
+    }, {passive:false});
+
+    apply();
   })();
 
   /* ───────── 바닥 타일 (뉴스장면 바닥 타일.html에서 가져옴) ───────── */
@@ -395,14 +698,15 @@ canvas.layer{pointer-events:none}
   /* ───────── 원근 투영 ─────────
      설계 좌표 기준. 화면 y의 지평선 거리 dy = y − HORIZON 일 때
        깊이 Z = DEPTH / dy (칸 단위),  칸 한 변의 화면 폭 = TILE_K · dy.
-     바닥은 FAR_Y(파도 언덕 아래)부터 화면 아래까지만 보인다.
+     바닥은 FAR_Y부터 화면 아래까지만 보인다. FAR_Y는 맨 앞 파도 띠(y 720–728)보다 위라서 띠와 봉우리 밑동을 덮는다.
      칸 줄(깊이 1칸)마다 평면 띠 캔버스에 타일을 그린 뒤, 화면 가로줄 단위로 잘라 붙인다(정확한 원근).
      깊이 BAND_ROW 칸부터 먼 쪽(파도 언덕·랜턴 바로 앞)은 밝은 띠 구간 — 무늬 미정이라 정적 플레이스홀더 타일. */
-  const HORIZON=537, FAR_Y=712, TILE_K=0.355, DEPTH=3500;
+  const HORIZON=537, FAR_Y=704, TILE_K=0.355, DEPTH=3500;
   const BAND_ROW=14;
-  // 뒤쪽 띠 바닥 + 가로등 슬라이드 (news.mp4 9.5–12초: 오른쪽으로, 원본은 가로등 간격 한 칸 ≈ 2.2초, 현재 0.7배 → ≈ 3.1초)
+  // 뒤쪽 띠 바닥 + 가로등 슬라이드 (news.mp4 9.5–12초: 오른쪽으로. 가로등 하나가 왼쪽 끝에서 들어와 화면 가운데까지 LAMP_IN초)
   const LAMP_BASE_Y=741, LAMP_GAP=557, LAMP_W=280, LAMP_TOP=374;
-  const SLIDE=LAMP_GAP/2.2*0.7;                     // 가로등 밑동 깊이에서 설계 단위/초 (원본의 0.7배 감속)
+  const LAMP_IN=3.5;                                // 원본 3~4초
+  const SLIDE=(VW/2+LAMP_W/2)/LAMP_IN;              // 가로등 밑동 깊이에서 설계 단위/초 (가로등 중심 −140 → 800)
   const SLIDE_TILES=SLIDE/(TILE_K*(LAMP_BASE_Y-HORIZON)); // 같은 속도를 바닥 칸 단위로 (깊이와 무관하게 월드 속도 동일)
   const FOG='150,206,219';
 
