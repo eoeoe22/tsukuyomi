@@ -52,10 +52,17 @@ canvas.layer{pointer-events:none}
       <rect x="25" y="84" width="56" height="10" rx="5"/>
     </symbol>
 
-    <!-- torii.svg 팔레트스왑: 주홍 → --tr, 검정 → --tb -->
+    <!-- torii.svg 팔레트스왑: 주홍 → --tr, 검정 → --tb / 다리 끝 #2596be (경계 그라데이션) -->
+    <linearGradient id="legFade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2596be" stop-opacity="0"/>
+      <stop offset="0.85" stop-color="#2596be" stop-opacity="0"/>
+      <stop offset="1" stop-color="#2596be" stop-opacity="1"/>
+    </linearGradient>
     <symbol id="torii" viewBox="124 62 432 360">
       <path style="fill:var(--tr)" d="M216 110H244L247 410H213Z M436 110H464L467 410H433Z M331 118h18v76h-18Z M168 192h344v20h-344Z M146 86Q340 124 534 86L532 108Q340 146 148 108Z"/>
-      <path style="fill:var(--tb)" d="M210 392h40v28h-40Z M430 392h40v28h-40Z M126 64Q340 108 554 64L548 85Q340 126 132 85Z"/>
+      <path style="fill:var(--tb)" d="M126 64Q340 108 554 64L548 85Q340 126 132 85Z"/>
+      <path fill="#2596be" d="M210 392h40v28h-40Z M430 392h40v28h-40Z"/>
+      <path fill="url(#legFade)" d="M216 110H244L247 410H213Z M436 110H464L467 410H433Z"/>
     </symbol>
   </defs>
 
