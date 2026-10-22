@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="320" height="320" xmlns:c2pa="http://c2pa.org/manifest"><metadata>(생략됨)</metadata>
+  <rect width="160" height="160" fill="#2c6a7b"/>
+  <g fill="#eef4f3">
+    <!-- 위쪽 짧은 막대 -->
+    <rect x="63" y="43" width="42" height="9" rx="4.5"/>
+    <!-- 위쪽 기둥 -->
+    <rect x="85" y="47" width="9" height="20"/>
+    <!-- 가운데 긴 막대 -->
+    <rect x="22" y="63" width="113" height="10" rx="5"/>
+    <!-- 아래쪽 기둥 -->
+    <rect x="43" y="68" width="10" height="20"/>
+    <!-- 아래쪽 막대 -->
+    <rect x="25" y="84" width="56" height="10" rx="5"/>
+  </g>
+</svg>
