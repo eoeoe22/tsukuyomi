@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>바닥 타일 — 무한 확장, 시간차 배열</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#e7ece8; --surface:#f4f6f3; --ink:#11262a; --muted:#56696a; --line:#c6d0cb; --head:#b4542e;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0a1a1d; --surface:#10252a; --ink:#e3e8e2; --muted:#93a7a5; --line:#24403f; --head:#e48a5e;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0a1a1d; --surface:#10252a; --ink:#e3e8e2; --muted:#93a7a5; --line:#24403f; --head:#e48a5e;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html,body{margin:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  font-size:15px; line-height:1.55;
+}
+main{max-width:1180px; margin:0 auto; padding:28px 20px 40px}
+h1{font-size:22px; font-weight:600; margin:0 0 4px; letter-spacing:-0.01em}
+.sub{color:var(--muted); margin:0 0 24px; max-width:64ch}
+.layout{display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:28px; align-items:start}
+@media (max-width:860px){ .layout{grid-template-columns:1fr} }
+
+.stage{
+  border:1px solid var(--line); border-radius:6px; overflow:hidden;
+  background:#0d2b31; perspective:1400px; height:min(72vh,640px); min-height:320px;
+}
+.view{width:100%; height:100%; transition:transform .5s cubic-bezier(.2,.7,.2,1); transform-origin:50% 60%}
+.stage.persp .view{transform:rotateX(55deg) scale(1.6)}
+canvas{width:100%; height:100%; display:block; cursor:grab; touch-action:none}
+canvas.drag{cursor:grabbing}
+
+.panel{display:flex; flex-direction:column; gap:18px}
+.controls{display:flex; flex-wrap:wrap; gap:8px}
+button{
+  font:inherit; font-size:14px; color:var(--ink); background:var(--surface);
+  border:1px solid var(--line); border-radius:4px; padding:7px 12px; cursor:pointer;
+}
+button[aria-pressed="true"]{background:var(--ink); color:var(--bg); border-color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--head); outline-offset:2px}
+.size{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:14px}
+.size input{flex:1; accent-color:var(--head)}
+.size span{font-variant-numeric:tabular-nums; min-width:3.6em; text-align:right}
+dl{margin:0; display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:13px; font-variant-numeric:tabular-nums}
+dt{color:var(--muted)} dd{margin:0}
+.note{font-size:13px; color:var(--muted); margin:0}
+@media (prefers-reduced-motion: reduce){ .view{transition:none} }
+</style>
+</head>
+<body>
+<main>
+  <h1>바닥 타일 — 무한 확장, 흩뿌린 시간차</h1>
+  <p class="sub">칸 좌표만으로 시작 프레임이 정해지는 구조라 화면 크기와 상관없이 바닥이 끝없이 이어집니다. 끌어서 이동하고, 휠이나 슬라이더로 칸 크기를 바꿀 수 있습니다.</p>
+
+  <div class="layout">
+    <section>
+      <div class="stage" id="stage"><div class="view"><canvas id="cv" aria-label="무한 바닥 타일 애니메이션"></canvas></div></div>
+    </section>
+
+    <aside class="panel">
+      <div class="controls">
+        <button id="play" aria-pressed="true">일시정지</button>
+        <button id="mode" aria-pressed="false">물결 배열로 보기</button>
+        <button id="nums" aria-pressed="false">오프셋 숫자</button>
+        <button id="seam" aria-pressed="false">칸 사이 줄눈</button>
+        <button id="persp" aria-pressed="false">원근 보기</button>
+        <button id="home">처음 위치로</button>
+      </div>
+      <label class="size">칸 크기 <input id="size" type="range" min="24" max="320" step="1" value="120"> <span id="szv">120px</span></label>
+
+      <dl>
+        <dt>재생 속도</dt><dd>1.35× 고정 (32.4fps 상당)</dd>
+        <dt>시작 프레임</dt><dd id="fml"></dd>
+        <dt>흔들림</dt><dd id="jit"></dd>
+        <dt>가로 이웃 차이</dt><dd id="chkH">–</dd>
+        <dt>세로 이웃 차이</dt><dd id="chkV">–</dd>
+        <dt>대각 이웃 차이</dt><dd id="chkD">–</dd>
+      </dl>
+      <p class="note">기본은 흩뿌림 배열입니다. 칸마다 바로 옆 칸과 10–30프레임 차이가 나는 값 중에서 무작위로 고르되, 넓게 천천히 변하는 잡음 지도 쪽으로 약하게 끌어당겨 바닥이 얼룩처럼 덩어리져 어긋나게 했습니다. 체커판 반복이나 한 방향 줄무늬가 생기지 않습니다. 버튼으로 이전 물결 배열과 비교할 수 있습니다. 차이 값은 루프를 고려한 원형 거리이며, −100~100 범위 칸을 전수 검사한 결과입니다. 스페이스로 재생/정지.</p>
+    </aside>
+  </div>
+</main>
+
+<script>
+(function(){
+  const FPS = 24, TOTAL = 118, SPEED = 1.35;
+  const K = {
+    pairOut:[10,22], rectIn:[18,28], circIn:[25,35],
+    rcOut:[42,51], rtDraw:[51,77], rtOut:[82,108], pairIn:[94,108]
+  };
+  const CELL='#0d2b31', SAND='#d9c79c', SEAM='#071a1e';
+  const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+  const prog=(f,[a,b])=>clamp((f-a)/(b-a),0,1);
+  const eIn=t=>t*t*t, eOut=t=>1-Math.pow(1-t,3);
+  const eIO=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+  const $=id=>document.getElementById(id);
+  const mod=(a,n)=>((a%n)+n)%n;
+
+  // 직각삼각형 (반시계방향: 왼쪽 아래 → 오른쪽 아래 → 오른쪽 위)
+  const RT_C=[[5.07,97.9],[97.9,97.9],[97.9,5.07]], RT_W=2.1, RT_R=8;
+  const RT=(()=>{
+    const n=RT_C.length;
+    const cx=RT_C.reduce((s,p)=>s+p[0],0)/n, cy=RT_C.reduce((s,p)=>s+p[1],0)/n;
+    const E=[];
+    for (let i=0;i<n;i++){
+      const A=RT_C[i], B=RT_C[(i+1)%n];
+      const dx=B[0]-A[0], dy=B[1]-A[1], len=Math.hypot(dx,dy), d=[dx/len,dy/len];
+      let nn=[-d[1],d[0]];
+      if (nn[0]*((A[0]+B[0])/2-cx)+nn[1]*((A[1]+B[1])/2-cy)<0) nn=[-nn[0],-nn[1]];
+      E.push({A,d,n:nn,len});
+    }
+    const isect=(P,d1,Q,d2)=>{
+      const den=d1[0]*d2[1]-d1[1]*d2[0];
+      const t=((Q[0]-P[0])*d2[1]-(Q[1]-P[1])*d2[0])/den;
+      return [P[0]+d1[0]*t, P[1]+d1[1]*t];
+    };
+    const off=(e,sg)=>[e.A[0]+sg*RT_W*e.n[0], e.A[1]+sg*RT_W*e.n[1]];
+    let acc=0;
+    E.forEach((e,i)=>{
+      e.start=acc; acc+=e.len;
+      const pv=E[(i+n-1)%n], nx=E[(i+1)%n];
+      e.side={};
+      for (const sg of [1,-1]){
+        const base=off(e,sg);
+        const cs=isect(base,e.d,off(pv,sg),pv.d), ce=isect(base,e.d,off(nx,sg),nx.d);
+        const proj=p=>(p[0]-base[0])*e.d[0]+(p[1]-base[1])*e.d[1];
+        e.side[sg]={base, s0:proj(cs), s1:proj(ce)};
+      }
+    });
+    return {E, P:acc};
+  })();
+  function rtPiece(e,u0,u1){
+    const b0=clamp(1-u0/RT_R,0,1), b1=clamp(1-(e.len-u1)/RT_R,0,1);
+    const pt=(S,u)=>`${(S.base[0]+e.d[0]*u).toFixed(3)} ${(S.base[1]+e.d[1]*u).toFixed(3)}`;
+    const seg={};
+    for (const sg of [1,-1]){
+      const S=e.side[sg];
+      let a=u0*(1-b0)+S.s0*b0, b=u1*(1-b1)+S.s1*b1;
+      if (a>b) a=b=(a+b)/2;
+      seg[sg]=[pt(S,a),pt(S,b)];
+    }
+    return `M${seg[1][0]}L${seg[1][1]}L${seg[-1][1]}L${seg[-1][0]}Z`;
+  }
+  function rtPath(T,H){
+    const P=RT.P; let d='';
+    if (H-T>=1-1e-6){ for (const e of RT.E) d+=rtPiece(e,0,e.len); return d; }
+    const x0=T*P, x1=H*P;
+    for (let k=Math.floor(x0/P)-1;k<=Math.floor(x1/P)+1;k++){
+      for (const e of RT.E){
+        const s=k*P+e.start, t=s+e.len;
+        const a=Math.max(x0,s), b=Math.min(x1,t);
+        if (b-a>1e-6) d+=rtPiece(e,a-s,b-s);
+      }
+    }
+    return d;
+  }
+
+
+  // 칸 좌표 → 시작 오프셋
+  const STEP_X=14, STEP_Y=26, JIT=2;
+  let MODE='scatter';
+  function hash(x,y){
+    let h=Math.imul(x|0,0x27d4eb2d)^Math.imul(y|0,0x165667b1);
+    h=Math.imul(h^(h>>>15),0x85ebca6b); h^=h>>>13; h=Math.imul(h,0xc2b2ae35); h^=h>>>16;
+    return h>>>0;
+  }
+  const jitter=(x,y)=>(hash(x,y)%(2*JIT+1))-JIT;
+  const waveOffset=(x,y)=>mod(STEP_X*x+STEP_Y*y+jitter(x,y),TOTAL);
+
+  // 흩뿌림: 원점에서 바깥쪽으로 칸을 하나씩 정한다.
+  // 각 칸은 원점 쪽 이웃(가로 1, 세로 1)과 10–30프레임 차이가 나는 값들 중에서 무작위로 고르며,
+  // 반대쪽 이웃은 나중에 이 칸을 보고 정해지므로 네 이웃 모두 조건을 만족한다.
+  // 고를 때는 (1) 넓게 천천히 변하는 잡음 지도에 가까운 값, (2) 원점 쪽 대각선 칸과 겹치지 않는 값을 조금 더 잘 뽑아
+  // 체커판 반복과 사선 줄무늬를 깨고, 바닥이 얼룩처럼 덩어리져 어긋나 보이게 한다.
+  const rnd=(x,y,s)=>(hash(x^Math.imul(s,0x632be5ab),y+s*7919)>>>0)/4294967296;
+  function vnoise(x,y){
+    const X=Math.floor(x),Y=Math.floor(y),fx=x-X,fy=y-Y,sm=t=>t*t*(3-2*t);
+    const v=(i,j)=>rnd(i,j,3)*2-1;
+    const p=v(X,Y)+(v(X+1,Y)-v(X,Y))*sm(fx), q=v(X,Y+1)+(v(X+1,Y+1)-v(X,Y+1))*sm(fx);
+    return p+(q-p)*sm(fy);
+  }
+  const SIG=25, AMP=50, SCALE=8, DIAG=12;
+  const cdist=(a,b)=>{const d=mod(a-b,TOTAL); return Math.min(d,TOTAL-d);};
+  const memo=new Map();
+  function computeCell(x,y,sx,sy){
+    const deps=[]; if (sx) deps.push(memo.get(`${x-sx},${y}`)); if (sy) deps.push(memo.get(`${x},${y-sy}`));
+    const diag=(sx&&sy)?memo.get(`${x-sx},${y-sy}`):null;
+    const t=mod(Math.round(AMP*vnoise(x/SCALE+.37,y/SCALE+.71)),TOTAL);
+    if (!deps.length) return t;
+    const cands=[], w=[]; let tot=0;
+    for (let c=0;c<TOTAL;c++){
+      let ok=true; for (const n of deps){ const d=cdist(c,n); if (d<10||d>30){ok=false;break;} }
+      if (!ok) continue;
+      const dt=cdist(c,t); let ww=Math.exp(-dt*dt/(2*SIG*SIG));
+      if (diag!==null){ const dd=cdist(c,diag); ww*=1-Math.exp(-dd*dd/(2*DIAG*DIAG)); }
+      cands.push(c); w.push(ww+1e-9); tot+=ww+1e-9;
+    }
+    let r=rnd(x,y,7)*tot;
+    for (let i=0;i<cands.length;i++){ r-=w[i]; if (r<=0) return cands[i]; }
+    return cands[cands.length-1];
+  }
+  function scatterOffset(x,y){
+    const key=`${x},${y}`; let v=memo.get(key); if (v!==undefined) return v;
+    const stack=[[x,y]];
+    while (stack.length){
+      const [cx,cy]=stack[stack.length-1];
+      const k=`${cx},${cy}`; if (memo.has(k)){ stack.pop(); continue; }
+      const sx=Math.sign(cx), sy=Math.sign(cy), need=[];
+      if (sx && !memo.has(`${cx-sx},${cy}`)) need.push([cx-sx,cy]);
+      if (sy && !memo.has(`${cx},${cy-sy}`)) need.push([cx,cy-sy]);
+      if (sx && sy && !memo.has(`${cx-sx},${cy-sy}`)) need.push([cx-sx,cy-sy]);
+      if (need.length){ stack.push(...need); continue; }
+      memo.set(k,computeCell(cx,cy,sx,sy)); stack.pop();
+    }
+    return memo.get(key);
+  }
+  const offsetOf=(x,y)=>MODE==='scatter'?scatterOffset(x,y):waveOffset(x,y);
+
+  // 이웃 차이 검사
+  function check(){
+    const cd=(a,b)=>{const d=mod(a-b,TOTAL); return Math.min(d,TOTAL-d);};
+    let h=[1e9,0], v=[1e9,0], dg=[1e9,0];
+    const upd=(r,d)=>{r[0]=Math.min(r[0],d); r[1]=Math.max(r[1],d);};
+    for (let y=-100;y<100;y++) for (let x=-100;x<100;x++){
+      const o=offsetOf(x,y);
+      upd(h,cd(o,offsetOf(x+1,y))); upd(v,cd(o,offsetOf(x,y+1)));
+      upd(dg,cd(o,offsetOf(x+1,y+1))); upd(dg,cd(o,offsetOf(x+1,y-1)));
+    }
+    $('chkH').textContent=`${h[0]} – ${h[1]} 프레임`;
+    $('chkV').textContent=`${v[0]} – ${v[1]} 프레임`;
+    $('chkD').textContent=`${dg[0]} – ${dg[1]} 프레임`;
+    const sc=MODE==='scatter';
+    $('fml').textContent=sc?'이웃과 10–30 차이가 나는 값 중 무작위 (잡음 지도 쪽으로 약하게 끌림)':'(14·열 + 26·행 + 흔들림) mod 118';
+    $('jit').textContent=sc?'없음 — 배정 자체가 칸마다 무작위':'칸마다 −2 ~ +2 프레임, 좌표 해시로 고정';
+  }
+  check();
+
+  // 그리기
+  const cv=$('cv'), ctx=cv.getContext('2d');
+  let W=0,H=0,DPR=1;
+  function resize(){
+    const r=cv.getBoundingClientRect(); DPR=Math.min(window.devicePixelRatio||1,2);
+    W=r.width; H=r.height; cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR);
+  }
+  new ResizeObserver(resize).observe(cv); resize();
+
+  const TRI_TOP=new Path2D('M5.07 2.1L94.93 2.1L50 47.03Z');
+  const TRI_BOT=new Path2D('M5.07 97.9L94.93 97.9L50 52.97Z');
+  const rtCache=new Map();
+  function rtFor(f){
+    const k=f.toFixed(3);
+    let p=rtCache.get(k);
+    if (p!==undefined) return p;
+    let T,Hd;
+    if (f < K.rtOut[0]) { const q=eIO(prog(f,K.rtDraw)); Hd=2*q; T=q; }
+    else { const q=eIO(prog(f,K.rtOut)); Hd=1+q; T=2*q; }
+    p = Hd-T>0.0005 ? new Path2D(rtPath(T,Hd)) : null;
+    rtCache.set(k,p); return p;
+  }
+  const scaleAt=(cx,cy,s)=>{ ctx.translate(cx,cy); ctx.scale(s,s); ctx.translate(-cx,-cy); };
+
+  function drawTile(f){
+    ctx.fillStyle=CELL; ctx.fillRect(0,0,100,100);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0,0,100,100); ctx.clip();
+    ctx.strokeStyle=SAND; ctx.fillStyle=SAND; ctx.lineJoin='miter'; ctx.miterLimit=10;
+
+    let off, op;
+    if (f < K.pairIn[0]) { const p=eIn(prog(f,K.pairOut)); off=30*p; op=1-p; }
+    else { const q=eOut(prog(f,K.pairIn)); off=30*(1-q); op=q; }
+    if (op>0.001){
+      ctx.globalAlpha=op; ctx.lineWidth=4.2;
+      ctx.save(); ctx.translate(0,-off); ctx.stroke(TRI_TOP); ctx.restore();
+      ctx.save(); ctx.translate(0,off); ctx.stroke(TRI_BOT); ctx.restore();
+    }
+
+    const shapeState=(inSeg)=>{
+      if (f < inSeg[0] || f >= K.rcOut[1]) return {s:0,o:0};
+      if (f < K.rcOut[0]) return {s:eOut(prog(f,inSeg)), o:1};
+      const p=eOut(prog(f,K.rcOut)); return {s:1+0.12*p, o:1-p};
+    };
+    const r=shapeState(K.rectIn), c=shapeState(K.circIn);
+    ctx.lineWidth=4.8;
+    if (r.o>0.001 && r.s>0.0005){
+      ctx.globalAlpha=r.o; ctx.save(); scaleAt(50,97.3,r.s);
+      ctx.strokeRect(3.15,78.8,93.7,18.5); ctx.restore();
+    }
+    if (c.o>0.001 && c.s>0.0005){
+      ctx.globalAlpha=c.o; ctx.save(); scaleAt(49.4,37.4,c.s);
+      ctx.beginPath(); ctx.arc(49.4,37.4,27.6,0,Math.PI*2); ctx.stroke(); ctx.restore();
+    }
+
+    if (f >= K.rtDraw[0] && f < K.rtOut[1]){
+      const p=rtFor(f);
+      if (p){ ctx.globalAlpha=1; ctx.fill(p); }
+    }
+    ctx.restore();
+  }
+
+  let camX=0, camY=0, size=120, showNums=false, showSeam=false;
+  function render(frame){
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    ctx.fillStyle=CELL; ctx.fillRect(0,0,W,H);
+    // 화면 중앙이 월드 좌표 (camX, camY)
+    const left=camX-W/2/size, top=camY-H/2/size;
+    const x0=Math.floor(left), y0=Math.floor(top);
+    const x1=Math.ceil(camX+W/2/size), y1=Math.ceil(camY+H/2/size);
+    rtCache.clear();
+    for (let y=y0;y<y1;y++) for (let x=x0;x<x1;x++){
+      const o=offsetOf(x,y);
+      const f=(frame+o)%TOTAL;
+      ctx.setTransform(DPR,0,0,DPR,0,0);
+      ctx.translate((x-left)*size,(y-top)*size);
+      ctx.scale(size/100,size/100);
+      drawTile(f);
+      if (showNums){
+        ctx.globalAlpha=1; ctx.fillStyle='rgba(7,26,30,.78)'; ctx.fillRect(2,2,30,18);
+        ctx.fillStyle='#f2e6c8'; ctx.font='600 12px "IBM Plex Sans KR",system-ui,sans-serif';
+        ctx.textBaseline='middle'; ctx.fillText(String(o),6,11.5);
+      }
+    }
+    if (showSeam){
+      ctx.setTransform(DPR,0,0,DPR,0,0);
+      ctx.strokeStyle=SEAM; ctx.lineWidth=Math.max(1,size*0.016); ctx.globalAlpha=1;
+      ctx.beginPath();
+      for (let x=x0;x<=x1;x++){ const px=(x-left)*size; ctx.moveTo(px,0); ctx.lineTo(px,H); }
+      for (let y=y0;y<=y1;y++){ const py=(y-top)*size; ctx.moveTo(0,py); ctx.lineTo(W,py); }
+      ctx.stroke();
+    }
+  }
+
+  // 재생
+  let frame=0, playing=!matchMedia('(prefers-reduced-motion: reduce)').matches, last=null;
+  const playBtn=$('play');
+  const setPlaying=v=>{ playing=v; playBtn.textContent=v?'일시정지':'재생'; playBtn.setAttribute('aria-pressed',v); last=null; };
+  setPlaying(playing);
+  function tick(ts){
+    if (playing){
+      if (last!==null) frame=(frame+(ts-last)/1000*FPS*SPEED)%TOTAL;
+      last=ts;
+    }
+    render(frame);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // 이동·확대
+  let drag=null;
+  cv.addEventListener('pointerdown',e=>{ drag={x:e.clientX,y:e.clientY,cx:camX,cy:camY}; cv.setPointerCapture(e.pointerId); cv.classList.add('drag'); });
+  cv.addEventListener('pointermove',e=>{ if(!drag) return; camX=drag.cx-(e.clientX-drag.x)/size; camY=drag.cy-(e.clientY-drag.y)/size; });
+  const endDrag=()=>{ drag=null; cv.classList.remove('drag'); };
+  cv.addEventListener('pointerup',endDrag); cv.addEventListener('pointercancel',endDrag);
+  const setSize=(s,ax,ay)=>{
+    s=clamp(Math.round(s),24,320);
+    if (ax!==undefined){ // 커서 위치 고정 확대
+      const wx=camX+(ax-W/2)/size, wy=camY+(ay-H/2)/size;
+      camX=wx-(ax-W/2)/s; camY=wy-(ay-H/2)/s;
+    }
+    size=s; $('size').value=s; $('szv').textContent=s+'px';
+  };
+  cv.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const r=cv.getBoundingClientRect();
+    setSize(size*Math.exp(-e.deltaY*0.0015), e.clientX-r.left, e.clientY-r.top);
+  },{passive:false});
+  $('size').oninput=e=>setSize(+e.target.value);
+
+  playBtn.onclick=()=>setPlaying(!playing);
+  $('home').onclick=()=>{ camX=0; camY=0; };
+  const toggle=(id,fn)=>{ const b=$(id); b.onclick=()=>{ const v=b.getAttribute('aria-pressed')!=='true'; b.setAttribute('aria-pressed',v); fn(v); }; };
+  toggle('mode',v=>{ MODE=v?'wave':'scatter'; $('mode').textContent=v?'흩뿌림 배열로 보기':'물결 배열로 보기'; $('mode').setAttribute('aria-pressed','false'); check(); });
+  toggle('nums',v=>showNums=v);
+  toggle('seam',v=>showSeam=v);
+  toggle('persp',v=>$('stage').classList.toggle('persp',v));
+  document.addEventListener('keydown',e=>{
+    if (e.target.tagName==='INPUT') return;
+    if (e.code==='Space'){ e.preventDefault(); setPlaying(!playing); }
+  });
+})();
+</script>
+</body>
+</html>
