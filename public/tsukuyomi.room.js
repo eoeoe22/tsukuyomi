@@ -77,14 +77,14 @@ function sky(g) {
   const kb = kAt(ZB);
   const hz = CY;   // 바다 수평선 = 눈높이
   const gr = g.createLinearGradient(0, CY - kb * 3, 0, hz);
-  gr.addColorStop(0, '#22356a'); gr.addColorStop(0.7, '#2e4683'); gr.addColorStop(1, '#3a5290');
+  gr.addColorStop(0, '#113154'); gr.addColorStop(0.7, '#174167'); gr.addColorStop(1, '#1d4c72');
   g.fillStyle = gr; g.fillRect(0, 0, W, hz);
   // 구름 (어두운 덩어리 + 옅은 윗가장자리)
   const r = mulberry32(11);
   for (let i = 0; i < 26; i++) {
     const x = 180 + r() * 1240, y = hz - 20 - r() * 150, rx = 60 + r() * 140, ry = 12 + r() * 22;
     const cg = g.createRadialGradient(x, y, 0, x, y, rx);
-    cg.addColorStop(0, 'rgba(70,92,150,0.55)'); cg.addColorStop(1, 'rgba(70,92,150,0)');
+    cg.addColorStop(0, 'rgba(35,85,119,0.55)'); cg.addColorStop(1, 'rgba(35,85,119,0)');
     g.save(); g.translate(x, y); g.scale(1, ry / rx); g.translate(-x, -y);
     g.fillStyle = cg; g.beginPath(); g.arc(x, y, rx, 0, Math.PI * 2); g.fill(); g.restore();
   }
@@ -94,7 +94,7 @@ function sky(g) {
   }
   // 바다
   const sg = g.createLinearGradient(0, hz, 0, hz + 140);
-  sg.addColorStop(0, '#1a2650'); sg.addColorStop(1, '#0c1330');
+  sg.addColorStop(0, '#0d2441'); sg.addColorStop(1, '#061230');
   g.fillStyle = sg; g.fillRect(0, hz, W, H - hz);
   g.strokeStyle = 'rgba(140,160,220,0.08)'; g.lineWidth = 1;
   for (let i = 1; i < 12; i++) { const y = hz + i * i * 1.2; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
@@ -820,7 +820,7 @@ function lanternMotifs(g, L, sp) {
 }
 
 // ===== 그리기 =====
-const S = { dark: 94, glowSq: 35, glowCy: 70, pat: 75, flicker: false, spin: true, tags: false,
+const S = { dark: 96, glowSq: 50, glowCy: 85, pat: 90, flicker: false, spin: true, tags: false,
   embX: -2.46, embZ: -11.64, embR: 0.8 };   // 바닥 원 문양 위치(m)·반지름(m)
 let base = null, albedoDirty = false;
 function buildBase() {
@@ -837,7 +837,7 @@ function buildBase() {
   }
   // 밤 실내: 곱하기로 전체를 어둡게 (푸른 기)
   const a = S.dark / 100;
-  const c = [255 - 190 * a, 255 - 192 * a, 255 - 170 * a].map(n => n | 0);
+  const c = [255 - 190 * a, 255 - 192 * a, 255 - 180 * a].map(n => n | 0);
   g.globalCompositeOperation = 'multiply'; g.fillStyle = `rgb(${c})`; g.fillRect(0, 0, W, H);
   g.globalCompositeOperation = 'source-over';
 }
@@ -894,7 +894,7 @@ function draw() {
   ctx.globalCompositeOperation = 'screen';
   for (const L of LANTERNS) {
     const cy = L.sy - L.h * (L.type === 'cy' ? 0.62 : 0.45) * L.k, r = L.h * 0.9 * L.k;
-    radial(ctx, L.sx, cy, r, r, glow('255,190,110', 0.22 * GL(L) * L.fl));
+    radial(ctx, L.sx, cy, r, r, glow('255,190,110', 0.3 * GL(L) * L.fl));
   }
   ctx.globalCompositeOperation = 'source-over';
   vignette();
