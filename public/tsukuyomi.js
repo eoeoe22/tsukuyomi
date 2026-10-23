@@ -155,6 +155,10 @@
                 // 하늘은 SKY_DN으로, 구름은 짙은 남색 실루엣(DN_CLOUD = 덮는 세기)으로, 틈 빛은 DN_LIGHT만 남긴다.
                 // DN_FADE: 전환 시간(초), DN_STAR: 공백 밤에서 별 궤적 밝기 배율, DN_WATER: 수면 추가 어둡힘
                 DN_FADE: 1.8, DN_CLOUD: 0.86, DN_LIGHT: 0.08, DN_STAR: 1.35, DN_WATER: 0.35,
+                // 파스텔 색조(reference-images/sea-pastel-ref.webp): 바다 색감 그룹에서 '색조'(bi-thermometer-half) 선택 시 공백 장면 전체에 색 보정을 얹는다.
+                // 기존 색감은 그대로 두고 수면까지 그린 뒤 한 번에 덮는다(라벤더 리프트 → 채도 감소 → 핑크 soft-light → 수평선 핑크 안개).
+                // TN_A: 전체 세기, TN_FADE: 전환 시간(초), TN_DESAT: 채도 감소, TN_PINK: 핑크 soft-light 배율, TN_BAND: 수평선 안개 배율
+                TN_A: 1, TN_FADE: 1.4, TN_DESAT: 0.24, TN_PINK: 1, TN_BAND: 0.75,
                 // DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
                 DY_COLUMN: 0,
                 // 구름 뚫림(ref: 어두운 앞 구름이 불균일하게 찢겨 그 너머 햇빛 받은 흰 구름이 비친다):
@@ -558,6 +562,16 @@
             const day2W = () => sunVis * day2On();
             // 공백 밤: dnOn = 토글 상태, dnA = 전환 페이드(0..1). 새 낮 분기에서만 쓰이므로 day2W를 곱한 dnW()로 적용한다.
             let dnOn = false, dnA = 0;
+            // 파스텔 색조: tnOn = 토글 상태, tnA = 전환 페이드(0..1). 공백 밤과 같이 새 낮 분기에서만 쓴다.
+            let tnOn = false, tnA = 0;
+            const tnW = () => ss(0, 1, tnA) * day2W();
+            // 색조 팔레트(PIL/numpy로 참조 이미지 분위수·행 중앙값에 맞춘 값): screen 리프트(하늘 위/수평선, 수면 수평선/아래),
+            // soft-light 핑크와 세로 세기(하늘 위/수평선/수면 아래), 수평선 안개 색·폭(화면 높이 비율)
+            const TONE = {
+                lift: ['#30426a', '#584d99', '#997892', '#322745'],
+                pink: '#dcc4c2', pinkA: [0.56, 0.41, 0.31],
+                band: '#b8949a', bandW: 0.14
+            };
             const dnW0 = () => (day2On() ? ss(0, 1, dnA) : 0);
             const dnW = () => ss(0, 1, dnA) * day2W();
             // 하늘 색: 낮 분기(SKY_DAY2 또는 기존 SKY_DAY)와 황혼 분기(SKY)를 sunVis로 보간. idle에서는 한쪽만 쓰인다.
@@ -4639,6 +4653,11 @@ void main() {
                     dsTail += CFG.W_SLOW * dt;
                     if (!dsOn && dsA <= 0) { dsK = 0; dsTail = 0; }
                 }
+                // 파스텔 색조 전환 페이드
+                if (tnOn ? tnA < 1 : tnA > 0) {
+                    const fd = Math.max(0.05, CFG.TN_FADE);
+                    tnA = tnOn ? Math.min(1, tnA + dt / fd) : Math.max(0, tnA - dt / fd);
+                }
                 // 공백 밤 전환 페이드
                 if (dnOn ? dnA < 1 : dnA > 0) {
                     const fd = Math.max(0.05, CFG.DN_FADE);
@@ -5295,6 +5314,46 @@ void main() {
                 S.restore();
             }
 
+            // 파스텔 색조 패스 (화면 좌표, 기기 px). 카메라 모드에서는 화면에 보이는 수평선 위치를 기준으로 한다.
+            function drawTone(a) {
+                const Wd = cv.width, Hd = cv.height;
+                const hy = clamp((camOn() ? camW2S(0, HZ).y : HZ) / H, 0.02, 0.98);
+                const rgbS = (c, al) => `rgba(${hex(c).map(Math.round).join(',')},${clamp(al, 0, 1).toFixed(3)})`;
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.globalAlpha = a;
+                // 1) 라벤더 리프트: 짙은 남색 그늘을 참조의 회보라로 들어 올린다
+                const L = TONE.lift;
+                const lg = ctx.createLinearGradient(0, 0, 0, Hd);
+                lg.addColorStop(0, L[0]); lg.addColorStop(hy, L[1]);
+                lg.addColorStop(Math.min(1, hy + 0.001), L[2]); lg.addColorStop(1, L[3]);
+                ctx.globalCompositeOperation = 'screen';
+                ctx.fillStyle = lg; ctx.fillRect(0, 0, Wd, Hd);
+                // 2) 채도 감소
+                ctx.globalCompositeOperation = 'saturation';
+                ctx.globalAlpha = a * clamp(CFG.TN_DESAT, 0, 1);
+                ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, Wd, Hd);
+                ctx.globalAlpha = a;
+                // 3) 핑크 soft-light: 중간톤·하이라이트를 복숭아빛 핑크로
+                const pk = CFG.TN_PINK, PA = TONE.pinkA;
+                const pg = ctx.createLinearGradient(0, 0, 0, Hd);
+                pg.addColorStop(0, rgbS(TONE.pink, PA[0] * pk)); pg.addColorStop(hy, rgbS(TONE.pink, PA[1] * pk));
+                pg.addColorStop(1, rgbS(TONE.pink, PA[2] * pk));
+                ctx.globalCompositeOperation = 'soft-light';
+                ctx.fillStyle = pg; ctx.fillRect(0, 0, Wd, Hd);
+                // 4) 수평선 핑크 안개 (가우시안 근사)
+                const bw = TONE.bandW, bA = CFG.TN_BAND;
+                const y0 = Math.max(0, hy - bw * 2.2), y1 = Math.min(1, hy + bw * 2.2);
+                const bg = ctx.createLinearGradient(0, y0 * Hd, 0, y1 * Hd);
+                for (let i = 0; i <= 12; i++) {
+                    const t = i / 12, y = lerp(y0, y1, t), d = (y - hy) / bw;
+                    bg.addColorStop(t, rgbS(TONE.band, bA * Math.exp(-d * d)));
+                }
+                ctx.globalCompositeOperation = 'screen';
+                ctx.fillStyle = bg; ctx.fillRect(0, y0 * Hd, Wd, (y1 - y0) * Hd);
+                ctx.restore();
+            }
+
             function render() {
                 let zp = zpNow();
                 drawSky();
@@ -5501,6 +5560,9 @@ void main() {
                 const sg = ctx.createLinearGradient(0, HZ - 6, 0, HZ + 14);
                 sg.addColorStop(0, rgba(hl, 0)); sg.addColorStop(0.3, rgba(hl, CFG.SEAM_A)); sg.addColorStop(1, rgba(hl, 0));
                 ctx.fillStyle = sg; ctx.fillRect(0, HZ - 6, W, 20);
+                // 파스텔 색조: 하늘·구름·수면을 다 그린 뒤 화면 전체에 덮는다(전경·비네팅은 제외). 공백 밤·밤 전환에서는 빠진다
+                const tw = (CFG.TN_A ?? 1) * tnW() * (1 - ss(CFG.DY_F0, CFG.DY_F1, qR)) * (1 - dnR);
+                if (tw > 0.005) drawTone(Math.min(1, tw));
                 zpAdd('water', zp);
                 zp = zpNow();
 
@@ -6159,24 +6221,32 @@ void main() {
                 }
             });
 
-            // ---------- 공백 밤 토글 (공백 장면에서만 노출, 기본값 비활성화) ----------
-            // 별 궤적 토글과 같은 방식. 켜면 공백 장면이 DN_FADE초에 걸쳐 밤(day-empty-dark)으로 어두워진다.
-            const elDark = document.getElementById('btnDark');
-            function setDayDark(on) {
-                dnOn = !!on;
-                if (elDark) {
-                    elDark.classList.toggle('on', dnOn);
-                    elDark.setAttribute('aria-pressed', dnOn ? 'true' : 'false');
+            // ---------- 바다 색감 그룹 [기본 / 색조 / 밤] (공백 장면에서만 노출, 기본값 '기본') ----------
+            // 밤에서는 색조 차이가 보이지 않으므로 셋 중 하나만 고른다. 색조(tnOn)·밤(dnOn)은 각자 페이드(TN_FADE/DN_FADE)로 교차 전환된다.
+            const elSeaGroup = document.getElementById('seaModeGroup');
+            const seaBtns = elSeaGroup ? [...elSeaGroup.querySelectorAll('button[data-sea]')] : [];
+            const seaModeOf = () => (dnOn ? 'dark' : tnOn ? 'tone' : 'base');
+            function setSeaMode(m) {
+                if (m !== 'tone' && m !== 'dark') m = 'base';
+                dnOn = m === 'dark';
+                tnOn = m === 'tone';
+                for (const btn of seaBtns) {
+                    const on = btn.dataset.sea === m;
+                    btn.classList.toggle('on', on);
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
                 }
+                if (elSeaGroup) elSeaGroup.classList.toggle('is-base', m === 'base');
             }
-            if (elDark) elDark.addEventListener('click', e => {
+            const setDayDark = on => setSeaMode(on ? 'dark' : (dnOn ? 'base' : seaModeOf()));
+            const setDayTone = on => setSeaMode(on ? 'tone' : (tnOn ? 'base' : seaModeOf()));
+            for (const btn of seaBtns) btn.addEventListener('click', e => {
                 e.stopPropagation();
-                const pn = elDark.closest('.panel') || elPanel;
+                const pn = btn.closest('.panel') || elPanel;
                 if (TOUCH_UI && pn && !pn.classList.contains('expanded')) {
                     pn.classList.add('expanded');
                     moveThumb();
                 }
-                setDayDark(!dnOn);
+                setSeaMode(btn.dataset.sea);
                 if (TOUCH_UI && pn) {
                     clearTimeout(collapseTimer);
                     collapseTimer = setTimeout(() => {
@@ -6240,6 +6310,8 @@ void main() {
                 // 공백 장면 토글 (하단 btnStars/btnDark과 동일, Wallpaper Engine 일반 옵션에서 쓴다)
                 get dayStars() { return dsOn; }, set dayStars(v) { setDayStars(!!v); },
                 get dayDark() { return dnOn; }, set dayDark(v) { setDayDark(!!v); },
+                get dayTone() { return tnOn; }, set dayTone(v) { setDayTone(!!v); },
+                get seaMode() { return seaModeOf(); }, set seaMode(v) { setSeaMode(v); },
                 // 밤 물고기 군집 배치 옵션 (하단 btnCursorOff/Track/Moon과 동일)
                 get cursor() { return cursorMode !== 0; }, set cursor(v) { setCursorMode(v ? 1 : 0); },
                 get cursorMode() { return cursorMode; }, set cursorMode(v) { setCursorMode(v); },

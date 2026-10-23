@@ -279,8 +279,8 @@
   if (ROUTE) window.addEventListener('hashchange', onRoute);
 
   // ---------- 세계 드롭다운 (각 패널 맨 왼쪽) ----------
-  // 아이콘: 16px 단색(currentColor). 토리이는 reference-images/done/torii.svg를 줄인 examples/torii-icon.svg,
-  // 산은 examples/mountain-icon.svg, 바다·지구는 bootstrap-icons
+  // 아이콘: 16px 단색(currentColor), path를 아래에 인라인(파일 의존 없음). 토리이·산은 초안 torii-icon.svg·mountain-icon.svg
+  // (examples/ 임시 폴더)에서 옮겨 왔고, 바다·지구는 bootstrap-icons
   const svg16 = d => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="' + d + '"/></svg>';
   const MENU = [
     {

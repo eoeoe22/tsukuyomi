@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ko"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>사각뿔대 종이 랜턴 · 반3D</title>
+<style>
+  :root { --bg:#f1eee9; --fg:#2b2230; --mut:#7a7068; --card:#fffdf9; --line:#ddd5cb; --acc:#c9772e; color-scheme:light;
+    box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --bg:#141317; --fg:#ece6df; --mut:#a39a91; --card:#1d1b20; --line:#34303a; --acc:#f0a050; color-scheme:dark; } }
+  :root[data-theme="dark"]{ --bg:#141317; --fg:#ece6df; --mut:#a39a91; --card:#1d1b20; --line:#34303a; --acc:#f0a050; color-scheme:dark; }
+  html{scroll-padding-top:env(safe-area-inset-top,0px)}
+  *,*::before,*::after{box-sizing:inherit}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;display:flex;justify-content:center}
+  main{width:100%;max-width:380px;padding:18px 14px 28px}
+  h1{font-size:16px;margin:0 0 10px;font-weight:650}
+  .stage{border-radius:14px;overflow:hidden;background:#0d1220;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+  canvas{width:100%;aspect-ratio:320/460;display:block}
+  .ctl{margin-top:12px;display:grid;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+  label{display:grid;gap:2px;font-size:13px} label span{display:flex;justify-content:space-between} label b{font-weight:600;color:var(--acc)}
+  input[type=range]{width:100%;accent-color:var(--acc)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  button{font:inherit;font-size:13px;padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);cursor:pointer}
+  button:hover{border-color:var(--acc)}
+  .chk{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--mut)}
+  textarea{width:100%;height:84px;font:11px ui-monospace,Menlo,monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:6px}
+  #prev{margin-top:10px;display:none;border-radius:10px;overflow:hidden;border:1px solid var(--line)} #prev svg{width:100%;height:auto;display:block}
+  .note{font-size:12px;color:var(--mut);margin:4px 0 0}
+</style>
+</head><body>
+<main>
+  <h1>사각뿔대 종이 랜턴</h1>
+  <div class="stage"><canvas id="cv" aria-label="회전하는 사각뿔대 모양의 종이 랜턴"></canvas></div>
+  <div class="ctl">
+    <label><span>시점 기울기 <b id="vt"></b></span><input type="range" id="tilt" min="-90" max="90" value="16"></label>
+    <label><span>회전 <b id="vr"></b></span><input type="range" id="rotIn" min="0" max="360" value="24"></label>
+    <div class="row">
+      <button id="exp">현재 프레임 SVG 내보내기</button>
+      <label class="chk"><input type="checkbox" id="bgOn" checked> 배경 포함</label>
+    </div>
+    <textarea id="out" readonly placeholder="여기에 SVG 코드가 나옵니다"></textarea>
+    <div id="prev"></div>
+    <p class="note">아래 미리보기는 내보낸 SVG를 그대로 넣은 것입니다.</p>
+  </div>
+</main>
+<script>
+// ===== 설정 =====
+const W = 320, H = 460, CX = W / 2;
+const B = 62, TW = 25, HH = 88;          // 바닥 반폭, 윗면 반폭, 반높이 (사각뿔대)
+const FR = 4.2, FRB = 8, FRT = 4.5;      // 세로 살, 아래 띠, 위 띠 두께
+const TAU = Math.PI * 2;
+const NL = Math.hypot(B - TW, 2 * HH);   // 옆면 법선 길이
+
+// 색
+const WOOD = '#3b2414', WOOD_IN = '#24140b', WOOD_EDGE = '#160c06';
+const PAPER_OUT = [[0, '#fff4d2'], [0.42, '#ffcd74'], [1, '#e1873a']];
+const PAPER_IN  = [[0, '#fff8e2'], [0.5, '#ffe09a'], [1, '#f2b45e']];
+const SHADOW = '#6e2f0e';
+
+// 시드 고정 난수 (종이 섬유 점)
+function mulberry32(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const SPECKS = [0, 1, 2, 3].map(i => { const r = mulberry32(7 + i * 131); return Array.from({ length: 60 }, () => ({ s: r() * 2 - 1, t: r(), sz: 0.45 + r() * 1.1, red: r() < 0.55, a: 0.15 + r() * 0.3 })); });
+
+// ===== 투영 =====
+let rot = 24 * Math.PI / 180, ct = 1, st = 0, OY = H / 2, S = 1, tiltDeg = 0, flick = 1;
+const P = (x, y, z) => ({ x: CX + S * x, y: OY - S * (y * ct - z * st), z: y * st + z * ct });
+const wAt = t => B + (TW - B) * t;
+// 옆면 매개변수: a=면 방향각, s∈[-1,1] 가로, t∈[0,1] 아래→위
+function faceP(a, s, t) {
+  const w = wAt(t), sa = Math.sin(a), ca = Math.cos(a);
+  return P(w * sa + s * w * ca, -HH + 2 * HH * t, w * ca - s * w * sa);
+}
+// 고정 배율: 0~90° 모든 기울기에서 높이가 들어가도록
+S = (() => {
+  let ext = 0;
+  for (let d = 0; d <= 90; d++) {
+    const c = Math.cos(d * Math.PI / 180), s = Math.sin(d * Math.PI / 180);
+    const lo = Math.min(-HH * c - B * Math.SQRT2 * s, HH * c - TW * Math.SQRT2 * s);
+    const hi = Math.max(-HH * c + B * Math.SQRT2 * s, HH * c + TW * Math.SQRT2 * s);
+    ext = Math.max(ext, hi - lo);
+  }
+  return (H * 0.6) / ext;
+})();
+
+function setTilt(deg) {
+  tiltDeg = deg;
+  const T = deg * Math.PI / 180; ct = Math.cos(T); st = Math.sin(T);
+  const lo = Math.min(-HH * ct - B * Math.SQRT2 * Math.abs(st), HH * ct - TW * Math.SQRT2 * Math.abs(st));
+  const hi = Math.max(-HH * ct + B * Math.SQRT2 * Math.abs(st), HH * ct + TW * Math.SQRT2 * Math.abs(st));
+  OY = H / 2 + S * (lo + hi) / 2 + 14;
+  document.getElementById('vt').textContent = (deg > 0 ? '위에서 ' : deg < 0 ? '아래에서 ' : '정면 ') + Math.abs(deg) + '°';
+}
+
+// 색 보간
+const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+const mix = (a, b, t) => { const A = hex(a), Bc = hex(b); return '#' + A.map((v, i) => Math.round(v + (Bc[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
+const rgba = (c, a) => { const [r, g, b] = hex(c); return `rgba(${r},${g},${b},${+a.toFixed(3)})`; };
+
+// ===== 장면 → 2D 도형 목록 (Canvas·SVG 공용) =====
+// prim: {k:'poly', rings, fill, alpha, blend, stroke, sw, evenodd} | {k:'ell', cx,cy,rx,ry, fill} | {k:'clip', rings, children}
+function scene(withBg = true) {
+  const out = [];
+  if (withBg) {
+    out.push({ k: 'poly', rings: [[{ x: 0, y: 0 }, { x: W, y: 0 }, { x: W, y: H }, { x: 0, y: H }]],
+      fill: { type: 'lin', x1: 0, y1: 0, x2: 0, y2: H, stops: [[0, '#0b1222'], [0.55, '#141626'], [1, '#1d1611']] } });
+  }
+  // 바닥 빛 웅덩이 (위에서 볼 때만 바닥면이 보임)
+  if (st > 0.02) {
+    const c = P(0, -HH, 0), R = 175 * S;
+    out.push({ k: 'ell', cx: c.x, cy: c.y, rx: R, ry: R * st, blend: 'screen',
+      fill: { type: 'box', stops: [[0, rgba('#ffc46a', 0.55 * flick)], [0.35, rgba('#ff9a3c', 0.22 * flick)], [1, rgba('#ff8a30', 0)]] } });
+  }
+
+  const faces = [0, 1, 2, 3].map(i => {
+    const a = i * TAU / 4 + rot;
+    return { i, a, nz: ((B - TW) * st + 2 * HH * Math.cos(a) * ct) / NL };
+  });
+  const tb = FRB / (2 * HH), tt = 1 - FRT / (2 * HH);
+  const sIn = t => 1 - FR / wAt(t);
+  const outer = f => [faceP(f.a, -1, 0), faceP(f.a, 1, 0), faceP(f.a, 1, 1), faceP(f.a, -1, 1)];
+  const paper = f => [faceP(f.a, -sIn(tb), tb), faceP(f.a, sIn(tb), tb), faceP(f.a, sIn(tt), tt), faceP(f.a, -sIn(tt), tt)];
+  const paperGrad = (f, stops) => { const p0 = faceP(f.a, 0, tb), p1 = faceP(f.a, 0, tt); return { type: 'lin', x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stops }; };
+  const corners = t => [0, 1, 2, 3].map(i => faceP(i * TAU / 4 + rot, 1, t));   // 같은 높이의 네 모서리
+
+  // 1) 안쪽 바닥 (위에서 볼 때)
+  if (st > 0) {
+    const fl = corners(0), c = P(0, -HH, 0);
+    out.push({ k: 'poly', rings: [fl], fill: WOOD_IN });
+    out.push({ k: 'ell', cx: c.x, cy: c.y, rx: B * 0.9 * S, ry: B * 0.9 * S * st, blend: 'screen',
+      fill: { type: 'box', stops: [[0, rgba('#fff2c8', 0.95)], [0.4, rgba('#ffb455', 0.5)], [1, rgba('#ff9030', 0)]] } });
+  }
+  // 2) 뒷면 = 안쪽 면 (불빛을 바로 받아 밝음)
+  for (const f of faces.filter(f => f.nz <= 0)) {
+    out.push({ k: 'poly', rings: [outer(f)], fill: WOOD_IN });
+    const k = 0.85 + 0.15 * Math.min(1, -f.nz);
+    out.push({ k: 'poly', rings: [paper(f)], fill: paperGrad(f, PAPER_IN.map(([o, c]) => [o, mix(c, SHADOW, (1 - k) * 0.9)])) });
+  }
+  // 3) 불씨 (위쪽 구멍으로 들여다볼 때 보이는 광원 덩어리; 앞면이 덮으면 자연히 가려짐)
+  if (st > 0) {
+    const c = P(0, -HH + 16, 0), hole = corners(1);
+    out.push({ k: 'clip', rings: [hole], children: [{ k: 'ell', cx: c.x, cy: c.y, rx: 26 * S, ry: 26 * S, blend: 'screen',
+      fill: { type: 'box', stops: [[0, rgba('#ffffff', 0.95 * flick)], [0.3, rgba('#ffe7a0', 0.7)], [1, rgba('#ffa040', 0)]] } }] }); }
+
+  // 4) 앞면 = 바깥 종이
+  const front = faces.filter(f => f.nz > 0);
+  const frontPapers = [];
+  for (const f of front) {
+    out.push({ k: 'poly', rings: [outer(f)], fill: WOOD, stroke: WOOD_EDGE, sw: 0.8 });
+    const pp = paper(f); frontPapers.push(pp);
+    const k = 0.62 + 0.38 * Math.pow(f.nz, 0.6);          // 비스듬한 면은 조금 어둡게
+    out.push({ k: 'poly', rings: [pp], alpha: 0.93, fill: paperGrad(f, PAPER_OUT.map(([o, c]) => [o, mix(c, SHADOW, (1 - k))])) });
+    // 종이 섬유 점
+    for (const d of SPECKS[f.i]) {
+      const t = tb + d.t * (tt - tb), p = faceP(f.a, d.s * sIn(t) * 0.94, t);
+      out.push({ k: 'ell', cx: p.x, cy: p.y, rx: d.sz * S * Math.max(0.25, f.nz), ry: d.sz * S, fill: d.red ? rgba('#c8552e', d.a * k) : rgba('#fffbe8', d.a * 1.4 * k) });
+    }
+    // 세로 살 가장자리 하이라이트 (빛을 등진 나무에 걸친 가는 금빛)
+    const a0 = faceP(f.a, -sIn(tb), tb), a1 = faceP(f.a, -sIn(tt), tt), b0 = faceP(f.a, sIn(tb), tb), b1 = faceP(f.a, sIn(tt), tt);
+    out.push({ k: 'line', pts: [a0, a1], stroke: rgba('#ffcf80', 0.45 * f.nz), sw: 0.9 });
+    out.push({ k: 'line', pts: [b0, b1], stroke: rgba('#ffcf80', 0.45 * f.nz), sw: 0.9 });
+  }
+  // 5) 앞 종이 안쪽에 비치는 불빛 (clip 안 radial, screen)
+  if (frontPapers.length) {
+    const L = P(0, -HH * 0.42, 0);
+    out.push({ k: 'clip', rings: frontPapers, children: [
+      { k: 'ell', cx: L.x, cy: L.y, rx: B * 1.25 * S, ry: HH * 1.05 * S, blend: 'screen',
+        fill: { type: 'box', stops: [[0, rgba('#fffbea', 0.8 * flick)], [0.45, rgba('#ffe2a0', 0.32 * flick)], [1, rgba('#ffc070', 0)]] } },
+    ] });
+  }
+  // 6) 윗면 테두리 (위에서 볼 때) / 아래 받침 (아래에서 볼 때)
+  if (st > 0) {
+    const o = corners(1), inr = [0, 1, 2, 3].map(i => { const a = i * TAU / 4 + rot, w = TW - FRT * 0.9, sa = Math.sin(a), ca = Math.cos(a); return P(w * sa + w * ca, HH, w * ca - w * sa); });
+    out.push({ k: 'poly', rings: [o, inr], evenodd: true, fill: WOOD, stroke: WOOD_EDGE, sw: 0.8 });
+  } else if (st < 0) {
+    out.push({ k: 'poly', rings: [corners(0)], fill: mix(WOOD, '#000000', 0.25), stroke: WOOD_EDGE, sw: 0.8 });
+    const c = P(0, -HH, 0);
+    out.push({ k: 'ell', cx: c.x, cy: c.y, rx: B * 0.75 * S, ry: B * 0.75 * S * Math.abs(st), blend: 'screen', fill: { type: 'box', stops: [[0, rgba('#ff9a40', 0.25)], [1, rgba('#ff9a40', 0)]] } });
+  }
+  // 7) 블룸 후광
+  { const c = P(0, -HH * 0.2, 0);
+    out.push({ k: 'ell', cx: c.x, cy: c.y, rx: 165 * S, ry: 175 * S, blend: 'screen',
+      fill: { type: 'box', stops: [[0, rgba('#ffb04a', 0.2 * flick)], [0.4, rgba('#ff8a2a', 0.08 * flick)], [1, rgba('#ff7a20', 0)]] } }); }
+  return out;
+}
+
+// ===== Canvas 출력 =====
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const dpr = Math.min(3, window.devicePixelRatio || 1);
+cv.width = W * dpr; cv.height = H * dpr; ctx.scale(dpr, dpr);
+
+function cFill(c, f) {
+  if (typeof f === 'string') return f;
+  if (f.type === 'lin') { const g = c.createLinearGradient(f.x1, f.y1, f.x2, f.y2); f.stops.forEach(([o, s]) => g.addColorStop(o, s)); return g; }
+  const g = c.createRadialGradient(0, 0, 0, 0, 0, 1); f.stops.forEach(([o, s]) => g.addColorStop(o, s)); return g;   // 'box': 단위원 기준
+}
+function ringPath(rings) { const p = new Path2D(); for (const r of rings) { p.moveTo(r[0].x, r[0].y); for (const q of r) p.lineTo(q.x, q.y); p.closePath(); } return p; }
+function drawPrims(c, list) {
+  for (const p of list) {
+    c.save();
+    c.globalAlpha = p.alpha ?? 1;
+    c.globalCompositeOperation = p.blend === 'screen' ? 'screen' : 'source-over';
+    if (p.k === 'poly') {
+      const path = ringPath(p.rings);
+      c.fillStyle = cFill(c, p.fill); c.fill(path, p.evenodd ? 'evenodd' : 'nonzero');
+      if (p.stroke) { c.lineJoin = 'round'; c.strokeStyle = p.stroke; c.lineWidth = p.sw; c.stroke(path); }
+    } else if (p.k === 'line') {
+      c.strokeStyle = p.stroke; c.lineWidth = p.sw; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(p.pts[0].x, p.pts[0].y); c.lineTo(p.pts[1].x, p.pts[1].y); c.stroke();
+    } else if (p.k === 'ell') {
+      if (p.rx < 0.01 || p.ry < 0.01) { c.restore(); continue; }
+      c.translate(p.cx, p.cy); c.scale(p.rx, p.ry);
+      c.fillStyle = cFill(c, p.fill); c.beginPath(); c.arc(0, 0, 1, 0, TAU); c.fill();
+    } else if (p.k === 'clip') {
+      c.clip(ringPath(p.rings)); drawPrims(c, p.children);
+    }
+    c.restore();
+  }
+}
+function draw() { ctx.clearRect(0, 0, W, H); drawPrims(ctx, scene(true)); }
+
+// ===== SVG 스냅샷 =====
+function buildSVG(withBg = true) {
+  const f = n => n.toFixed(2);
+  let defs = '', id = 0;
+  const paint = fl => {
+    if (typeof fl === 'string') return fl;
+    const gid = 'g' + (id++);
+    const stops = fl.stops.map(([o, s]) => `<stop offset="${o}" stop-color="${s}"/>`).join('');
+    defs += fl.type === 'lin'
+      ? `<linearGradient id="${gid}" gradientUnits="userSpaceOnUse" x1="${f(fl.x1)}" y1="${f(fl.y1)}" x2="${f(fl.x2)}" y2="${f(fl.y2)}">${stops}</linearGradient>`
+      : `<radialGradient id="${gid}" cx="0.5" cy="0.5" r="0.5">${stops}</radialGradient>`;
+    return `url(#${gid})`;
+  };
+  const pts = r => r.map(q => f(q.x) + ',' + f(q.y)).join(' ');
+  const dOf = rings => rings.map(r => 'M' + r.map(q => f(q.x) + ' ' + f(q.y)).join('L') + 'Z').join('');
+  const emit = list => list.map(p => {
+    const st = (p.blend === 'screen' ? ' style="mix-blend-mode:screen"' : '') + (p.alpha != null && p.alpha < 1 ? ` opacity="${p.alpha}"` : '');
+    if (p.k === 'poly') {
+      const strk = p.stroke ? ` stroke="${p.stroke}" stroke-width="${p.sw}" stroke-linejoin="round"` : '';
+      return p.rings.length === 1 && !p.evenodd
+        ? `<polygon points="${pts(p.rings[0])}" fill="${paint(p.fill)}"${strk}${st}/>`
+        : `<path d="${dOf(p.rings)}" fill-rule="evenodd" fill="${paint(p.fill)}"${strk}${st}/>`;
+    }
+    if (p.k === 'line') return `<line x1="${f(p.pts[0].x)}" y1="${f(p.pts[0].y)}" x2="${f(p.pts[1].x)}" y2="${f(p.pts[1].y)}" stroke="${p.stroke}" stroke-width="${p.sw}" stroke-linecap="round"/>`;
+    if (p.k === 'ell') return p.rx < 0.01 || p.ry < 0.01 ? '' : `<ellipse cx="${f(p.cx)}" cy="${f(p.cy)}" rx="${f(p.rx)}" ry="${f(p.ry)}" fill="${paint(p.fill)}"${st}/>`;
+    if (p.k === 'clip') {
+      const cid = 'c' + (id++);
+      defs += `<clipPath id="${cid}">${p.rings.map(r => `<polygon points="${pts(r)}"/>`).join('')}</clipPath>`;
+      return `<g clip-path="url(#${cid})">${emit(p.children)}</g>`;
+    }
+    return '';
+  }).join('\n');
+  const body = emit(scene(withBg));
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="isolation:isolate">\n<defs>${defs}</defs>\n${body}\n</svg>`;
+}
+
+// ===== 루프 =====
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let last = performance.now(), clock = 0;
+function loop(t) {
+  const dt = Math.min(0.1, (t - last) / 1000); last = t; clock += dt;
+  if (!reduce) {
+    flick = 1 + 0.05 * Math.sin(clock * 7.3) + 0.035 * Math.sin(clock * 13.1 + 1.3) + 0.02 * Math.sin(clock * 23.7 + 0.4);
+  }
+  draw(); requestAnimationFrame(loop);
+}
+const tiltEl = document.getElementById('tilt'), rotEl = document.getElementById('rotIn');
+const setRotDeg = d => { rot = d * Math.PI / 180; document.getElementById('vr').textContent = d + '°'; draw(); };
+tiltEl.addEventListener('input', () => { setTilt(+tiltEl.value); draw(); });
+rotEl.addEventListener('input', () => setRotDeg(+rotEl.value));
+document.getElementById('exp').addEventListener('click', () => {
+  const svg = buildSVG(document.getElementById('bgOn').checked);
+  document.getElementById('out').value = svg;
+  const pv = document.getElementById('prev'); pv.innerHTML = svg; pv.style.display = 'block';
+});
+setTilt(+tiltEl.value); setRotDeg(+rotEl.value); draw(); requestAnimationFrame(loop);
+window.__api = { setTilt, buildSVG, setRot: r => { rot = r; draw(); }, setFlick: v => { flick = v; draw(); } };
+</script>
+</body></html>

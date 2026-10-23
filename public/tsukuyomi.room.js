@@ -1,4 +1,5 @@
-/* 八 야치요의 방: public/examples/yachiyo-room-scene.html 이식 (단일 장면, 옵션 없음).
+/* 八 야치요의 방: 초안 yachiyo-room-scene.html(examples/ 임시 폴더) 이식 (단일 장면, 옵션 없음).
+ * 런타임 의존 파일(랜턴 iframe 2종, yachiroom.umd.js)은 public/components/에 복사본을 둔다.
  * tsukuyomi.html의 다섯 번째 세계(#worldRoom, 경로 #room)로, tsukuyomi.worlds.js가 처음 필요할 때 로드.
  */
 (() => {
@@ -364,18 +365,25 @@ const SQX = [-3.5, -1.75, 0, 1.75, 3.5];
 for (const z of [-15.4, -7.9]) for (const x of SQX) LANTERNS.push({ type: 'sq', x, z, h: 0.5 });
 LANTERNS.forEach(L => { L.d = -L.z; L.k = kAt(L.z); L.y0 = baseY(L.x); });
 
+// 장면이 쓰는 외부 파일은 components/에만 둔다(examples/·reference-images/는 수시로 바뀌는 임시 폴더).
+// iframe은 404여도 onload가 불리므로 __api 존재로 성공을 판정해 원인 메시지를 남긴다.
 function loadFrame(src) {
-  return new Promise(res => {
+  return new Promise((res, rej) => {
     const f = document.createElement('iframe');
     f.style.cssText = 'position:fixed;left:-3000px;top:0;width:420px;height:1000px;border:0';
-    f.onload = () => res(f);
+    f.onload = () => {
+      let ok = false;
+      try { ok = !!(f.contentWindow && f.contentWindow.__api); } catch (e) { /* cross-origin 등 */ }
+      if (ok) res(f); else { f.remove(); rej(new Error('랜턴 컴포넌트 로드 실패(__api 없음): ' + src)); }
+    };
+    f.onerror = () => { f.remove(); rej(new Error('랜턴 컴포넌트 로드 실패: ' + src)); };
     f.src = src; document.body.appendChild(f);
   });
 }
 const svgImg = svg => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
 
 async function buildLanterns() {
-  const [fSq, fCy] = await Promise.all([loadFrame('examples/사각뿔대 랜턴.html'), loadFrame('examples/원통 스탠딩 랜턴 수평투영.html')]);
+  const [fSq, fCy] = await Promise.all([loadFrame('components/lantern-frustum.html'), loadFrame('components/lantern-cylinder.html')]);
   const wSq = fSq.contentWindow, wCy = fCy.contentWindow;
   wCy.__api.pause(); wSq.__api.setFlick(1);
   // 랜턴 자체 후광·바닥 빛웅덩이는 이미지 경계에서 잘려 윤곽이 생기므로 빼고, 장면 쪽 빛으로 대신한다.
@@ -957,7 +965,7 @@ function ensureYR() {
   if (window.YachiRoom) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'examples/lib/yachiroom.umd.js';
+    s.src = 'components/yachiroom.umd.js';
     s.onload = () => window.YachiRoom ? resolve() : reject(new Error('yachiroom 없음'));
     s.onerror = () => reject(new Error('yachiroom 로드 실패'));
     document.head.appendChild(s);

@@ -76,6 +76,7 @@
             ['DS_POLE_X', -1, 2, 0.005, 'stars'], ['DS_POLE_Y', -3, 1, 0.005, 'stars'],
             ['DS_FADE0', 0, 1, 0.005], ['DS_FADE1', 0, 1, 0.005],
             ['DN_FADE', 0.1, 6, 0.1], ['DN_CLOUD', 0, 1, 0.01], ['DN_LIGHT', 0, 1, 0.01], ['DN_STAR', 0, 3, 0.05], ['DN_WATER', 0, 1, 0.01],
+            ['TN_A', 0, 1, 0.01], ['TN_FADE', 0.1, 6, 0.1], ['TN_DESAT', 0, 1, 0.01], ['TN_PINK', 0, 2, 0.01], ['TN_BAND', 0, 1.5, 0.01],
             ['DY_HOLE', 0, 1, 0.05, 'clouds'], ['DY_HOLE_S', 0.3, 2.5, 0.05, 'clouds'], ['DY_HOLE_N', 0, 8, 1, 'clouds'],
             ['DY_HOLE_EDGE', 0, 2, 0.05, 'clouds'], ['DY_HOLE_RIM', 0, 1.5, 0.05, 'clouds'], ['DY_HOLE_SKY', 0, 1.5, 0.05, 'clouds'],
         ]},
