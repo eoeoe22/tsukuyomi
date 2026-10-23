@@ -375,7 +375,7 @@ function loadFrame(src) {
 const svgImg = svg => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); });
 
 async function buildLanterns() {
-  const [fSq, fCy] = await Promise.all([loadFrame('examples/사각뿔대 랜턴.html'), loadFrame('examples/원통 스탠딩 랜턴 수평투영.html')]);
+  const [fSq, fCy] = await Promise.all([loadFrame('examples/done/사각뿔대 랜턴.html'), loadFrame('examples/원통 스탠딩 랜턴 수평투영.html')]);
   const wSq = fSq.contentWindow, wCy = fCy.contentWindow;
   wCy.__api.pause(); wSq.__api.setFlick(1);
   // 랜턴 자체 후광·바닥 빛웅덩이는 이미지 경계에서 잘려 윤곽이 생기므로 빼고, 장면 쪽 빛으로 대신한다.
