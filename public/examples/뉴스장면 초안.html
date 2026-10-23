@@ -31,17 +31,26 @@ canvas.layer{pointer-events:none}
       <stop offset=".75" stop-color="#8fc3cb"/>
     </linearGradient>
     <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#fffbe9" stop-opacity=".95"/>
-      <stop offset=".35" stop-color="#f6efcf" stop-opacity=".45"/>
-      <stop offset="1" stop-color="#f6efcf" stop-opacity="0"/>
+      <stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset=".52" stop-color="#fffdf0" stop-opacity=".9"/>
+      <stop offset=".68" stop-color="#fbf6dd" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#f8f2d6" stop-opacity="0"/>
+    </radialGradient>
+    <!-- 빛줄기용: 후광과 같은 중심·같은 색에서 끝으로 갈수록 사라짐 → 후광이 그대로 뻗어 나온 것처럼 -->
+    <radialGradient id="rayFade" gradientUnits="userSpaceOnUse" cx="815" cy="523" r="470">
+      <stop offset="0" stop-color="#fffdf0" stop-opacity="1"/>
+      <stop offset=".62" stop-color="#fffdf0" stop-opacity="1"/>
+      <stop offset=".8" stop-color="#fbf6dd" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#f8f2d6" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="sunBody" x1="0.2" y1="0" x2="0.6" y2="1">
-      <stop offset="0" stop-color="#7fbcc4"/>
-      <stop offset=".45" stop-color="#3f8291"/>
-      <stop offset="1" stop-color="#245a6a"/>
+      <stop offset="0" stop-color="#8cc6cd"/>
+      <stop offset=".45" stop-color="#4a8d9b"/>
+      <stop offset="1" stop-color="#2b6474"/>
     </linearGradient>
     <filter id="blur18" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="18"/></filter>
     <filter id="blur6" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="blur10" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="10"/></filter>
 
     <!-- newscloud.svg 글리프 (배경 사각형 제외) -->
     <symbol id="cloud" viewBox="20 41 117 55">
@@ -55,33 +64,31 @@ canvas.layer{pointer-events:none}
     <!-- torii.svg 팔레트스왑: 주홍 → --tr, 검정 → --tb / 다리 끝 #2596be (경계 그라데이션) -->
     <linearGradient id="legFade" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#2596be" stop-opacity="0"/>
-      <stop offset="0.85" stop-color="#2596be" stop-opacity="0"/>
+      <stop offset="0.67" stop-color="#2596be" stop-opacity="0"/>
+      <stop offset="0.83" stop-color="#2596be" stop-opacity="1"/>
       <stop offset="1" stop-color="#2596be" stop-opacity="1"/>
     </linearGradient>
-    <symbol id="torii" viewBox="124 62 432 360">
-      <path style="fill:var(--tr)" d="M216 110H244L247 410H213Z M436 110H464L467 410H433Z M331 118h18v76h-18Z M168 192h344v20h-344Z M146 86Q340 124 534 86L532 108Q340 146 148 108Z"/>
+    <symbol id="torii" viewBox="124 62 432 500">
+      <path style="fill:var(--tr)" d="M216 110H244L249 550H211Z M436 110H464L469 550H431Z M331 118h18v76h-18Z M168 192h344v20h-344Z M146 86Q340 124 534 86L532 108Q340 146 148 108Z"/>
       <path style="fill:var(--tb)" d="M126 64Q340 108 554 64L548 85Q340 126 132 85Z"/>
-      <path fill="#2596be" d="M210 392h40v28h-40Z M430 392h40v28h-40Z"/>
-      <path fill="url(#legFade)" d="M216 110H244L247 410H213Z M436 110H464L467 410H433Z"/>
+      <path fill="#2596be" d="M208 532h44v28h-44Z M428 532h44v28h-44Z"/>
+      <path fill="url(#legFade)" d="M216 110H244L249 550H211Z M436 110H464L469 550H431Z"/>
     </symbol>
   </defs>
 
   <rect width="1600" height="1066" fill="url(#sky)"/>
 
-  <!-- 태양: 후광 → 빛줄기 → 본체 -->
+  <!-- 태양: 후광(태양과 같은 중심, 균일) → 빛줄기(사방에 고르게, 약하게) → 테두리 빛 → 본체 -->
   <g id="sun">
-    <circle cx="900" cy="300" r="520" fill="url(#glow)" opacity=".55"/>
-    <g id="rays" fill="#fffbe9" filter="url(#blur6)"></g>
-    <circle cx="830" cy="512" r="298" fill="#fff7dc" filter="url(#blur18)"/>
+    <circle cx="815" cy="523" r="560" fill="url(#glow)" opacity=".7"/>
+    <g id="rays" fill="url(#rayFade)" filter="url(#blur10)"></g>
+    <circle cx="815" cy="523" r="306" fill="#fffbea" filter="url(#blur18)"/>
     <circle cx="815" cy="523" r="287" fill="url(#sunBody)"/>
   </g>
 
   <g id="clouds" fill="#eaf4f3"></g>
 
-  <!-- 토리이 (발 = 기준점, 파도 언덕 뒤로 묻힘) -->
-  <g id="toriis"></g>
-
-  <!-- 파도 언덕 (밑동은 바닥 캔버스에 가려짐) -->
+  <!-- 파도 언덕 + 토리이 (토리이는 지정한 파도 줄 사이에 끼워 다리 아래쪽이 앞줄에 가려짐) -->
   <g id="waves"></g>
 </svg>
 
@@ -125,13 +132,15 @@ canvas.layer{pointer-events:none}
 
   /* ───────── 정적 배치 ───────── */
 
-  // 빛줄기: 태양 오른쪽 위에서 바깥으로 퍼지는 쐐기
+  // 빛줄기: 태양 중심에서 사방으로 고르게 퍼지는 짧고 옅은 쐐기.
+  // 후광과 같은 그라데이션으로 끝이 녹아들어 한 빛처럼 보이고, 위쪽에서 오른쪽 30° 부근만 조금 더 길다.
   (()=>{
-    const g=document.getElementById('rays'), R=rng(11), cx=905, cy=330;
-    for (let i=0;i<9;i++){
-      const a=(-115+i*10+R()*6)*Math.PI/180, w=(1.2+R()*2.2)*Math.PI/180, L=520+R()*260;
+    const g=document.getElementById('rays'), R=rng(11), cx=815, cy=523, N=32, PEAK=-60; // -90=위, -60=위에서 오른쪽 30°
+    for (let i=0;i<N;i++){
+      const deg=i*360/N+(R()-.5)*8, d=mod(deg-PEAK+180,360)-180;
+      const a=deg*Math.PI/180, w=(1.2+R()*1.8)*Math.PI/180, L=340+R()*50+90*Math.exp(-(d*d)/(2*16*16));
       const p=[[cx,cy],[cx+Math.cos(a-w)*L,cy+Math.sin(a-w)*L],[cx+Math.cos(a+w)*L,cy+Math.sin(a+w)*L]];
-      el('polygon',{points:p.map(q=>q.map(v=>v.toFixed(1)).join(',')).join(' '),opacity:(.07+R()*.12).toFixed(2)},g);
+      el('polygon',{points:p.map(q=>q.map(v=>v.toFixed(1)).join(',')).join(' '),opacity:(.22+R()*.18).toFixed(2)},g);
     }
   })();
 
@@ -154,27 +163,28 @@ canvas.layer{pointer-events:none}
       }
     });
     put(10,150,190,.95,false); put(1380,90,120,.9,true); put(120,30,110,.85,false); put(760,15,95,.85,true);
-    for (let i=0;i<78;i++){
+    put(1080,170,130,.9,false); put(470,95,115,.88,true);
+    for (let i=0;i<117;i++){
       const x=-40+R()*1680, y=20+Math.pow(R(),1.25)*470;
       const w=34+Math.pow(R(),2.2)*80;
       put(x,y,w,.55+R()*.4,R()<.45,R()<.25?'#bfdde1':null);
     }
   })();
 
-  // 토리이: [발 x, 발 y, 크기, 기울기(도), 앞/뒤 팔레트]
-  (()=>{
-    const g=document.getElementById('toriis');
+  // 토리이: [발 x, 파도 줄(WAVE_ROWS 인덱스, 이 줄부터 앞쪽 줄이 다리를 가림), 크기, 기울기(도), 팔레트]
+  // 발은 그 줄 바닥선 아래에 묻힌다. buildWaves()가 줄을 그릴 때 함께 끼워 넣는다.
+  const TORII=(()=>{
     const NEAR='--tr:#c3e2e2;--tb:#4f8f9b', MID='--tr:#d3ebe9;--tb:#77acb4', FAR='--tr:#dff1ef;--tb:#9cc8cc';
-    const list=[
-      [ 250,560,.30, 3,FAR],[ 720,535,.24,-4,FAR],[ 905,545,.22, 5,FAR],[1300,540,.28,-3,FAR],
-      [ 600,560,.40,-9,MID],[1020,555,.44, 5,MID],[1190,545,.34,-7,MID],
-      [  70,590,.50, 6,NEAR],[ 400,600,.66,-14,NEAR],[1530,600,.66,15,NEAR],
+    return [
+      [ 250,1,.25, 3,FAR],[ 720,0,.20,-4,FAR],[ 905,1,.19, 5,FAR],[1300,1,.24,-3,FAR],
+      [ 600,3,.34,-9,MID],[1020,3,.37, 5,MID],[1190,2,.29,-7,MID],
+      [  70,5,.43, 6,NEAR],[ 400,6,.56,-14,NEAR],[1530,6,.56,15,NEAR],
     ];
-    for (const [x,y,s,a,pal] of list){
-      const u=el('use',{href:'#torii',x:124,y:62,width:432,height:360,style:pal},g);
-      u.setAttribute('transform',`translate(${x},${y}) rotate(${a}) scale(${s}) translate(-340,-420)`);
-    }
   })();
+  const drawTorii=(x,y,s,a,pal,g)=>{
+    const u=el('use',{href:'#torii',x:124,y:62,width:432,height:500,style:pal},g);
+    u.setAttribute('transform',`translate(${x},${y}) rotate(${a}) scale(${s}) translate(-340,-560)`);
+  };
 
   // 파도 언덕: 뒤에서 앞으로 줄마다 단색 반타원 봉우리
   // news.mp4 10–11초: 봉우리마다 속도가 제각각이다.
@@ -272,6 +282,7 @@ canvas.layer{pointer-events:none}
     const fastRows=new Set(), fastN=Math.min(P.FAST_N,rows.length);
     while (fastRows.size<fastN) fastRows.add(Math.floor(R()*rows.length));
     rows.forEach(([base,r0],ri)=>{
+      for (const [x,row,s,a,pal] of TORII) if (row===ri) drawTorii(x,base+6,s,a,pal,g);
       const front=ri===last;
       const depth=last?ri/last:1; // 0=맨 뒷줄, 1=맨 앞줄
       const r=r0*(P.DEPTH_SIZE+(1-P.DEPTH_SIZE)*depth), vk=P.DEPTH_SPEED+(1-P.DEPTH_SPEED)*depth;
