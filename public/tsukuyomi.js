@@ -5327,7 +5327,7 @@ void main() {
             //   3) 하이라이트 핑크 번짐(TN_BLOOM): 밉맵 저해상도에서 밝은 곳만 골라 screen
             //   4) 수면 반짝임(TN_SPARK): 원근(수평선 쪽일수록 작게)을 따른 가로 잔물결 반점이 밝은 반사 위에서 깜빡인다
             // WebGL2가 없거나 컨텍스트를 잃으면 false → 아래 2D 필터(drawTone2D)로 대신 그린다.
-            const TONE_LUT_N = 33;
+            const TONE_LUT_N = 33, TONE_LUT_RES = 256;
             // 행 순서: 하늘 A, 하늘 B, 수면 A, 수면 B (각 33단계 RGB, L = 0..255 균등)
             const TONE_LUT = [72,111,161,72,111,161,72,111,161,72,111,161,72,111,161,72,111,161,84,120,166,111,132,173,136,143,179,170,161,187,186,182,201,195,193,208,207,200,212,219,207,214,231,213,216,239,223,224,246,228,228,249,232,231,250,234,232,251,236,234,252,238,236,252,241,239,252,242,241,252,244,242,252,245,243,251,245,244,251,246,245,251,246,245,251,247,246,251,247,246,251,248,247,251,248,247,251,248,247,0,0,0,8,8,8,16,16,16,24,24,24,32,32,32,30,42,76,35,48,84,42,56,94,48,64,106,54,72,116,59,80,127,63,90,139,70,99,148,79,106,155,89,113,161,99,120,166,108,128,172,117,136,176,127,144,181,136,153,187,144,161,193,152,168,198,162,176,202,172,185,206,180,193,213,189,201,219,200,208,221,210,217,226,219,224,230,227,231,236,233,238,244,247,247,247,255,255,255,62,86,119,62,86,119,62,86,119,62,86,119,62,86,119,62,86,119,89,100,135,130,131,161,175,168,187,195,183,197,213,195,203,224,202,205,231,207,209,236,211,210,239,215,213,241,217,214,242,218,215,243,219,215,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,0,0,0,8,8,8,16,16,16,24,24,24,32,32,32,25,45,81,29,51,90,34,58,100,40,66,110,46,75,119,54,83,126,63,91,131,72,99,136,81,107,143,89,115,149,98,123,154,107,132,161,117,139,167,125,146,170,128,156,188,136,164,196,167,167,167,175,175,175,183,183,183,191,191,191,199,199,199,207,207,207,215,215,215,223,223,223,231,231,231,239,239,239,247,247,247,255,255,255];
             const toneGL = (() => {
@@ -5341,7 +5341,7 @@ uniform vec2 uRes;
 uniform float uHy,uA,uK,uBand,uMauve,uDeep,uBloom,uSpark,uT,uDpr,uLod;
 out vec4 o;
 const vec3 LW=vec3(.299,.587,.114);
-const float N=${TONE_LUT_N}.;
+const float N=${TONE_LUT_RES}.;
 vec3 lut(float L,float r){return texture(uLut,vec2((clamp(L,0.,1.)*(N-1.)+.5)/N,(r+.5)/4.)).rgb;}
 vec3 tint(vec3 c,vec3 t,float w){return mix(c,t-dot(t,LW)+dot(c,LW),clamp(w,0.,1.));}
 float h12(vec2 p){vec3 q=fract(vec3(p.xyx)*.1031);q+=dot(q,q.yzx+33.33);return fract((q.x+q.y)*q.z);}
@@ -5351,7 +5351,12 @@ vec3 blur(vec2 uv,float l){vec2 d=exp2(l)/uRes;
 void main(){
   vec2 uv=vec2(gl_FragCoord.x/uRes.x,1.-gl_FragCoord.y/uRes.y);
   vec3 c=textureLod(uTex,uv,0.).rgb;
-  float L=dot(c,LW);
+  // 매핑 입력 밝기: 가파른 구간(기울기 3~4배)이 원본의 8비트 계단·디더 무늬까지 키워 가로줄로 보이므로,
+  // 완만한 곳은 세로로 고른 밝기(Lv)를 쓰고 구름 윤곽처럼 차이가 큰 곳만 원래 밝기를 쓴다
+  float Lv=0.,ws0=0.;
+  for(int i=-4;i<=4;i++){float w=exp(-float(i*i)/8.);Lv+=w*dot(textureLod(uTex,uv+vec2(0.,float(i)*1.5/uRes.y),1.).rgb,LW);ws0+=w;}
+  Lv/=ws0;
+  float L=mix(Lv,dot(c,LW),smoothstep(.015,.06,abs(dot(c,LW)-Lv)));
   float sky=1.-smoothstep(uHy-.6/uRes.y,uHy+.6/uRes.y,uv.y), wat=1.-sky;
   // 1) 밝기별 색 매핑
   vec3 g=mix(lut(L,2.),lut(L,0.),sky)+uK*(c-mix(lut(L,3.),lut(L,1.),sky));
@@ -5382,6 +5387,8 @@ void main(){
     float on=step(.78,h)*tw*sh*smoothstep(.4,.85,dot(g,LW))*smoothstep(.8,1.6,cellPx);
     g+=uSpark*on*vec3(1.,.93,.92)*.5;
   }
+  // 출력 디더(±0.5단계): 남은 미세 계단을 흩는다
+  g+=(h12(gl_FragCoord.xy+fract(uT)*61.)-.5)/255.;
   o=vec4(mix(c,clamp(g,0.,1.),uA),1.);
 }`;
                 function init() {
@@ -5413,11 +5420,22 @@ void main(){
                         lutTex = gl.createTexture();
                         gl.activeTexture(gl.TEXTURE1);
                         gl.bindTexture(gl.TEXTURE_2D, lutTex);
-                        const px = new Uint8Array(TONE_LUT_N * 4 * 4);
-                        for (let i = 0; i < TONE_LUT_N * 4; i++) {
-                            px[i * 4] = TONE_LUT[i * 3]; px[i * 4 + 1] = TONE_LUT[i * 3 + 1]; px[i * 4 + 2] = TONE_LUT[i * 3 + 2]; px[i * 4 + 3] = 255;
+                        // 33개 조절점을 [1,2,1]로 한 번 고른 뒤 Catmull-Rom으로 256단계에 다시 뽑는다.
+                        // 직선으로 이으면 조절점마다 기울기가 꺾여 매끄러운 그라데이션(수평선 발광 띠)에 가로줄이 생긴다
+                        const px = new Float32Array(TONE_LUT_RES * 4 * 4);
+                        for (let r = 0; r < 4; r++) for (let ch = 0; ch < 3; ch++) {
+                            const at = i => TONE_LUT[(r * TONE_LUT_N + clamp(i, 0, TONE_LUT_N - 1)) * 3 + ch];
+                            const sm = Array.from({ length: TONE_LUT_N }, (_, i) => (at(i - 1) + 2 * at(i) + at(i + 1)) / 4);
+                            const k = i => sm[clamp(i, 0, TONE_LUT_N - 1)];
+                            for (let j = 0; j < TONE_LUT_RES; j++) {
+                                const x = j / (TONE_LUT_RES - 1) * (TONE_LUT_N - 1), i = Math.min(TONE_LUT_N - 2, Math.floor(x)), t = x - i;
+                                const p0 = k(i - 1), p1 = k(i), p2 = k(i + 1), p3 = k(i + 2);
+                                const v = p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
+                                px[(r * TONE_LUT_RES + j) * 4 + ch] = clamp(v, 0, 255) / 255;
+                            }
+                            for (let j = 0; j < TONE_LUT_RES; j++) px[(r * TONE_LUT_RES + j) * 4 + 3] = 1;
                         }
-                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, TONE_LUT_N, 4, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, TONE_LUT_RES, 4, 0, gl.RGBA, gl.FLOAT, px);
                         for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR],
                             [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
                         tex = gl.createTexture();
