@@ -2,8 +2,8 @@
  *
  * 역할:
  *  - 하단 시간대 UI 숨김 -> WE 옵션 `a00_scene` 콤보로 장면 선택 (기본값: 밤)
- *    (표시 순서: 산 5 / 산(노을) 6 / 공백 1 / 황혼 2 / 밤 3 / 밤(미러볼) 4 / 지구 7 / 야치요의 방 8 / 뉴스 9.
- *     1~4는 웹 하단 UI 4버튼, 5·6은 웹 산 세계(#mount)의 땅거미/노을 2버튼,
+ *    (표시 순서: 산 5 / 산(노을) 6 / 츠쿠요미 바다 1 / 황혼 2 / 밤 3 / 미러볼 4 / 지구 7 / 야치요의 방 8 / 뉴스 츠쿠요미 9.
+ *     1은 웹 海(#sea), 2~4는 웹 月(황혼/밤/미러볼), 5·6은 웹 山(#mount)의 땅거미/노을 2버튼,
  *     7~9는 웹 地(#earth)/八(#room)/犬(#news)와 동일)
  *  - 月 바깥(山·地·八·犬)은 각 엔진(vendor/tsukuyomi.{mount,earth,room,news}.js, 처음 필요할 때 로드)으로
  *    단순 페이드 전환한다 (웹 tsukuyomi.worlds.js와 같은 방식). 月 바깥에 있는 동안 月 루프는 멈춘다.
@@ -60,6 +60,9 @@
     }
     // 山 장면 id -> tsukuyomi.mount.js 장면 키
     const MOUNT_SCENE = { mount: 'dusk', mountSunset: 'sunset' };
+    // 世界 id: 山 2종(땅거미/노을)은 같은 세계(#worldMount)를 쓴다.
+    // (mountSunset을 그대로 세계 id로 쓰면 worldEls/outerLoaders에 없어 月로 되돌아간다.)
+    const worldOf = s => (s === 'mount' || s === 'mountSunset') ? 'mount' : s;
     const isMountScene = s => Object.prototype.hasOwnProperty.call(MOUNT_SCENE, s);
     // 月 바깥 세계 판정 (단순 페이드 전환 대상)
     const isOuterScene = s => isMountScene(s) || s === 'earth' || s === 'room' || s === 'news';
@@ -281,7 +284,7 @@
         document.body.removeAttribute('data-world-busy');
     }
     function syncWorld(instant) {
-        worldTarget = isOuterScene(desired.scene) ? desired.scene : 'moon';
+        worldTarget = isOuterScene(desired.scene) ? worldOf(desired.scene) : 'moon';
         worldQueue = worldQueue.then(() => switchWorld(instant)).catch(e => {
             console.warn('[tsukuyomi wallpaper] 세계 전환 실패:', e);
             for (const el of Object.values(worldEls)) if (el) clearFx(el);

@@ -118,10 +118,10 @@ def main() -> int:
         sc = props.get("a00_scene", {})
         check("scene 콤보", sc.get("type") == "combo"
               and [o.get("value") for o in sc.get("options", [])] == [5, 6, 1, 2, 3, 4, 7, 8, 9],
-              "options 5/6/1/2/3/4/7/8/9 (산/산(노을)/공백/황혼/밤/밤(미러볼)/지구/야치요의 방/뉴스) 필요 (기존 1~4 값 유지)")
+              "options 5/6/1/2/3/4/7/8/9 (산/산(노을)/츠쿠요미 바다/황혼/밤/미러볼/지구/야치요의 방/뉴스 츠쿠요미) 필요 (기존 1~4 값 유지)")
         check("scene 기본값 밤", sc.get("value") == 3, f"value={sc.get('value')}")
         check("scene 문구", [o.get("label") for o in sc.get("options", [])]
-              == ["산", "산 (노을)", "공백", "황혼", "밤", "밤 (미러볼)", "지구", "야치요의 방", "뉴스"],
+              == ["산", "산 (노을)", "츠쿠요미 바다", "황혼", "밤", "미러볼", "지구", "야치요의 방", "뉴스 츠쿠요미"],
               f"labels={[o.get('label') for o in sc.get('options', [])]}")
         check("intro 기본값 켜짐", props.get("a01_intro", {}).get("value") is True, "기본값 true 필요")
         check("intro 조건(밤 계열만)", props.get("a01_intro", {}).get("condition") == "a00_scene.value == 3 || a00_scene.value == 4",
