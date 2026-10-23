@@ -36,6 +36,13 @@ canvas.layer{pointer-events:none}
       <stop offset=".68" stop-color="#fbf6dd" stop-opacity=".45"/>
       <stop offset="1" stop-color="#f8f2d6" stop-opacity="0"/>
     </radialGradient>
+    <!-- 빛줄기용: 후광과 같은 중심·같은 색에서 끝으로 갈수록 사라짐 → 후광이 그대로 뻗어 나온 것처럼 -->
+    <radialGradient id="rayFade" gradientUnits="userSpaceOnUse" cx="815" cy="523" r="470">
+      <stop offset="0" stop-color="#fffdf0" stop-opacity="1"/>
+      <stop offset=".62" stop-color="#fffdf0" stop-opacity="1"/>
+      <stop offset=".8" stop-color="#fbf6dd" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#f8f2d6" stop-opacity="0"/>
+    </radialGradient>
     <linearGradient id="sunBody" x1="0.2" y1="0" x2="0.6" y2="1">
       <stop offset="0" stop-color="#8cc6cd"/>
       <stop offset=".45" stop-color="#4a8d9b"/>
@@ -43,6 +50,7 @@ canvas.layer{pointer-events:none}
     </linearGradient>
     <filter id="blur18" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="18"/></filter>
     <filter id="blur6" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="6"/></filter>
+    <filter id="blur10" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="10"/></filter>
 
     <!-- newscloud.svg 글리프 (배경 사각형 제외) -->
     <symbol id="cloud" viewBox="20 41 117 55">
@@ -72,7 +80,7 @@ canvas.layer{pointer-events:none}
   <!-- 태양: 후광(태양과 같은 중심, 균일) → 빛줄기(사방에 고르게, 약하게) → 테두리 빛 → 본체 -->
   <g id="sun">
     <circle cx="815" cy="523" r="560" fill="url(#glow)" opacity=".7"/>
-    <g id="rays" fill="#fffef4" filter="url(#blur6)"></g>
+    <g id="rays" fill="url(#rayFade)" filter="url(#blur10)"></g>
     <circle cx="815" cy="523" r="306" fill="#fffbea" filter="url(#blur18)"/>
     <circle cx="815" cy="523" r="287" fill="url(#sunBody)"/>
   </g>
@@ -126,13 +134,15 @@ canvas.layer{pointer-events:none}
 
   /* ───────── 정적 배치 ───────── */
 
-  // 빛줄기: 태양 중심에서 사방으로 고르게 퍼지는 짧고 옅은 쐐기(특정 방향 편중 없음)
+  // 빛줄기: 태양 중심에서 사방으로 고르게 퍼지는 짧고 옅은 쐐기.
+  // 후광과 같은 그라데이션으로 끝이 녹아들어 한 빛처럼 보이고, 위쪽에서 오른쪽 30° 부근만 조금 더 길다.
   (()=>{
-    const g=document.getElementById('rays'), R=rng(11), cx=815, cy=523, N=28;
+    const g=document.getElementById('rays'), R=rng(11), cx=815, cy=523, N=32, PEAK=-60; // -90=위, -60=위에서 오른쪽 30°
     for (let i=0;i<N;i++){
-      const a=(i*360/N+(R()-.5)*8)*Math.PI/180, w=(1+R()*1.8)*Math.PI/180, L=325+R()*55;
+      const deg=i*360/N+(R()-.5)*8, d=mod(deg-PEAK+180,360)-180;
+      const a=deg*Math.PI/180, w=(1.2+R()*1.8)*Math.PI/180, L=340+R()*50+90*Math.exp(-(d*d)/(2*16*16));
       const p=[[cx,cy],[cx+Math.cos(a-w)*L,cy+Math.sin(a-w)*L],[cx+Math.cos(a+w)*L,cy+Math.sin(a+w)*L]];
-      el('polygon',{points:p.map(q=>q.map(v=>v.toFixed(1)).join(',')).join(' '),opacity:(.08+R()*.1).toFixed(2)},g);
+      el('polygon',{points:p.map(q=>q.map(v=>v.toFixed(1)).join(',')).join(' '),opacity:(.22+R()*.18).toFixed(2)},g);
     }
   })();
 
