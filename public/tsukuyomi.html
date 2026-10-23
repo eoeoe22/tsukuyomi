@@ -76,10 +76,14 @@
         <section class="panel scene-day" id="seaPanel" aria-label="츠쿠요미 바다">
             <button type="button" id="btnStars" class="wallpaper-toggle stars-toggle" aria-label="별 궤적"
                 aria-pressed="false"><i class="bi bi-stars" aria-hidden="true"></i></button>
-            <button type="button" id="btnDark" class="wallpaper-toggle stars-toggle" aria-label="공백 밤"
-                aria-pressed="false"><i class="bi bi-brightness-alt-high-fill" aria-hidden="true"></i></button>
-            <button type="button" id="btnTone" class="wallpaper-toggle stars-toggle" aria-label="파스텔 색조"
-                aria-pressed="false"><i class="bi bi-thermometer-half" aria-hidden="true"></i></button>
+            <span class="sea-mode-group is-base" id="seaModeGroup" role="group" aria-label="바다 색감">
+                <button type="button" data-sea="base" class="on" aria-label="기본 색감" aria-pressed="true"><i
+                        class="bi bi-brightness-high-fill" aria-hidden="true"></i></button>
+                <button type="button" data-sea="tone" aria-label="파스텔 색조" aria-pressed="false"><i
+                        class="bi bi-thermometer-half" aria-hidden="true"></i></button>
+                <button type="button" data-sea="dark" id="btnDark" aria-label="공백 밤" aria-pressed="false"><i
+                        class="bi bi-brightness-alt-high-fill" aria-hidden="true"></i></button>
+            </span>
         </section>
     </div>
 

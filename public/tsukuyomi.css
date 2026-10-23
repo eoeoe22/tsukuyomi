@@ -344,7 +344,8 @@
 
         /* 물고기 군집 배치 그룹: 밤 장면(.scene-night)에서만 노출되는 3연속 세그먼트.
            밤 시간대 버튼과 산 전환 버튼 사이에 하나의 필로 나타난다. */
-        .cursor-group {
+        .cursor-group,
+        .sea-mode-group {
             display: flex;
             align-items: center;
             flex: 0 0 auto;
@@ -360,7 +361,8 @@
             transition: background-color 0.25s, max-width 0.35s ease, margin-left 0.35s ease, padding 0.35s ease, opacity 0.3s ease, box-shadow 1.25s ease, visibility 0s;
         }
 
-        .cursor-group button {
+        .cursor-group button,
+        .sea-mode-group button {
             width: 38px;
             height: 38px;
             flex: 0 0 auto;
@@ -377,26 +379,31 @@
             transition: background-color 0.25s, color 0.25s, transform 0.25s;
         }
 
-        .cursor-group button:hover {
+        .cursor-group button:hover,
+        .sea-mode-group button:hover {
             transform: translateY(-1px);
         }
 
-        .cursor-group button:active {
+        .cursor-group button:active,
+        .sea-mode-group button:active {
             transform: none;
         }
 
-        .cursor-group button.on {
+        .cursor-group button.on,
+        .sea-mode-group button.on {
             background: var(--primary);
             color: var(--on-primary);
             box-shadow: var(--raised-md);
         }
 
-        .cursor-group button:focus-visible {
+        .cursor-group button:focus-visible,
+        .sea-mode-group button:focus-visible {
             outline: 2px solid var(--primary);
             outline-offset: 2px;
         }
 
-        .panel.is-night .cursor-group button:not(.on) {
+        .panel.is-night .cursor-group button:not(.on),
+        .panel.is-night .sea-mode-group button:not(.on) {
             color: #9aa0ae;
         }
 
@@ -425,6 +432,60 @@
 
         @media (hover: none) {
             .panel:not(.expanded):not(:focus-within) .cursor-group {
+                max-width: 0;
+                margin-left: 0;
+                padding-left: 0;
+                padding-right: 0;
+                opacity: 0;
+                pointer-events: none;
+                visibility: hidden;
+                transition: background-color 0.25s, max-width 0.35s ease, margin-left 0.35s ease, padding 0.35s ease, opacity 0.3s ease, box-shadow 1.25s ease, visibility 0s 0.35s;
+            }
+        }
+
+        /* 바다 색감 그룹 [기본/색조/밤]: 공백 장면(.scene-day)에서만 보인다(위 .scene-night 숨김 규칙 대신).
+           접힘 상태에서는 선택된 버튼 하나만 남기고, '기본'이 선택돼 있으면 그룹 전체를 접는다(단독 토글의 비활성 접힘과 같다). */
+        .sea-mode-group button {
+            transition: background-color 0.25s, color 0.25s, transform 0.25s, width 0.35s ease, opacity 0.3s ease;
+        }
+
+        @media (hover: hover) {
+            .panel:not(:hover):not(:focus-within):not(.expanded) .sea-mode-group {
+                gap: 0;
+            }
+
+            .panel:not(:hover):not(:focus-within):not(.expanded) .sea-mode-group button:not(.on) {
+                width: 0;
+                opacity: 0;
+                transform: scale(0.5);
+                pointer-events: none;
+            }
+
+            .panel.scene-day:not(:hover):not(:focus-within):not(.expanded) .sea-mode-group.is-base {
+                max-width: 0;
+                margin-left: 0;
+                padding-left: 0;
+                padding-right: 0;
+                opacity: 0;
+                pointer-events: none;
+                visibility: hidden;
+                transition: background-color 0.25s, max-width 0.35s ease, margin-left 0.35s ease, padding 0.35s ease, opacity 0.3s ease, box-shadow 1.25s ease, visibility 0s 0.35s;
+            }
+        }
+
+        @media (hover: none) {
+            .panel:not(.expanded):not(:focus-within) .sea-mode-group {
+                gap: 0;
+            }
+
+            .panel:not(.expanded):not(:focus-within) .sea-mode-group button:not(.on) {
+                width: 0;
+                opacity: 0;
+                transform: scale(0.5);
+                pointer-events: none;
+            }
+
+            .panel.scene-day:not(.expanded):not(:focus-within) .sea-mode-group.is-base {
                 max-width: 0;
                 margin-left: 0;
                 padding-left: 0;

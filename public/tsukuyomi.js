@@ -155,7 +155,7 @@
                 // 하늘은 SKY_DN으로, 구름은 짙은 남색 실루엣(DN_CLOUD = 덮는 세기)으로, 틈 빛은 DN_LIGHT만 남긴다.
                 // DN_FADE: 전환 시간(초), DN_STAR: 공백 밤에서 별 궤적 밝기 배율, DN_WATER: 수면 추가 어둡힘
                 DN_FADE: 1.8, DN_CLOUD: 0.86, DN_LIGHT: 0.08, DN_STAR: 1.35, DN_WATER: 0.35,
-                // 파스텔 색조(reference-images/sea-pastel-ref.webp): bi-thermometer-half 토글 시 공백 장면 전체에 색 보정을 얹는다.
+                // 파스텔 색조(reference-images/sea-pastel-ref.webp): 바다 색감 그룹에서 '색조'(bi-thermometer-half) 선택 시 공백 장면 전체에 색 보정을 얹는다.
                 // 기존 색감은 그대로 두고 수면까지 그린 뒤 한 번에 덮는다(라벤더 리프트 → 채도 감소 → 핑크 soft-light → 수평선 핑크 안개).
                 // TN_A: 전체 세기, TN_FADE: 전환 시간(초), TN_DESAT: 채도 감소, TN_PINK: 핑크 soft-light 배율, TN_BAND: 수평선 안개 배율
                 TN_A: 1, TN_FADE: 1.4, TN_DESAT: 0.24, TN_PINK: 1, TN_BAND: 0.75,
@@ -6221,51 +6221,32 @@ void main() {
                 }
             });
 
-            // ---------- 공백 밤 토글 (공백 장면에서만 노출, 기본값 비활성화) ----------
-            // 별 궤적 토글과 같은 방식. 켜면 공백 장면이 DN_FADE초에 걸쳐 밤(day-empty-dark)으로 어두워진다.
-            const elDark = document.getElementById('btnDark');
-            function setDayDark(on) {
-                dnOn = !!on;
-                if (elDark) {
-                    elDark.classList.toggle('on', dnOn);
-                    elDark.setAttribute('aria-pressed', dnOn ? 'true' : 'false');
+            // ---------- 바다 색감 그룹 [기본 / 색조 / 밤] (공백 장면에서만 노출, 기본값 '기본') ----------
+            // 밤에서는 색조 차이가 보이지 않으므로 셋 중 하나만 고른다. 색조(tnOn)·밤(dnOn)은 각자 페이드(TN_FADE/DN_FADE)로 교차 전환된다.
+            const elSeaGroup = document.getElementById('seaModeGroup');
+            const seaBtns = elSeaGroup ? [...elSeaGroup.querySelectorAll('button[data-sea]')] : [];
+            const seaModeOf = () => (dnOn ? 'dark' : tnOn ? 'tone' : 'base');
+            function setSeaMode(m) {
+                if (m !== 'tone' && m !== 'dark') m = 'base';
+                dnOn = m === 'dark';
+                tnOn = m === 'tone';
+                for (const btn of seaBtns) {
+                    const on = btn.dataset.sea === m;
+                    btn.classList.toggle('on', on);
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
                 }
+                if (elSeaGroup) elSeaGroup.classList.toggle('is-base', m === 'base');
             }
-            if (elDark) elDark.addEventListener('click', e => {
+            const setDayDark = on => setSeaMode(on ? 'dark' : (dnOn ? 'base' : seaModeOf()));
+            const setDayTone = on => setSeaMode(on ? 'tone' : (tnOn ? 'base' : seaModeOf()));
+            for (const btn of seaBtns) btn.addEventListener('click', e => {
                 e.stopPropagation();
-                const pn = elDark.closest('.panel') || elPanel;
+                const pn = btn.closest('.panel') || elPanel;
                 if (TOUCH_UI && pn && !pn.classList.contains('expanded')) {
                     pn.classList.add('expanded');
                     moveThumb();
                 }
-                setDayDark(!dnOn);
-                if (TOUCH_UI && pn) {
-                    clearTimeout(collapseTimer);
-                    collapseTimer = setTimeout(() => {
-                        pn.classList.remove('expanded');
-                        moveThumb();
-                    }, 900);
-                }
-            });
-
-            // ---------- 파스텔 색조 토글 (공백 장면에서만 노출, 기본값 비활성화) ----------
-            // 공백 밤 토글과 같은 방식. 켜면 TN_FADE초에 걸쳐 참조 이미지(sea-pastel-ref)의 파스텔 색감으로, 끄면 기존 색감으로 돌아간다.
-            const elTone = document.getElementById('btnTone');
-            function setDayTone(on) {
-                tnOn = !!on;
-                if (elTone) {
-                    elTone.classList.toggle('on', tnOn);
-                    elTone.setAttribute('aria-pressed', tnOn ? 'true' : 'false');
-                }
-            }
-            if (elTone) elTone.addEventListener('click', e => {
-                e.stopPropagation();
-                const pn = elTone.closest('.panel') || elPanel;
-                if (TOUCH_UI && pn && !pn.classList.contains('expanded')) {
-                    pn.classList.add('expanded');
-                    moveThumb();
-                }
-                setDayTone(!tnOn);
+                setSeaMode(btn.dataset.sea);
                 if (TOUCH_UI && pn) {
                     clearTimeout(collapseTimer);
                     collapseTimer = setTimeout(() => {
@@ -6330,6 +6311,7 @@ void main() {
                 get dayStars() { return dsOn; }, set dayStars(v) { setDayStars(!!v); },
                 get dayDark() { return dnOn; }, set dayDark(v) { setDayDark(!!v); },
                 get dayTone() { return tnOn; }, set dayTone(v) { setDayTone(!!v); },
+                get seaMode() { return seaModeOf(); }, set seaMode(v) { setSeaMode(v); },
                 // 밤 물고기 군집 배치 옵션 (하단 btnCursorOff/Track/Moon과 동일)
                 get cursor() { return cursorMode !== 0; }, set cursor(v) { setCursorMode(v ? 1 : 0); },
                 get cursorMode() { return cursorMode; }, set cursorMode(v) { setCursorMode(v); },
