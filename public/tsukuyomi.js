@@ -162,7 +162,7 @@
                 // 색조 렌더 레이어(WebGL2, drawTone 위 toneGL 참고). TN_GL 1 = 레이어 사용, 0 = 위의 2D 필터.
                 // TN_K: 원래 색차 유지(0 = 밝기만으로 착색), TN_HBAND: 수평선 위 라벤더 안개, TN_MAUVE: 수면 수평선 쪽 모브,
                 // TN_DEEP: 깊은 수면 청색, TN_BLOOM: 하이라이트 핑크 번짐, TN_SPARK: 수면 반짝임
-                TN_GL: 1, TN_K: 0.8, TN_HBAND: 0.6, TN_MAUVE: 0.5, TN_DEEP: 0.5, TN_BLOOM: 0.38, TN_SPARK: 0.6, TN_REFL: 0.9, TN_MIR: 1.6, TN_STROKE: 0.35, TN_WGLOW: 0.4, TN_RDET: 0.55,
+                TN_GL: 1, TN_K: 0.8, TN_HBAND: 0.6, TN_MAUVE: 0.5, TN_DEEP: 0.5, TN_BLOOM: 0.38, TN_SPARK: 0.45, TN_REFL: 1, TN_MIR: 1.15, TN_STROKE: 0.45, TN_WGLOW: 0.65, TN_WAVE: 1, TN_RBLUR: 0.4, TN_RMIX: 0.5, TN_RCON: 1.3,
                 // DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
                 DY_COLUMN: 0,
                 // 구름 뚫림(ref: 어두운 앞 구름이 불균일하게 찢겨 그 너머 햇빛 받은 흰 구름이 비친다):
@@ -5325,11 +5325,11 @@ void main() {
             //      그늘은 슬레이트 블루로 남고 밝은 구름·반사는 크림 핑크로 펴져 대비가 산다. 상대 색차(하늘 파랑 vs 구름)는 TN_K만큼 유지.
             //   2) 위치별 착색(명도 유지): 수평선 위 라벤더 안개(TN_HBAND), 수면 수평선 쪽 모브(TN_MAUVE), 깊은 수면 청색(TN_DEEP)
             //   3) 하이라이트 핑크 번짐(TN_BLOOM): 밉맵 저해상도에서 밝은 곳만 골라 screen
-            //   4) 수면 재구성(TN_REFL): 기본 장면의 상세 거울상 대신, 수평선 대칭 하늘을 가로로 크게 번지게 읽은 구름 실루엣(밝기)을
-    //      수면 전용 파스텔 팔레트(청람·라벤더·핑크)로 다시 칠한다. TN_MIR: 반사 압축(클수록 높은 하늘이 수평선 가까이),
-    //      TN_STROKE: 가로 붓결, TN_WGLOW: 밝은 덩어리 둘레의 복숭앗빛 광원 번짐(구름 하이라이트와 다른 색),
-    //      TN_RDET: 원래 물결 거울상의 잔결(하이패스)을 되살리는 정도
-    //   5) 수면 반짝임(TN_SPARK): 원근(수평선 쪽일수록 작게)을 따른 가로 잔물결 반점이 밝은 반사 위에서 깜빡인다(복숭앗빛)
+            //   4) 수면 재구성(TN_REFL): 기본 장면의 거울상 대신 수평선 대칭 하늘을 다시 읽어 '반사와 파스텔 사이'로 그린다.
+            //      물결로 흔든 표본 → 가로로 더 번지는 블러(TN_RBLUR) → 국소 대비 복원(TN_RCON) → 하늘 LUT → 수면 팔레트
+            //      (청보라 그늘 → 모브 → 연어 핑크 → 크림)와 실제 반사색을 TN_RMIX만큼 섞음 → 프레넬(아래쪽은 물빛 청색, TN_DEEP)
+            //      → 광원 번짐(TN_WGLOW, 구름의 크림색과 다른 연어빛) → 잔물결 줄(TN_STROKE). TN_MIR: 반사 압축, TN_WAVE: 물결 흔들림
+            //   5) 수면 반짝임(TN_SPARK): 원근(수평선 쪽일수록 작게)을 따른 가로 잔물결 반점이 밝은 반사 위에서 깜빡인다(복숭앗빛)
             // WebGL2가 없거나 컨텍스트를 잃으면 false → 아래 2D 필터(drawTone2D)로 대신 그린다.
             const TONE_LUT_N = 33, TONE_LUT_RES = 256;
             // 행 순서: 하늘 A, 하늘 B, 수면 A, 수면 B (각 33단계 RGB, L = 0..255 균등)
@@ -5342,7 +5342,7 @@ in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
 precision highp float;
 uniform sampler2D uTex,uLut;
 uniform vec2 uRes;
-uniform float uHy,uA,uK,uBand,uMauve,uDeep,uBloom,uSpark,uT,uDpr,uLod,uRefl,uMir,uStroke,uWGlow,uRDet;
+uniform float uHy,uA,uK,uBand,uMauve,uDeep,uBloom,uSpark,uT,uDpr,uLod,uRefl,uMir,uStroke,uWGlow,uWave,uRBlur,uRMix,uRCon;
 out vec4 o;
 const vec3 LW=vec3(.299,.587,.114);
 const float N=${TONE_LUT_RES}.;
@@ -5378,47 +5378,66 @@ void main(){
   vec3 bl=.5*blur(uv,uLod)+.5*blur(uv,uLod+1.5);
   float hl=smoothstep(.36,.8,dot(bl,LW));
   g=1.-(1.-clamp(g,0.,1.))*(1.-uBloom*hl*hl*vec3(1.,.8,.78));
-  // 4) 수면 재구성: 거울상 대신 하늘 실루엣으로 다시 그린다.
-  //    수평선 위 대칭 위치의 하늘을 가로로 길게 번지게 읽어 구름 덩어리 윤곽(밝기)만 남기고,
-  //    그 밝기를 수면 전용 파스텔 팔레트(청람 → 라벤더 → 핑크 → 복숭앗빛 광원)에 대응시킨다.
-  //    결은 원근 좌표(가로 x/py, 세로 log py)의 가로 붓결 노이즈로 얹는다
+  // 4) 수면 재구성: 기본 장면의 거울상(선명한 원래 색)을 버리고, 수평선 대칭 위치의 하늘을 다시 읽어 그린다.
+  //    a. 물결: 원근 좌표(가로 x/py, 세로 log py)의 가로로 긴 노이즈로 표본 위치를 위아래로 흔든다 → 가로로 끊긴 반사 결
+  //    b. 블러: 밉맵 + 가로 7탭(가로로 더 번짐). 구름 덩어리 모양은 남고 윤곽은 녹는다
+  //    c. 같은 색 매핑(하늘 LUT)을 지난 뒤 물빛으로 옮긴다: 전체를 조금 어둡게, 그늘은 청보라로 — 하늘과 같은 파스텔이 되지 않게
+  //    d. 광원 번짐: 크게 번진 표본의 밝은 덩어리 둘레를 연어빛(구름의 크림색과 다른 색)으로 screen, 중심은 크림 핑크
+  //    e. 잔물결 줄: 밝은 반사 위에서 더 또렷한 가는 가로줄
   if(wat>.001&&uRefl>0.){
     float py=max(.5,(uv.y-uHy)*uRes.y/uDpr), px=(uv.x-.5)*uRes.x/uDpr, Z=log(py);
-    float wob=(vn(vec2(Z*14.,uT*.12))-.5)*.035+(vn(vec2(Z*40.,uT*.3+7.))-.5)*.01;
-    vec2 su=vec2(uv.x+wob,max(.004,uHy-(uv.y-uHy)*uMir));
-    vec3 s=vec3(0.);float sw=0.;
-    for(int i=-5;i<=5;i++){float w=exp(-float(i*i)/12.);s+=w*textureLod(uTex,vec2(su.x+float(i)*.006,su.y),uLod-1.5).rgb;sw+=w;}
-    s/=sw;
-    float Ls=dot(s,LW);
-    float Lt=dot(lut(Ls,0.)+uK*(s-lut(Ls,1.)),LW);
     float wdd=clamp((uv.y-uHy)/max(.02,1.-uHy),0.,1.);
-    // 붓결: 가로로 긴 셀(멀수록 촘촘), 두 겹
-    vec2 q=vec2(px/py,Z);
-    float nb=vn(vec2(q.x*2.2,q.y*18.))*.6+vn(vec2(q.x*7.,q.y*55.+3.))*.4;
     // 수평선 바로 아래는 결이 1px보다 촘촘해져 잡음이 되므로 거리에 따라 줄인다
-    float near=smoothstep(4.,30.,py);
-    float lt=Lt+(nb-.5)*.14*uStroke*near;
-    float m0=smoothstep(.68,.9,lt);
-    vec3 w=mix(vec3(.35,.47,.71),vec3(.56,.56,.74),smoothstep(.4,.72,lt));
-    w=mix(w,vec3(.84,.67,.74),smoothstep(.68,.88,lt));
-    w=mix(w,vec3(.97,.81,.77),smoothstep(.87,.98,lt));
-    // 멀리(수평선 쪽)는 반사 대비가 줄고 옅은 라벤더 안개로, 가까이는 조금 더 깊은 청색으로
-    w=mix(w,vec3(.70,.60,.71),.55*exp(-wdd*wdd/.07)*(1.-.5*m0));
-    w=mix(w,vec3(.68,.63,.75),.7*exp(-wdd*wdd/.01));
-    w=mix(w,w*vec3(.9,.94,1.04),smoothstep(.5,1.,wdd));
-    // 가는 결(밝은 곳일수록 또렷)
-    float fs=vn(vec2(q.x*26.,q.y*150.));
-    w*=1.+(fs-.5)*.1*uStroke*(.4+lt)*smoothstep(15.,70.,py);
-    // 광원 번짐: 밝은 덩어리 둘레로 구름과 다른 따뜻한 복숭앗빛
-    float m=smoothstep(.74,.98,Lt);
-    w=1.-(1.-w)*(1.-uWGlow*m*m*vec3(1.,.74,.62));
-    // 같은 대칭 위치 하늘의 잔결(하이패스)을 가는 물결로 흔들어 얹어 '그린 면'이 아니라 물에 비친 느낌을 남긴다.
-    // 원래 거울상(압축 없음)에서 가져오면 실루엣과 윤곽이 어긋나 이중상이 되므로 실루엣과 같은 좌표에서 읽는다
-    float rx=su.x+(vn(vec2(q.x*3.,Z*120.+uT*.8))-.5)*.0045;
-    float dl=0.;
-    for(int i=-1;i<=1;i++)dl+=dot(textureLod(uTex,vec2(rx+float(i)*.0025,su.y),1.5).rgb,LW);
-    float hp=dl/3.-dot(textureLod(uTex,su,uLod-1.).rgb,LW);
-    w+=clamp(hp,-.2,.2)*uRDet*near;
+    float near=smoothstep(3.,40.,py);
+    vec2 q=vec2(px/py,Z);
+    // a. 물결
+    float rip=(vn(vec2(q.x*1.4+uT*.02,Z*22.-uT*.22))-.5)*.65+(vn(vec2(q.x*4.5+7.,Z*70.+uT*.45))-.5)*.35;
+    float dx=(vn(vec2(Z*14.,uT*.12))-.5)*.02;
+    vec2 su=vec2(uv.x+dx,uHy-(uv.y-uHy)*uMir+rip*uWave*(.003+.035*wdd)*near);
+    su.y=clamp(su.y,.003,uHy-.002);
+    // b. 블러된 거울상
+    float lb=uLod-3.2+2.4*uRBlur+.8*wdd;
+    float sx=exp2(lb)*1.3/uRes.x;
+    vec3 s=vec3(0.);float sw=0.;
+    for(int i=-3;i<=3;i++){float w=exp(-float(i*i)/5.);s+=w*textureLod(uTex,vec2(su.x+float(i)*sx,su.y),lb).rgb;sw+=w;}
+    s/=sw;
+    // c. 하늘 매핑 → 물빛. 반사는 블러로 대비가 줄어 뿌예지므로, 크게 번진 표본(sg)과의 차이로 국소 대비를 되살린다(TN_RCON)
+    vec3 sg=.5*textureLod(uTex,su,uLod+.3).rgb+.5*textureLod(uTex,su,uLod+1.5).rgb;
+    s=clamp(s+uRCon*(s-sg),0.,1.);
+    float Ls=dot(s,LW);
+    vec3 r=clamp(lut(Ls,0.)+uK*(s-lut(Ls,1.)),0.,1.);
+    float Lr=dot(r,LW);
+    // 수면 밝기 폭은 하늘보다 좁다(참조 5–95%: 하늘 ≈ 105–245, 수면 ≈ 95–220): 그늘은 들고 꼭대기는 누른다
+    float Lw=.28+.62*smoothstep(.08,.98,Lr);
+    // 수면 팔레트(참조 수면 밝기별 색): 청보라 그늘 → 모브 → 라벤더 → 연어 핑크 → 크림 복숭아
+    vec3 w=mix(vec3(.27,.38,.68),vec3(.56,.47,.6),smoothstep(.34,.58,Lw));
+    w=mix(w,vec3(.74,.6,.7),smoothstep(.55,.7,Lw));
+    w=mix(w,vec3(.94,.69,.66),smoothstep(.64,.79,Lw));
+    w=mix(w,vec3(.98,.88,.84),smoothstep(.79,.9,Lw));
+    w+=Lw-dot(w,LW);
+    // 하늘 색차(파란 틈 vs 구름)를 조금 남긴다
+    w+=uK*.35*(r-Lr);
+    // 반사와 파스텔 사이: 하늘 반사 자체(조금 어둡게, 그늘은 청색으로)를 TN_RMIX만큼 섞어 구름 덩어리 구조를 살린다
+    vec3 wr=tint(r*mix(.78,.96,smoothstep(.5,.92,Lr)),vec3(.3,.42,.72),.7*(1.-smoothstep(.35,.75,Lr)));
+    w=mix(w,wr,uRMix);
+    // 프레넬: 가까운(아래) 쪽은 반사가 줄고 물 자체의 청색이 드러난다
+    float fr=clamp(uDeep*2.3*pow(wdd,1.1),0.,.92);
+    w=mix(w,vec3(.36,.5,.75)*mix(.8,1.1,Lw),fr);
+    // 수평선 쪽은 옅은 모브·라벤더 안개
+    w=tint(w,vec3(.6,.49,.59),uMauve*.8*exp(-wdd*wdd/.15));
+    w=mix(w,vec3(.7,.64,.75),.35*exp(-wdd*wdd/.006));
+    // 수평선 바로 아래 반사는 하늘 안개 띠보다 한 단계 어둡다(참조: 하늘 띠 ≈ 171, 수면 첫 줄 ≈ 155)
+    w*=1.-.16*exp(-wdd*wdd/.004);
+    // d. 광원 번짐(연어빛)과 하이라이트 중심(크림 핑크)
+    float Lg=dot(lut(dot(sg,LW),0.),LW);
+    float gm=smoothstep(.44,.86,Lg)*(1.-.85*fr)*smoothstep(.02,.14,wdd);
+    // 밝히기만 하면 다시 뿌예지므로 대부분은 명도를 유지한 착색, 둘레만 살짝 screen
+    w=tint(clamp(w,0.,1.),vec3(.93,.6,.55),uWGlow*.8*gm);
+    w=1.-(1.-w)*(1.-uWGlow*.35*gm*gm*vec3(.92,.52,.42));
+    w=mix(w,vec3(.99,.87,.84),.4*(1.-.6*fr)*smoothstep(.8,.97,Lr));
+    // e. 잔물결 줄
+    float st=vn(vec2(q.x*4.+uT*.05,Z*48.+uT*.5))*.6+vn(vec2(q.x*10.,Z*100.-uT*.8))*.4;
+    w*=1.+(st-.5)*uStroke*near*(.2+.4*smoothstep(.45,.9,Lr));
     g=mix(g,clamp(w,0.,1.),uRefl*wat);
   }
   // 5) 수면 반짝임: 수평선 아래 거리 py에 비례하는 셀(가로 X = x/py, 세로 Z = log py)이라 멀수록 작고 촘촘하다.
@@ -5433,7 +5452,7 @@ void main(){
     float tw=pow(.5+.5*sin(uT*(.7+1.5*h2)+6.2831*h),8.);
     float sh=smoothstep(0.,.35,f.x)*smoothstep(1.,.65,f.x)*max(0.,1.-abs(f.y*2.-1.)*1.4);
     float cellPx=py/45.;
-    float on=step(.84,h)*tw*sh*smoothstep(.55,.9,dot(g,LW))*smoothstep(.8,1.6,cellPx);
+    float on=step(.84,h)*tw*sh*smoothstep(.42,.8,dot(g,LW))*smoothstep(.8,1.6,cellPx);
     g+=uSpark*on*vec3(1.,.86,.76)*.5;
   }
   // 출력 디더(±0.5단계): 남은 미세 계단을 흩는다
@@ -5463,7 +5482,7 @@ void main(){
                         gl.enableVertexAttribArray(0);
                         gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
                         U = {};
-                        for (const n of ['uTex', 'uLut', 'uRes', 'uHy', 'uA', 'uK', 'uBand', 'uMauve', 'uDeep', 'uBloom', 'uSpark', 'uT', 'uDpr', 'uLod', 'uRefl', 'uMir', 'uStroke', 'uWGlow', 'uRDet'])
+                        for (const n of ['uTex', 'uLut', 'uRes', 'uHy', 'uA', 'uK', 'uBand', 'uMauve', 'uDeep', 'uBloom', 'uSpark', 'uT', 'uDpr', 'uLod', 'uRefl', 'uMir', 'uStroke', 'uWGlow', 'uWave', 'uRBlur', 'uRMix', 'uRCon'])
                             U[n] = gl.getUniformLocation(prog, n);
                         gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
                         lutTex = gl.createTexture();
@@ -5517,7 +5536,7 @@ void main(){
                     gl.uniform1f(U.uBloom, CFG.TN_BLOOM); gl.uniform1f(U.uSpark, CFG.TN_SPARK);
                     gl.uniform1f(U.uRefl, CFG.TN_REFL); gl.uniform1f(U.uMir, CFG.TN_MIR);
                     gl.uniform1f(U.uStroke, CFG.TN_STROKE); gl.uniform1f(U.uWGlow, CFG.TN_WGLOW);
-                    gl.uniform1f(U.uRDet, CFG.TN_RDET);
+                    gl.uniform1f(U.uWave, CFG.TN_WAVE); gl.uniform1f(U.uRBlur, CFG.TN_RBLUR); gl.uniform1f(U.uRMix, CFG.TN_RMIX); gl.uniform1f(U.uRCon, CFG.TN_RCON);
                     // 번짐 반경은 화면 높이 기준(720px에서 밉 4.5)으로 맞춘다
                     gl.uniform1f(U.uDpr, dpr); gl.uniform1f(U.uLod, 4.5 + Math.log2(Math.max(1, h) / 720));
                     gl.drawArrays(gl.TRIANGLES, 0, 3);

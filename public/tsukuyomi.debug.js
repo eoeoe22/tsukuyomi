@@ -79,7 +79,7 @@
             ['TN_A', 0, 1, 0.01], ['TN_FADE', 0.1, 6, 0.1], ['TN_DESAT', 0, 1, 0.01], ['TN_PINK', 0, 2, 0.01], ['TN_BAND', 0, 1.5, 0.01],
             ['TN_GL', 0, 1, 1], ['TN_K', 0, 1.5, 0.01], ['TN_HBAND', 0, 1, 0.01], ['TN_MAUVE', 0, 1, 0.01],
             ['TN_DEEP', 0, 1, 0.01], ['TN_BLOOM', 0, 1, 0.01], ['TN_SPARK', 0, 2, 0.01],
-            ['TN_REFL', 0, 1, 0.01], ['TN_MIR', 0.3, 2, 0.01], ['TN_STROKE', 0, 2, 0.01], ['TN_WGLOW', 0, 1, 0.01], ['TN_RDET', 0, 1.5, 0.01],
+            ['TN_REFL', 0, 1, 0.01], ['TN_MIR', 0.3, 2, 0.01], ['TN_STROKE', 0, 2, 0.01], ['TN_WGLOW', 0, 1, 0.01], ['TN_WAVE', 0, 3, 0.01], ['TN_RBLUR', 0, 1.5, 0.01], ['TN_RMIX', 0, 1, 0.01], ['TN_RCON', 0, 3, 0.01],
             ['DY_HOLE', 0, 1, 0.05, 'clouds'], ['DY_HOLE_S', 0.3, 2.5, 0.05, 'clouds'], ['DY_HOLE_N', 0, 8, 1, 'clouds'],
             ['DY_HOLE_EDGE', 0, 2, 0.05, 'clouds'], ['DY_HOLE_RIM', 0, 1.5, 0.05, 'clouds'], ['DY_HOLE_SKY', 0, 1.5, 0.05, 'clouds'],
         ]},
