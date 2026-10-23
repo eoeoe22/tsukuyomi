@@ -1,6 +1,9 @@
-438b209acb309984a1ae2ff245a3d8c42f5b45f3 (산 장면 통합·토리이 물고기 반사광·반사상 줄무늬 수정까지)
-2026-10-17
+789e000237a73f618ad34863a868216e2f336b1e (바다 색감 3버튼·뉴스/방/지구 세계·랜턴 components 분리까지, 2026-10-23 기준)
+2026-10-23
 frozen source: public/tsukuyomi.js, public/tsukuyomi.css,
   public/cloud-live.js, public/cloud-overlay.js, public/tsukuyomi.mount.js,
-  public/clouds/day-overlay.json, public/lantern-front.svg, public/assets/icons/icon.svg
+  public/tsukuyomi.earth.js, public/tsukuyomi.room.js, public/tsukuyomi.news.js,
+  public/clouds/day-overlay.json, public/lantern-front.svg, public/assets/icons/icon.svg,
+  public/components/lantern-frustum.html, public/components/lantern-cylinder.html,
+  public/components/yachiroom.umd.js
 verify: python wallpaper/tools/verify-wallpaper.py

@@ -31,6 +31,22 @@
             <canvas id="mountScene" aria-hidden="true"></canvas>
         </div>
     </div>
+    <!-- 地: 역광 지구 장면 (vendor/tsukuyomi.earth.js, 처음 고를 때 로드) -->
+    <div class="world" id="worldEarth" hidden>
+        <div class="world-view">
+            <canvas id="earthScene" aria-hidden="true"></canvas>
+        </div>
+    </div>
+    <!-- 八: 야치요의 방 장면 (vendor/tsukuyomi.room.js + components/, 처음 고를 때 로드) -->
+    <div class="world" id="worldRoom" hidden>
+        <div class="world-view">
+            <canvas id="roomScene" aria-hidden="true"></canvas>
+        </div>
+    </div>
+    <!-- 犬: 뉴스 츠쿠요미 장면 (vendor/tsukuyomi.news.js, 처음 고를 때 로드. .world-view 안에 JS가 레이어를 만든다) -->
+    <div class="world" id="worldNews" hidden>
+        <div class="world-view"></div>
+    </div>
 
     <!-- 하단 시간대 UI: 코어가 참조하므로 DOM은 유지하고, 표시는 wallpaper.css에서 숨긴다.
          장면 선택은 Wallpaper Engine 옵션(scene)으로 대체한다. btnMirror는 미러볼

@@ -28,6 +28,9 @@ body {
 
 #scene,
 #fg,
-#mountScene {
+#mountScene,
+#earthScene,
+#roomScene,
+#worldNews .news-layer {
     pointer-events: none;
 }

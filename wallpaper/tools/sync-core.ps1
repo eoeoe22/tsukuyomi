@@ -13,5 +13,12 @@ Copy-Item public/clouds/day-overlay.json wallpaper/vendor/clouds/day-overlay.jso
 Copy-Item public/lantern-front.svg wallpaper/vendor/lantern-front.svg -Force
 Copy-Item public/assets/icons/icon.svg wallpaper/vendor/assets/icons/icon.svg -Force
 Copy-Item public/tsukuyomi.mount.js wallpaper/vendor/tsukuyomi.mount.js -Force
+Copy-Item public/tsukuyomi.earth.js wallpaper/vendor/tsukuyomi.earth.js -Force
+Copy-Item public/tsukuyomi.room.js wallpaper/vendor/tsukuyomi.room.js -Force
+Copy-Item public/tsukuyomi.news.js wallpaper/vendor/tsukuyomi.news.js -Force
+New-Item -ItemType Directory -Force wallpaper/components | Out-Null
+Copy-Item public/components/lantern-frustum.html wallpaper/components/lantern-frustum.html -Force
+Copy-Item public/components/lantern-cylinder.html wallpaper/components/lantern-cylinder.html -Force
+Copy-Item public/components/yachiroom.umd.js wallpaper/components/yachiroom.umd.js -Force
 python wallpaper/tools/generate-project-json.py
 python wallpaper/tools/verify-wallpaper.py

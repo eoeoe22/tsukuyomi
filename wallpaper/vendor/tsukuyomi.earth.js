@@ -1,0 +1,638 @@
+/* 地: 역광 지구 + 죽순 장면 (examples/지구 역광 초안.html 이식, reference-images/earth.mp4).
+ * tsukuyomi.html의 세 번째 세계(#worldEarth, 경로 #earth)로, tsukuyomi.worlds.js가 처음 필요할 때 로드한다.
+ * 로드 때는 셰이더 컴파일 + 죽순 굽기만 하고, 화면에 올릴 때 start()(인트로를 처음부터), 내릴 때 stop().
+ * - 지구/대기/렌즈플레어: 전체 화면 프래그먼트 셰이더 하나 (WebGL2)
+ * - 죽순: 회전하는 죽순.html 로직을 오프스크린 캔버스로 그려 텍스처로 합성 (역광 실루엣 + 림라이트)
+ * - 조절값은 초안 조절 패널의 기본값(CFG). 콘솔: __EARTH__.cfg, ?earthT=초 로 시간 고정(캡처용)
+ * WebGL2가 없으면 TsukuyomiEarth를 만들지 않는다(전환이 실패하고 지금 세계에 남는다).
+ */
+(() => {
+  'use strict';
+
+  // ── 죽순 (회전하는 죽순.html 이식: DOM 분리, 회전각은 인자로) ──
+  function createTakenoko(K) {
+    const W = 300, H = 440, CX = 150;
+    const COL = { body: '#6e625f', outline: '#2b2230', line: '#1e1a1c' };
+    const COUNT = 9, TOP0 = 45, GAP = 40, DROP = 150, TURN = Math.PI * 2 / 3;
+    const SHEATHS = Array.from({ length: COUNT }, (_, i) => ({ top: TOP0 + i * GAP, th: i * TURN }));
+    const TAU = Math.PI * 2;
+
+    const cv = document.createElement('canvas');
+    cv.width = W * K; cv.height = H * K;
+    const ctx = cv.getContext('2d');
+    ctx.scale(K, K);
+
+    const R_LUT = new Float32Array(H + 1);
+    let PROFILE;
+    {
+      const segs = [
+        [[150, 20], [172, 20], [192, 85], [222, 175]],
+        [[222, 175], [252, 265], [264, 330], [256, 368]],
+        [[256, 368], [247, 404], [210, 420], [150, 420]],
+      ];
+      const pts = [];
+      for (const s of segs) for (let i = 0; i <= 400; i++) {
+        const t = i / 400, u = 1 - t;
+        const a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+        pts.push([a * s[0][1] + b * s[1][1] + c * s[2][1] + d * s[3][1],
+                  a * s[0][0] + b * s[1][0] + c * s[2][0] + d * s[3][0] - CX]);
+      }
+      PROFILE = pts;
+      let k = 0;
+      for (let y = 0; y <= H; y++) {
+        while (k < pts.length - 2 && pts[k + 1][0] < y) k++;
+        const [y0, r0] = pts[k], [y1, r1] = pts[k + 1];
+        R_LUT[y] = y <= 20 ? 0 : y >= 420 ? 0 : (y1 > y0 ? r0 + (r1 - r0) * (y - y0) / (y1 - y0) : r1);
+      }
+    }
+    const rAt = y => {
+      const i = Math.max(0, Math.min(H - 1, Math.floor(y))), f = y - i;
+      return R_LUT[i] + (R_LUT[i + 1] - R_LUT[i]) * f;
+    };
+    const wrap = a => ((a + Math.PI) % TAU + TAU) % TAU - Math.PI;
+    function edgeY(k, th) {
+      const s = SHEATHS[k], g = Math.abs(wrap(th - s.th)) / Math.PI;
+      return s.top + DROP * (1 - Math.pow(1 - g, 1.6));
+    }
+    function covered(k, th, y) {
+      for (let j = k + 1; j < SHEATHS.length; j++) if (y > edgeY(j, th) + 0.5) return true;
+      return false;
+    }
+    const rpAt = y => rAt(y + 0.5) - rAt(y - 0.5);
+
+    const YC = 220, Y0 = 20, Y1 = 420;
+    let ct = 1, st = 0, OY = YC, body, bodyImg, shadeImg;
+    const SHADE_IN = 50, SHADE_OUT = 110;
+    const shadeAt = r => { const t = Math.min(1, Math.max(0, (r - SHADE_IN) / (SHADE_OUT - SHADE_IN))); return 1 - t * t * (3 - 2 * t); };
+    const S = (() => {
+      let ext = 0;
+      for (let d = 0; d <= 90; d++) {
+        const c = Math.cos(d * Math.PI / 180), s = Math.sin(d * Math.PI / 180);
+        let lo = Infinity, hi = -Infinity;
+        for (let y = Y0; y <= Y1; y++) { const u = (YC - y) * c, h = rAt(y) * s; lo = Math.min(lo, u - h); hi = Math.max(hi, u + h); }
+        ext = Math.max(ext, hi - lo);
+      }
+      return Math.min(1, (Y1 - Y0) / ext);
+    })();
+
+    function setTilt(deg) {
+      const T = deg * Math.PI / 180;
+      ct = Math.cos(T); st = Math.sin(T);
+      let lo = Infinity, hi = -Infinity;
+      for (let y = Y0; y <= Y1; y++) { const u = (YC - y) * ct, h = rAt(y) * Math.abs(st); lo = Math.min(lo, u - h); hi = Math.max(hi, u + h); }
+      OY = H / 2 + S * (lo + hi) / 2;
+      body = new Path2D();
+      for (let y = Y0; y <= Y1; y++) {
+        const rx = Math.max(0.01, S * rAt(y)), ry = Math.max(0.75, rx * Math.abs(st));
+        const cy = OY - S * (YC - y) * ct;
+        body.moveTo(CX + rx, cy);
+        body.ellipse(CX, cy, rx, ry, 0, 0, TAU);
+      }
+      if (!bodyImg) bodyImg = document.createElement('canvas');
+      bodyImg.width = W * K; bodyImg.height = H * K;
+      const b = bodyImg.getContext('2d');
+      b.scale(K, K);
+      b.lineJoin = 'round';
+      b.strokeStyle = COL.outline;
+      b.lineWidth = 6;
+      b.stroke(body);
+      b.fillStyle = COL.body;
+      b.fill(body);
+      bakeShade();
+    }
+
+    function bakeShade() {
+      const A = new Float32Array(W * H);
+      let top = 0;
+      for (let i = 1; i < PROFILE.length; i++) if (PROFILE[i][1] > PROFILE[top][1]) top = i;
+      for (let i = top; i < PROFILE.length - 1; i++) {
+        const [y, r] = PROFILE[i], a = shadeAt(r);
+        if (a <= 0.003) continue;
+        const dy = PROFILE[i + 1][0] - y, dr = PROFILE[i + 1][1] - r;
+        const n = Math.max(8, Math.ceil(TAU * r * S / 0.5)), u = YC - y;
+        for (let j = 0; j < n; j++) {
+          const ph = j / n * TAU, c = Math.cos(ph);
+          if (dr * st + dy * c * ct <= 0) continue;
+          const px = Math.floor(CX + S * r * Math.sin(ph)), py = Math.floor(OY - S * (u * ct - r * c * st));
+          for (let oy = 0; oy < 2; oy++) for (let ox = 0; ox < 2; ox++) {
+            const x = px + ox, yy = py + oy;
+            if (x >= 0 && x < W && yy >= 0 && yy < H) { const k = yy * W + x; if (a > A[k]) A[k] = a; }
+          }
+        }
+      }
+      const [cr, cg, cb] = [1, 3, 5].map(i => parseInt(COL.line.slice(i, i + 2), 16));
+      const img = new ImageData(W, H);
+      for (let k = 0; k < W * H; k++) {
+        img.data[k * 4] = cr; img.data[k * 4 + 1] = cg; img.data[k * 4 + 2] = cb; img.data[k * 4 + 3] = A[k] * 255;
+      }
+      if (!shadeImg) shadeImg = document.createElement('canvas');
+      shadeImg.width = W; shadeImg.height = H;
+      shadeImg.getContext('2d').putImageData(img, 0, 0);
+    }
+
+    function project(th, y, rot) {
+      const a = th + rot, r = rAt(y);
+      const x = r * Math.sin(a), z = r * Math.cos(a), u = YC - y;
+      const front = y > Y0 && y < Y1 - 1 && rpAt(y) * st + Math.cos(a) * ct > 0;
+      return { x: CX + S * x, y: OY - S * (u * ct - z * st), front };
+    }
+    function strokeRun(run) {
+      if (run.length < 2) return;
+      ctx.moveTo(run[0].x, run[0].y);
+      for (let i = 1; i < run.length; i++) ctx.lineTo(run[i].x, run[i].y);
+    }
+    function draw(rot) {
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(bodyImg, 0, 0, W, H);
+      ctx.save();
+      ctx.clip(body);
+      ctx.strokeStyle = COL.line;
+      ctx.lineWidth = 3.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      const N = 720;
+      SHEATHS.forEach((s, k) => {
+        let run = [];
+        for (let i = 0; i <= N; i++) {
+          const th = i / N * TAU, y = edgeY(k, th), p = project(th, y, rot);
+          if (p.front && !covered(k, th, y)) run.push(p);
+          else { strokeRun(run); run = []; }
+        }
+        strokeRun(run);
+      });
+      ctx.stroke();
+      ctx.drawImage(shadeImg, 0, 0, W, H);
+      ctx.restore();
+    }
+    return { canvas: cv, aspect: W / H, setTilt, draw };
+  }
+
+  // ── 셰이더 ──
+  const VS = `#version 300 es
+  in vec2 a; void main(){ gl_Position = vec4(a, 0., 1.); }`;
+
+  const FS = `#version 300 es
+  precision highp float;
+  uniform vec2 uRes;
+  uniform float uTime;
+  uniform float uTanH;
+  uniform vec3 uE;          // 지구 중심 (카메라 공간, 카메라는 원점에서 -z를 봄)
+  uniform float uR, uRa;    // 지구 반지름, 대기 바깥 반지름
+  uniform vec3 uSun;        // 태양 방향 (단위)
+  uniform vec2 uSunP;       // 태양 화면 좌표 (장면 좌표계)
+  uniform vec2 uSunEndP;    // 태양 최종 위치 (장면 좌표계, 구름 성김 중심)
+  uniform float uVis;       // 태양 원판 노출 비율 0..1
+  uniform float uRevealed;  // 음영 해제 정도 (vis를 늦게 따라감)
+  uniform float uSpread;    // 테두리 빛 확산 폭
+  uniform float uRim;       // 테두리 전체 림 밝기
+  uniform float uGlow;      // 태양 쪽 테두리 산란광 세기 (떠오르기 전엔 매우 희미)
+  uniform vec2 uDrift;      // 카메라 흐름 (장면만 이동, 죽순은 고정)
+  uniform float uExpo;
+  uniform float uSpin;      // 지구 자전각
+  uniform sampler2D uTk;
+  uniform vec2 uTkC; uniform float uTkH, uTkA, uTkAsp;
+  out vec4 o;
+
+  const float PI = 3.14159265;
+
+  float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+  float hash13(vec3 p3){ p3 = fract(p3 * .1031); p3 += dot(p3, p3.zyx + 31.32); return fract((p3.x + p3.y) * p3.z); }
+  float noise3(vec3 x){
+    vec3 i = floor(x), f = fract(x); f = f * f * (3. - 2. * f);
+    return mix(mix(mix(hash13(i), hash13(i + vec3(1,0,0)), f.x), mix(hash13(i + vec3(0,1,0)), hash13(i + vec3(1,1,0)), f.x), f.y),
+               mix(mix(hash13(i + vec3(0,0,1)), hash13(i + vec3(1,0,1)), f.x), mix(hash13(i + vec3(0,1,1)), hash13(i + vec3(1,1,1)), f.x), f.y), f.z);
+  }
+  float fbm(vec3 p, int oct){ float a = .5, s = 0.; for (int i = 0; i < 7; i++) { if (i >= oct) break; s += a * noise3(p); p = p * 2.03 + vec3(1.7, 9.2, 3.1); a *= .5; } return s; }
+  float noise1(float x){ float i = floor(x), f = fract(x); f = f * f * (3. - 2. * f); return mix(hash12(vec2(i, 3.7)), hash12(vec2(i + 1., 3.7)), f); }
+
+  // 픽셀 크기 기반 안티에일리어싱: 한 주기가 ~3px보다 작아지는 옥타브는 평균값(.5)으로 수렴
+  // f: 옥타브 주파수 (Nr 단위), fp: 한 픽셀이 덮는 Nr 길이
+  float aaW(float f, float fp){ return 1. - smoothstep(.25, .55, f * fp); }
+  // g: 옥타브 감쇠 (클수록 고주파 비중이 커져 결이 거칠어짐)
+  float fbmAA(vec3 p, float f, float fp, int oct, float g){
+    float a = 1., s = 0., n = 0.;
+    for (int i = 0; i < 8; i++) {
+      if (i >= oct) break;
+      s += a * mix(.5, noise3(p), aaW(f, fp)); n += a;
+      p = p * 2.03 + vec3(1.7, 9.2, 3.1); f *= 2.03; a *= g;
+    }
+    return s / n;
+  }
+
+  // 구름 (레퍼런스 마지막 프레임 기준)
+  //  - 큰 구조: 위도 방향으로 늘어진 띠 + 워프로 휘어짐. 지역별 구름 양(cov)으로 맑은 바다 구역을 비움
+  //  - 고주파 결이 밀도 자체를 흔들어 가장자리가 잘게 부서지고 내부도 평평한 판이 되지 않게
+  //  - 점 적운: 2~3px 크기 밝은 점들이 구름 지대 가장자리에 흩뿌려짐 (해상도감의 핵심)
+  // fp: 픽셀 크기 (Nr 단위, 화면 위쪽 ~.0008 / 테두리 근처 ~.003), mu: 시선·법선 코사인, thin: 0..1 구름 양 감소
+  // 반환값은 1을 넘을 수 있음 (밝은 꼭대기·점 적운이 흰색까지 올라가게)
+  float clouds(vec3 Nr, float fp, float mu, float thin){
+    float cov = smoothstep(.38, .62, fbmAA(Nr * 4. + 3.7, 4., fp, 4, .5)) * (1. - thin);
+
+    const float F = 18.;
+    vec3 q = Nr * vec3(1., 3.4, 1.) * F;                                  // 남북 압축 → 위도 방향 줄무늬
+    vec2 w = vec2(fbmAA(q * .4 + vec3(5.2, 1.3, 2.8), F * .4, fp, 4, .5),
+                  fbmAA(q * .4 + vec3(1.7, 9.2, 4.1), F * .4, fp, 4, .5)) - .5;
+    q += vec3(w.x, w.y * .3, w.y) * 4.5;                                  // 워프: 띠가 휘고 소용돌이침
+    float d = fbmAA(q, F, fp, 5, .55);
+    // 고주파 결 (주기 ~10px → 2px). 약간 덜 늘인 좌표라 줄무늬 속에 알갱이가 섞임
+    vec3 qh = Nr * vec3(1., 2.2, 1.) * 110. + vec3(w.x, 0., w.y) * 3.;
+    float h = fbmAA(qh, 110., fp, 5, .8);
+
+    // 비스듬히 볼수록(테두리 쪽) 구름층을 길게 통과해 두껍게 보임
+    float den = d - (1. - cov) * .44 + (h - .5) * .5 + (1. - mu) * .04;
+    // 알갱이 노이즈 (주기 ~4px)
+    float gr = mix(.5, noise3(Nr * 260. + 8.1), aaW(260., fp));
+    // 섬유 결: 위도 방향으로 강하게 늘인 고주파 → 베일이 실처럼 갈라짐
+    vec3 qf = Nr * vec3(1., 5., 1.) * 50. + vec3(w.x, 0., w.y) * 5.;
+    float fil = fbmAA(qf, 250., fp, 3, .6);             // AA는 가장 촘촘한 남북 방향 주파수 기준
+    // 얇은 베일: 넓게 깔리지만 어둡고 섬유 결로 갈라짐
+    float veil = smoothstep(.46, .58, den) * smoothstep(.20, .52, fil + (h - .5) * .7);
+    // 두꺼운 덩어리: 알갱이로 잘게 쪼개져 작은 조각들로 (큰 판이 되지 않게)
+    float dense = smoothstep(.59, .66, den + (gr - .5) * .32) * cov;
+    float body = max(veil, dense);
+    float lum = veil * .30 * (.5 + 1.2 * h) * (.7 + .6 * gr) + dense * (.6 + 1.1 * (gr - .5) + .6 * smoothstep(.63, .75, den));
+
+    // 점 적운: 고립된 밝은 점. 구름 지대 근처(den)에서만
+    const float fs = 380.;
+    float sw = aaW(fs, fp);
+    float sp = noise3(Nr * fs + 4.3);
+    float pk = hash13(floor(Nr * fs + 4.3));                              // 점마다 밝기 다르게
+    float clump = smoothstep(.35, .60, noise3(Nr * 45. + 6.6));          // 점들이 무리 지어 모이게
+    float pop = mix(.04, smoothstep(.64, .88, sp) * (.35 + .65 * pk), sw)
+              * smoothstep(.36, .50, den) * clump * (1. - body * .6);
+
+    return lum + pop * 1.8;
+  }
+
+  vec2 sphere(vec3 ro, vec3 rd, vec3 c, float r){
+    vec3 m = ro - c; float b = dot(m, rd), cc = dot(m, m) - r * r, h = b * b - cc;
+    if (h < 0.) return vec2(-1.); h = sqrt(h); return vec2(-b - h, -b + h);
+  }
+
+  // 대기 속 점 P에 닿는 햇빛: 지구에 가리면 0, 낮게 스칠수록 붉어짐
+  vec3 sunLight(vec3 P){
+    vec3 m = uE - P; float tca = dot(m, uSun);
+    float ca = tca < 0. ? length(m) : sqrt(max(dot(m, m) - tca * tca, 0.));
+    float w = .002 + max(tca, 0.) * .006;            // 태양 원판 크기만큼 반그림자
+    float lit = smoothstep(uR - w, uR + w, ca);
+    float hmin = clamp((ca - uR) / (uRa - uR), 0., 1.);
+    return lit * exp(-vec3(.55, 1.35, 3.2) * exp(-hmin * 3.5));
+  }
+
+  // 화면 좌표 → 죽순 텍스처 uv
+  vec2 tkUV(vec2 p){
+    vec2 d = p - uTkC; float c = cos(uTkA), s = sin(uTkA);
+    vec2 l = vec2(c * d.x + s * d.y, -s * d.x + c * d.y) / uTkH;
+    return vec2(.5 + l.x / uTkAsp * .5, .5 - l.y * .5);
+  }
+  vec4 tkSample(vec2 uv){
+    if (uv.x < 0. || uv.y < 0. || uv.x > 1. || uv.y > 1.) return vec4(0.);
+    return texture(uTk, uv);
+  }
+
+  // 죽순: 역광 실루엣 + 태양 쪽 림라이트
+  vec3 tkComposite(vec3 col, vec2 ps){
+    vec4 tk = tkSample(tkUV(ps));
+    if (tk.a <= .001) return col;
+    vec2 sunS = uSunP - uDrift;
+    vec2 toSun = normalize(sunS - uTkC);
+    // 안쪽 픽셀(불투명)에서 태양 쪽으로 몇 px 나가면 바깥 → 태양 쪽 가장자리. 반투명 외곽 픽셀은 제외해 반대쪽에 테두리가 생기지 않게
+    float px = 2. / uRes.y;
+    float a2 = tkSample(tkUV(ps + toSun * max(uTkH * .03, 1.5 * px))).a;
+    float a3 = tkSample(tkUV(ps + toSun * max(uTkH * .07, 3.5 * px))).a;
+    float inner = smoothstep(.6, .95, tk.a);
+    float rim = inner * ((1. - a2) + .4 * (1. - a3));
+    vec3 lin = pow(tk.rgb / tk.a, vec3(2.2));
+    float prox = exp(-length(sunS - uTkC) * 1.2);
+    vec3 shade = lin * (.10 + .30 * uRevealed) * vec3(.85, .9, 1.);
+    vec3 rimC = vec3(1., .72, .45) * rim * (.15 + uVis * 3.5 * (.3 + prox));
+    return col * (1. - tk.a) + tk.a * shade + rimC;
+  }
+
+  void main(){
+    vec2 ps = (2. * gl_FragCoord.xy - uRes) / uRes.y;   // 화면 좌표 (세로 -1..1)
+    vec2 p = ps + uDrift;                                // 장면 좌표
+    vec3 rd = normalize(vec3(p * uTanH, -1.));
+    vec3 ro = vec3(0.);
+    float cosT = dot(rd, uSun);
+
+    vec3 BR = vec3(1.6, 3.7, 9.0), BM = vec3(3.0);
+    float sunI = 7.;
+
+    // 배경: 레퍼런스 마지막 프레임 색 분포 기준. 먼 우측은 거의 검은 남색, 지구 테두리에 가까울수록 푸르게
+    // 시선이 지구 중심을 스치는 거리로 테두리까지의 화면 거리 근사
+    float tc = dot(rd, uE), ca = sqrt(max(dot(uE, uE) - tc * tc, 0.));
+    float dLimb = max(ca - uR, 0.) / length(uE) / uTanH;
+    vec3 col = vec3(.0001, .0003, .0006) + vec3(.0003, .0072, .024) * exp(-dLimb / .27);
+
+    vec2 ip = sphere(ro, rd, uE, uR);
+    bool hitP = ip.x > 0.;
+    vec3 Tcam = vec3(1.);
+
+    if (hitP) {
+      // 지구 표면
+      vec3 P = ro + rd * ip.x, N = normalize(P - uE);
+      float cs = cos(uSpin), sn = sin(uSpin);
+      vec3 Nr = vec3(cs * N.x + sn * N.z, N.y, -sn * N.x + cs * N.z);
+      // 태양이 떠오르는 지점 주변은 구름을 성기게 (장면 고정 좌표라 태양이 움직여도 구름은 그대로)
+      // 픽셀 하나가 덮는 표면 길이: 시야각/픽셀 × 거리, 테두리 쪽은 비스듬해 늘어남 (압축 방향 과보정 완화로 지수 .7)
+      float fp = 2. * uTanH / uRes.y * ip.x / pow(max(dot(N, -rd), .02), .7);
+      float cl = clouds(Nr, fp, dot(N, -rd), .75 * exp(-length(p - uSunEndP) / .35));
+      float land = smoothstep(.52, .56, fbm(Nr * 1.4 + 11., 5));
+      vec3 alb = mix(vec3(.004, .011, .026), vec3(.035, .036, .030), land);
+      // 구름 반사율은 1.4배 (레퍼런스 구름 꼭대기가 거의 흰색), 1을 넘는 부분은 더 강하게
+      // 구름 꼭대기는 레퍼런스에서 거의 흰색: 1을 넘는 부분은 더 강하게
+      vec3 cA = vec3(.80, .85, .92) * (min(cl, 1.) + max(cl - 1., 0.) * 2.);
+      alb = alb * (1. - min(cl, 1.)) + cA;
+
+      float ndl = dot(N, uSun);
+      vec3 direct = smoothstep(-.015, .06, ndl) * exp(-vec3(.55, 1.35, 3.2) * exp(-max(ndl, 0.) * 14.)) * sunI * .35;
+      // 역광 보조광: 밝아진 대기 테두리에서 번진 빛. 태양 쪽 화면 거리일수록 강함
+      float nearSun = exp(-length(p - uSunP) * 1.1);
+      vec3 fill = vec3(.42, .52, .68) * uRevealed * (.10 + .5 * nearSun) + vec3(.03, .05, .09) * .08;
+      col = alb * (direct + fill);
+      // 구름 전용 보조광: 역광 대기에 둘러싸여 태양에서 먼 쪽 구름도 밝게 보임 (레퍼런스)
+      col += cA * uRevealed * .14 * vec3(.85, .9, 1.);
+      // 태양 근처 표면 위 대기 헤이즈 (레퍼런스: 태양 옆 지구면이 분홍빛 도는 흰색으로 밝음, 가까운 거리에서 빠르게 감쇠)
+      col += uVis * 3. * exp(-length(p - uSunP) / .117) * vec3(1., .86, .8);
+      // 테두리 안쪽 청색 대기 띠: 흰 림 바로 안쪽에서 시작해 수 px에 걸쳐 감쇠
+      float xin = max(uR - ca, 0.);
+      col += uRevealed * vec3(.08, .19, .34) * smoothstep(0., .003, xin) * exp(-xin / .016);
+    }
+
+    // 대기 산란 (단일 산란, 시선 방향 적분)
+    vec2 ia = sphere(ro, rd, uE, uRa);
+    if (ia.y > 0.) {
+      float t0 = max(ia.x, 0.), t1 = hitP ? ip.x : ia.y;
+      const int NS = 14;
+      float dt = (t1 - t0) / float(NS);
+      vec3 sR = vec3(0.), sM = vec3(0.), sA = vec3(0.);
+      float odR = 0., odM = 0.;
+      for (int i = 0; i < NS; i++) {
+        vec3 P = ro + rd * (t0 + dt * (float(i) + .5));
+        float h = max((length(P - uE) - uR) / (uRa - uR), 0.);
+        float dR = exp(-h / .28) * dt, dM = exp(-h / .1) * dt;
+        odR += dR; odM += dM;
+        vec3 T = exp(-(BR * odR + BM * odM));
+        vec3 L = sunLight(P);
+        sR += dR * T * L; sM += dM * T * L; sA += dR * T;
+      }
+      Tcam = exp(-(BR * odR + BM * odM));
+      float g = .82;
+      float phR = 3. / (16. * PI) * (1. + cosT * cosT);
+      float phM = (1. - g * g) / (4. * PI * pow(1. + g * g - 2. * g * cosT, 1.5));
+      // 테두리 빛은 태양 지점에서 시작해 테두리를 따라 번짐 (uSpread: 태양과의 시선각 허용 폭, 연출 변수)
+      float spread = exp(-(1. - cosT) / uSpread);
+      // 테두리 림은 흰색: 산란광을 휘도 기준으로 탈색. 태양 바로 옆만 따뜻한 색을 남김
+      vec3 scat = sunI * spread * uGlow * (sR * BR * phR + sM * BM * phM);
+      float lum = dot(scat, vec3(.2126, .7152, .0722));
+      scat = mix(scat, vec3(lum) * vec3(.97, .99, 1.03) * 1.25, .9 * smoothstep(.04, .3, length(p - uSunP)));
+      // 테두리 전체 림: 그림자 속 대기도 태양 방향과 무관하게 고르게 밝힘 (연출용). 밝기 램프는 JS에서 태양 위치로
+      // 제곱: 테두리를 스치는 긴 경로만 남기고 원판 정면의 얇은 대기는 거의 0
+      // 투과율 차이로 붉어지는 걸 휘도로 탈색해 흰색 유지
+      vec3 rimAll = dot(sA * sA, vec3(.2126, .7152, .0722)) * 10. * vec3(.97, .99, 1.03) * uRim;
+      // 지구 원판 안쪽으로는 림이 번지지 않게: 테두리에서 안쪽으로 들어갈수록 빠르게 감쇠 (테두리에서 1이라 이음새 없음)
+      if (hitP) rimAll *= exp(-max(uR - ca, 0.) / .0025);
+      col = col * Tcam + scat + rimAll + sA * BR * vec3(.010, .016, .030);   // 마지막 항: 해 뜨기 전 희미한 청색 테두리
+    }
+
+    // 태양 코어 + 헤이즈 (장면 빛: 죽순이 앞을 가림)
+    // 원판은 지구 테두리에 가려지고, 번짐은 테두리 위로 넘어옴
+    vec2 dS = p - uSunP; float r = length(dS);
+    vec3 warm = vec3(1., .78, .52);
+    // 태양 본체는 항상 지구 뒤: 시선이 지구 중심을 스치는 거리로 테두리 마스크 (1px 안티에일리어싱)
+    float aa = 1.5 * uTanH * 2. / uRes.y * length(uE);
+    float behind = smoothstep(uR - aa, uR + aa, ca);
+    float disc = smoothstep(.07, .0476, r) * behind;   // 원판 반지름 1.4배
+    col += uVis * disc * 7. * mix(warm, vec3(1., .97, .92), .7);
+    col += uVis * exp(-r * r / .00882) * 2.8 * behind * warm;             // 코어도 본체 취급
+    col += uVis * (exp(-r / .06) * 1.1 + exp(-r / .13) * .12) * warm;       // 번짐은 테두리 위로 넘어옴 (태양 근처로 좁게)
+    col += uVis * exp(-r / .28) * .015 * vec3(1., .55, .25);
+
+    // 죽순
+    col = tkComposite(col, ps);
+
+    // 렌즈: 빛줄기 + 고스트 (화면 좌표, 죽순 위로 덮임)
+    if (uVis > 0.) {
+      vec2 sunS = uSunP - uDrift;
+      vec2 d = ps - sunS; float rr = length(d), an = atan(d.y, d.x);
+      float n = .55 * noise1(an * 6.37 + uTime * .03) + .45 * noise1(an * 15.9 - uTime * .05 + 4.);
+      float spikes = pow(n, 9.) * 3. + pow(noise1(an * 31.8 + 9.), 14.) * 1.2;
+      col += uVis * spikes * .03 / (rr + .045) * exp(-rr * 4.) * vec3(1., .8, .58);
+      col += uVis * smoothstep(.05, 0., abs(rr - .42)) * .006 * vec3(.8, .6, 1.);
+      for (int i = 0; i < 5; i++) {
+        float k = float[5](-.35, .25, .55, .9, 1.35)[i];
+        float rad = float[5](.05, .09, .04, .16, .07)[i];
+        vec3 tint = vec3[5](vec3(1., .7, .4), vec3(.5, .8, 1.), vec3(.9, .5, 1.), vec3(.6, 1., .7), vec3(1., .6, .5))[i];
+        vec2 gp = -sunS * k;
+        float gd = length(ps - gp);
+        float disc = smoothstep(rad, rad * .75, gd) * (.5 + .5 * smoothstep(rad * .5, rad, gd));
+        col += uVis * disc * .016 * tint;
+      }
+    }
+
+    col = 1. - exp(-col * uExpo);
+    col = pow(col, vec3(1. / 2.2));
+    col += (hash12(gl_FragCoord.xy + fract(uTime) * 61.) - .5) / 255.;
+    o = vec4(col, 1.);
+  }`;
+
+  // ── 장면 기하 ──
+  // 레퍼런스(640x336) 프레임에서 테두리 3점으로 맞춘 화면 원: 중심(-1.70, 2.42), 태양이 나오는 테두리 점(0.179, 0.345)
+  const TANH = 0.45;
+  const norm = v => { const l = Math.hypot(...v); return v.map(x => x / l); };
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const dirOf = (x, y) => norm([x * TANH, y * TANH, -1]);
+  const EC_SCR = [-1.70, 2.42];
+  const EH = dirOf(...EC_SCR), BH = dirOf(0.179, 0.345);
+  const ALPHA = Math.acos(dot(EH, BH));               // 지구 시반지름
+  const R = 1, RA = 1.022, DIST = R / Math.sin(ALPHA);
+  const E = EH.map(x => x * DIST);
+  const PERP = norm(BH.map((x, i) => x - EH[i] * dot(EH, BH)));
+  const SUN_R = 1.05 * Math.PI / 180;                  // 태양 시반지름 (연출용, 셰이더 원판 크기와 맞춤. 원판 1.4배에 맞춰 0.75→1.05)
+  function sunDir(deltaDeg) {
+    const a = ALPHA + deltaDeg * Math.PI / 180;
+    return norm(EH.map((x, i) => x * Math.cos(a) + PERP[i] * Math.sin(a)));
+  }
+  const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const easeOut = x => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
+  const easeInOut = x => { x = Math.min(1, Math.max(0, x)); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+
+  // ── 연출 타임라인 ──
+  // 태양: 0~2초 가려짐 → 2~9초 테두리 밖으로 → 이후 유지
+  // 죽순: 화면 오른쪽 아래 가까이에서 지구·태양 쪽으로 멀어지며(직선 3D 경로, 깊이 증가) 정착 → 이후 제자리 부유
+  const SUN_FROM = -1.6, SUN_TO = 0.55;
+  const TK_START = { x: 1.05, y: -0.62, h: 0.85 };
+  const TK_PARK = { x: 0.33, y: 0.11 };
+  const INTRO_LEN = 11;
+  const sunDelta = t => SUN_FROM + (SUN_TO - SUN_FROM) * easeInOut((t - 2) / 7);
+
+  // ── 조절값 (초안 조절 패널 기본값) ──
+  const CFG = {
+    EXPO: 1.1,       // 노출
+    RIM: 6,          // 테두리 림 밝기
+    TK_SIZE: 0.05,   // 죽순 크기 (정착 시)
+    TILT: -30,       // 죽순 시점 기울기 (°)
+    SCALE: 1,        // 렌더 배율
+    SUN: null,       // null이면 연출 자동, 숫자면 태양 위치(테두리 기준 °) 고정
+    FIXED_T: null,   // 숫자면 시간 고정 (캡처용)
+  };
+  const qT = new URLSearchParams(location.search).get('earthT');
+  if (qT != null && qT !== '' && isFinite(+qT)) CFG.FIXED_T = +qT;
+  const RM = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+
+  const cv = document.getElementById('earthScene');
+  const gl = cv && cv.getContext('webgl2', { antialias: false, depth: false, stencil: false, premultipliedAlpha: false });
+  if (!gl) { console.warn('[tsukuyomi] 지구 장면: WebGL2 없음'); return; }
+  function sh(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const aLoc = gl.getAttribLocation(prog, 'a');
+  gl.enableVertexAttribArray(aLoc);
+  gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+  const U = {};
+  for (const n of ['uRes', 'uTime', 'uTanH', 'uE', 'uR', 'uRa', 'uSun', 'uSunP', 'uSunEndP', 'uVis', 'uRevealed', 'uSpread', 'uRim', 'uGlow', 'uDrift', 'uExpo', 'uSpin',
+                   'uTk', 'uTkC', 'uTkH', 'uTkA', 'uTkAsp']) U[n] = gl.getUniformLocation(prog, n);
+
+  const tk = createTakenoko(2);
+  const tkTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tkTex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+  tk.setTilt(CFG.TILT);
+
+  const SE = sunDir(SUN_TO);
+  const SUN_END_P = [SE[0] / -SE[2] / TANH, SE[1] / -SE[2] / TANH];   // 태양 최종 위치 (구름 성김 중심)
+
+  let introStart = 0, tkRot = 0, lastT = null, revealed = 0;
+  let running = false, raf = 0;
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.round(innerWidth * dpr * CFG.SCALE));
+    const h = Math.max(1, Math.round(innerHeight * dpr * CFG.SCALE));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    gl.viewport(0, 0, cv.width, cv.height);
+  }
+  addEventListener('resize', () => { if (running) resize(); });
+
+  function draw(now) {
+    const FIXED_T = CFG.FIXED_T;
+    const t = FIXED_T != null ? FIXED_T : (now / 1000 - introStart);
+    const dt = lastT == null ? 0 : Math.min(0.1, Math.max(0, t - lastT));
+    lastT = t;
+
+    // 태양
+    const delta = CFG.SUN == null ? sunDelta(t) : +CFG.SUN;
+    const S = sunDir(delta);
+    const vis = smooth(-SUN_R, SUN_R, delta * Math.PI / 180);
+    // 음영 해제는 태양 노출을 늦게 따라감 (눈이 적응하듯). 고정 시간 캡처에선 바로 맞춤
+    revealed = FIXED_T != null ? vis : revealed + (vis - revealed) * (1 - Math.exp(-dt / 1.2));
+    const sunP = [S[0] / -S[2] / TANH, S[1] / -S[2] / TANH];
+
+    // 죽순: 깊이 z를 1 → zEnd로 늘려 직선으로 멀어짐 (화면 위치·크기 = 1/z). TK_START → TK_PARK (easeOut)
+    const after = Math.max(0, t - INTRO_LEN * 0.6);            // 부유는 정착 직전부터 서서히
+    const camF = Math.min(1, after / 6);
+    // 카메라 흐름: 장면(지구·태양)만 움직임, 죽순은 화면에 고정.
+    // 원본 영상처럼 처음부터 천천히 팬(지구가 화면 오른쪽 아래로 흘러감) → 감속 후 느린 흔들림
+    const pan = 1 - Math.exp(-Math.max(0, t) / 7);
+    const drift = [0.075 - 0.075 * pan + camF * 0.03 * Math.sin(t * 0.021),
+                   -0.05 + 0.05 * pan + camF * 0.02 * Math.sin(t * 0.016 + 2.0)];
+    const start = TK_START, end = TK_PARK;
+    const zEnd = start.h / CFG.TK_SIZE;
+    const z = 1 + (zEnd - 1) * easeOut(t / INTRO_LEN);
+    const k = (1 / z - 1 / zEnd) / (1 - 1 / zEnd);         // 1 → 0
+    const tkC = [end.x + (start.x - end.x) * k + camF * 0.014 * Math.sin(t * 0.11),
+                 end.y + (start.y - end.y) * k + camF * 0.010 * Math.sin(t * 0.077 + 1.3)];
+    const tkH = start.h / z;
+    // 머리(텍스처 위쪽 끝) 방향: 지구 중심. 화면상 머리 방향 = (-sin A, cos A)
+    const toE = [EC_SCR[0] - drift[0] - tkC[0], EC_SCR[1] - drift[1] - tkC[1]];
+    const tkA = Math.atan2(-toE[0], toE[1]) + camF * 0.05 * Math.sin(t * 0.05);
+    // 자전: 통과할 때 빠르고 정착하면 느리게 (원본 12초 주기)
+    const spin = (Math.PI * 2 / 12) * (1 + 1.5 * k);
+    tkRot = FIXED_T != null ? t * Math.PI * 2 / 12 : (tkRot + dt * spin) % (Math.PI * 2);
+    tk.draw(tkRot);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tkTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tk.canvas);
+    gl.generateMipmap(gl.TEXTURE_2D);
+
+    gl.uniform2f(U.uRes, cv.width, cv.height);
+    gl.uniform1f(U.uTime, t);
+    gl.uniform1f(U.uTanH, TANH);
+    gl.uniform3fv(U.uE, E);
+    gl.uniform1f(U.uR, R);
+    gl.uniform1f(U.uRa, RA);
+    gl.uniform3fv(U.uSun, S);
+    gl.uniform2fv(U.uSunP, sunP);
+    gl.uniform2fv(U.uSunEndP, SUN_END_P);
+    gl.uniform1f(U.uVis, vis);
+    gl.uniform1f(U.uRevealed, revealed);
+    const sp = smooth(-1.3, 0.6, delta);
+    gl.uniform1f(U.uSpread, 0.003 + 0.15 * sp * sp);
+    // 테두리 림: 태양이 테두리에 닿기 직전부터 원판이 다 나올 때까지 0 → 1 (태양 떠오름과 함께)
+    const rimK = smooth(-0.9, 0.6, delta);
+    gl.uniform1f(U.uRim, CFG.RIM * rimK * rimK);
+    // 태양 쪽 산란광: 영상 첫 프레임처럼 떠오르기 전엔 아주 희미하게, 테두리에 다가오며 올라옴
+    const glowK = smooth(-1.4, 0.4, delta);
+    gl.uniform1f(U.uGlow, 0.05 + 0.95 * glowK * glowK);
+    gl.uniform2fv(U.uDrift, drift);
+    gl.uniform1f(U.uExpo, CFG.EXPO);
+    gl.uniform1f(U.uSpin, t * Math.PI * 2 / 1800);
+    gl.uniform1i(U.uTk, 0);
+    gl.uniform2fv(U.uTkC, tkC);
+    gl.uniform1f(U.uTkH, tkH);
+    gl.uniform1f(U.uTkA, tkA);
+    gl.uniform1f(U.uTkAsp, tk.aspect);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  function loop(now) {
+    if (!running) { raf = 0; return; }
+    draw(now);
+    raf = requestAnimationFrame(loop);
+  }
+  // 인트로를 처음부터 (동작 줄이기 설정이면 정착 상태로 바로)
+  function replay() {
+    introStart = performance.now() / 1000 - (RM.matches ? 60 : 0);
+    lastT = null; revealed = 0; tkRot = 0;
+  }
+  // 화면에 올린다: 인트로를 처음부터 시작하고 첫 프레임을 바로 그려 빈 캔버스가 보이지 않게 한다
+  function start() {
+    if (running) return;
+    replay();
+    resize();
+    running = true;
+    draw(performance.now());
+    if (!raf) raf = requestAnimationFrame(loop);
+  }
+  function stop() {
+    running = false;
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+  }
+
+  window.TsukuyomiEarth = {
+    start, stop,
+    get running() { return running; },
+  };
+  window.__EARTH__ = {
+    cfg: CFG, replay,
+    setTilt(deg) { CFG.TILT = deg; tk.setTilt(deg); },
+    setScale(s) { CFG.SCALE = s; if (running) resize(); },
+  };
+})();

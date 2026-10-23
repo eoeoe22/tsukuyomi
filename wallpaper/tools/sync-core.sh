@@ -13,5 +13,12 @@ cp public/clouds/day-overlay.json wallpaper/vendor/clouds/day-overlay.json
 cp public/lantern-front.svg wallpaper/vendor/lantern-front.svg
 cp public/assets/icons/icon.svg wallpaper/vendor/assets/icons/icon.svg
 cp public/tsukuyomi.mount.js wallpaper/vendor/tsukuyomi.mount.js
+cp public/tsukuyomi.earth.js wallpaper/vendor/tsukuyomi.earth.js
+cp public/tsukuyomi.room.js wallpaper/vendor/tsukuyomi.room.js
+cp public/tsukuyomi.news.js wallpaper/vendor/tsukuyomi.news.js
+mkdir -p wallpaper/components
+cp public/components/lantern-frustum.html wallpaper/components/lantern-frustum.html
+cp public/components/lantern-cylinder.html wallpaper/components/lantern-cylinder.html
+cp public/components/yachiroom.umd.js wallpaper/components/yachiroom.umd.js
 python3 wallpaper/tools/generate-project-json.py
 python3 wallpaper/tools/verify-wallpaper.py

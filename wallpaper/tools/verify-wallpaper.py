@@ -2,8 +2,8 @@
 """wallpaper 패키지 검증 (읽기 전용, 수정 없음).
 
 검사:
-  1. vendor 동결본 == public 현행본 (sha256, 5개 파일)
-  2. project.json 유효성 (file/type/기본 5종/전 GROUPS 커버/기본값 일치/타입·조건)
+  1. vendor/components 동결본 == public 현행본 (sha256, 코어 11종 + 방 컴포넌트 3종)
+  2. project.json 유효성 (file/type/기본 8종/전 GROUPS 커버/기본값 일치/타입·조건)
   3. wallpaper.js 내 REBUILD 맵 == tools/rebuild-map.json (GROUPS rebuild와 1:1)
   4. wallpaper.html 참조 무결성 (vendor만 참조, public/debug/cloudedit/bootstrap 금지)
   5. wallpaper.css 숨김 규칙 존재
@@ -33,6 +33,16 @@ FROZEN_FILES = [
     "lantern-front.svg",
     "assets/icons/icon.svg",
     "tsukuyomi.mount.js",
+    "tsukuyomi.earth.js",
+    "tsukuyomi.room.js",
+    "tsukuyomi.news.js",
+]
+
+# 八(야치요의 방) 런타임 의존: public/components -> wallpaper/components (페이지 기준 상대경로 그대로)
+COMPONENT_FILES = [
+    "components/lantern-frustum.html",
+    "components/lantern-cylinder.html",
+    "components/yachiroom.umd.js",
 ]
 
 failures = []
@@ -66,10 +76,24 @@ def main() -> int:
         check(f"동결 일치: {rel}", sha256(pub) == sha256(ven),
               f"public와 vendor 해시 불일치 (동결 깨짐)")
 
+    # 1a. components == public/components (방 장면 런타임 의존)
+    for rel in COMPONENT_FILES:
+        pub, wp = PUB / rel, WP / rel
+        if not pub.is_file():
+            check(f"public 존재: {rel}", False, "원본 없음")
+            continue
+        if not wp.is_file():
+            check(f"components 존재: {rel}", False, "복사본 없음")
+            continue
+        check(f"동결 일치: {rel}", sha256(pub) == sha256(wp),
+              f"public와 wallpaper 해시 불일치 (동결 깨짐)")
+
     # 1b. 코어 브릿지: 공백 토글·물고기 군집 세터가 있어야 WE 일반 옵션이 동작한다
     try:
         vendor_js_text = (VENDOR / "tsukuyomi.js").read_text(encoding="utf-8")
         check("코어 dayStars 브릿지", "setDayStars(!!v)" in vendor_js_text, "bridge dayStars 세터 없음")
+        check("코어 dayTone 브릿지", "setDayTone(!!v)" in vendor_js_text, "bridge dayTone 세터 없음")
+        check("코어 seaMode 브릿지", "get seaMode()" in vendor_js_text, "bridge seaMode 없음")
         check("코어 dayDark 브릿지", "setDayDark(!!v)" in vendor_js_text, "bridge dayDark 세터 없음")
         check("코어 cursorMode 브릿지", "setCursorMode(" in vendor_js_text, "bridge cursorMode 세터 없음")
     except Exception as e:
@@ -88,16 +112,16 @@ def main() -> int:
         check("project.json file", pj.get("file") == "wallpaper.html", f"file={pj.get('file')}")
         check("project.json type", pj.get("type") == "web", f"type={pj.get('type')}")
         props = (pj.get("general") or {}).get("properties") or {}
-        for k in ("a00_scene", "a01_intro", "a01_fish", "a01_daystars", "a01_daydark",
+        for k in ("a00_scene", "a01_intro", "a01_fish", "a01_daystars", "a01_daytone", "a01_daydark",
                   "a02_show_advanced", "a03_snapshot_json"):
             check(f"project.json 기본 속성: {k}", k in props, "누락")
         sc = props.get("a00_scene", {})
         check("scene 콤보", sc.get("type") == "combo"
-              and [o.get("value") for o in sc.get("options", [])] == [5, 6, 1, 2, 3, 4],
-              "options 5/6/1/2/3/4 (산/산(노을)/공백/황혼/밤/밤(미러볼)) 필요 (기존 1~4 값 유지)")
+              and [o.get("value") for o in sc.get("options", [])] == [5, 6, 1, 2, 3, 4, 7, 8, 9],
+              "options 5/6/1/2/3/4/7/8/9 (산/산(노을)/공백/황혼/밤/밤(미러볼)/지구/야치요의 방/뉴스) 필요 (기존 1~4 값 유지)")
         check("scene 기본값 밤", sc.get("value") == 3, f"value={sc.get('value')}")
         check("scene 문구", [o.get("label") for o in sc.get("options", [])]
-              == ["산", "산 (노을)", "공백", "황혼", "밤", "밤 (미러볼)"],
+              == ["산", "산 (노을)", "공백", "황혼", "밤", "밤 (미러볼)", "지구", "야치요의 방", "뉴스"],
               f"labels={[o.get('label') for o in sc.get('options', [])]}")
         check("intro 기본값 켜짐", props.get("a01_intro", {}).get("value") is True, "기본값 true 필요")
         check("intro 조건(밤 계열만)", props.get("a01_intro", {}).get("condition") == "a00_scene.value == 3 || a00_scene.value == 4",
@@ -112,7 +136,7 @@ def main() -> int:
               f"labels={[o.get('label') for o in fh.get('options', [])]}")
         check("fish 조건(밤 계열만)", fh.get("condition") == "a00_scene.value == 3 || a00_scene.value == 4",
               "밤/미러볼 선택 시에만 표시")
-        for k in ("a01_daystars", "a01_daydark"):
+        for k in ("a01_daystars", "a01_daytone", "a01_daydark"):
             p = props.get(k, {})
             check(f"일반 토글 {k} (bool 꺼짐)", p.get("type") == "bool" and p.get("value") is False,
                   f"{p.get('type')}/{p.get('value')}")
@@ -317,9 +341,14 @@ def main() -> int:
 
     # 4. wallpaper.html 참조
     html = (WP / "wallpaper.html").read_text(encoding="utf-8")
-    for ref in ('id="worldMoon"', 'id="worldMount"', 'id="mountScene"'):
+    for ref in ('id="worldMoon"', 'id="worldMount"', 'id="mountScene"',
+                'id="worldEarth"', 'id="earthScene"',
+                'id="worldRoom"', 'id="roomScene"',
+                'id="worldNews"'):
         check(f"html 세계 DOM: {ref}", ref in html, "누락")
     check("wallpaper.js 산 엔진 로드", "vendor/tsukuyomi.mount.js" in wjs, "vendor 경로 누락")
+    for mod in ("vendor/tsukuyomi.earth.js", "vendor/tsukuyomi.room.js", "vendor/tsukuyomi.news.js"):
+        check(f"wallpaper.js 세계 엔진 로드: {mod}", mod in wjs, "vendor 경로 누락")
     check("wallpaper.js 물고기 그룹 위임", "FISH_RE" in wjs and "b.fish" in wjs, "a16_fish_* 처리 없음")
     for ref in ("vendor/tsukuyomi.js", "vendor/tsukuyomi.css",
                 "vendor/cloud-live.js", "vendor/cloud-overlay.js",
@@ -334,10 +363,10 @@ def main() -> int:
           "vendor/clouds/day-overlay.json 없음")
 
     # 4b. wallpaper.js 브릿지: 공백 토글·물고기 군집 키 + 코어 세터 위임이 있어야 한다
-    check("wallpaper.js 공백 토글 키", "a01_daystars" in wjs and "a01_daydark" in wjs,
-          "a01_daystars/a01_daydark 처리 없음")
-    check("wallpaper.js 코어 위임", "b.dayStars" in wjs and "b.dayDark" in wjs,
-          "bridge dayStars/dayDark 위임 없음")
+    check("wallpaper.js 공백 토글 키", "a01_daystars" in wjs and "a01_daytone" in wjs and "a01_daydark" in wjs,
+          "a01_daystars/a01_daytone/a01_daydark 처리 없음")
+    check("wallpaper.js 코어 위임", "b.dayStars" in wjs and "b.dayTone" in wjs and "b.dayDark" in wjs,
+          "bridge dayStars/dayTone/dayDark 위임 없음")
     check("wallpaper.js 물고기 군집 키", "a01_fish" in wjs,
           "a01_fish 처리 없음")
     check("wallpaper.js 군집 코어 위임", "cursorMode" in wjs and "cursorPlace" in wjs,

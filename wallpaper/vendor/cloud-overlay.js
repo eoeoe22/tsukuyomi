@@ -10,8 +10,9 @@
  *
  * 좌표: 수평선 높이(HZ) 단위. v 0 = 화면 위, 1 = 수평선. u = 기준점(왼쪽 끝 / 가운데 / 오른쪽 끝)에서의 가로 거리.
  *   화면 비율이 바뀌어도 형태가 찌그러지지 않고 기준점 쪽에 붙어 남는다(좁은 화면에선 반대쪽이 잘린다).
- *   기준 화면비(CFG.DY_REF_AR)보다 넓은 화면에서는 host.stretch() 배만큼 가로로만 늘린다(u도 같은 배율). 기본 레이어는
- *   덩어리 스프라이트가 같은 배율로 늘어나므로 맵도 덩어리를 따라 늘어난다. 문서(JSON)는 그대로 두고 그릴 때만 늘린다.
+ *   기준 화면비(CFG.DY_REF_AR)보다 넓은 화면에서는 배치만 host.stretch() 배만큼 가로로 넓힌다(u도 같은 배율).
+ *   구름 질감은 늘리지 않는다: 손으로 그린 레이어는 셰이더 격자를 가로로 그만큼 넓혀 굽고, 기본 레이어는 host가 덩어리를
+ *   넓게 구우므로(혹 크기 그대로) 맵만 덩어리를 따라 넓어진다. 문서(JSON)는 그대로 둔다.
  * 문서(JSON): 레이어마다 맵 세 장을 PNG 한 장(R 형태, G 빛, B 음영)으로 담는다.
  * 출처 우선순위: 이 브라우저의 작업본(localStorage) → public/clouds/day-overlay.json
  *
@@ -229,6 +230,7 @@
     // 기본 레이어 형태 맵(0.5 = 그대로) → 덩어리 엔벨로프 고치기 함수 | null(고친 데 없음).
     // 더한 곳은 shapeField(손으로 그린 레이어와 같은 식)와 max로 합치고, 덜어 낸 곳은 빈 하늘 값으로 끌어내린다.
     // G: host.base.geom — 스프라이트 px ↔ 맵 텍셀: 텍셀 = px × q + o (q = RES × hh / h0, 화면 크기와 무관)
+    // 넓은 화면에서 덩어리를 여백까지 sx배 넓게 구우면(host) 가로는 스프라이트 가운데를 기준으로 1/sx배. sx는 격자 너비에서 구한다
     function baseMod(L, G) {
         const s = L.maps.s;
         if (!bbox(s, 0.02, S0_BASE)) return null;
@@ -255,12 +257,14 @@
         };
         return (E, W, H, RS) => {
             const k = q / RS;   // 텍셀 / 격자 px
-            const gx0 = Math.max(0, Math.floor((tx0 - ox) / k)), gx1 = Math.min(W, Math.ceil((tx1 - ox) / k));
+            const sx = Math.max(1, W / RS / (G.w0 + 2 * G.pad));
+            const kx = k / sx, oxs = MW / 2 - W / (2 * RS) * q / sx;
+            const gx0 = Math.max(0, Math.floor((tx0 - oxs) / kx)), gx1 = Math.min(W, Math.ceil((tx1 - oxs) / kx));
             const gy0 = Math.max(0, Math.floor((ty0 - oy) / k)), gy1 = Math.min(H, Math.ceil((ty1 - oy) / k));
             for (let gy = gy0; gy < gy1; gy++) {
                 const ty = gy * k + oy;
                 for (let gx = gx0; gx < gx1; gx++) {
-                    const tx = gx * k + ox, i = gy * W + gx;
+                    const tx = gx * kx + oxs, i = gy * W + gx;
                     if (add) { const a = bil(add, MW, MH, tx, ty, EMIN); if (a > E[i]) E[i] = a; }
                     if (er) {
                         const e = bil(er.a, er.w, er.h, tx - er.x0, ty - er.y0, 0);
@@ -305,13 +309,17 @@
         const baseGeom = L => (L.base && B && B.geom(L.base)) || null;
         // 넓은 화면 가로 늘림 배율(host가 큰 덩어리에 쓰는 값과 같다)
         const stretchX = () => { const v = host.stretch ? +host.stretch() : 1; return Number.isFinite(v) && v > 1 ? v : 1; };
+        // 굽기용 배율(0.1 단위): 격자를 이만큼 가로로 넓혀 구워 그릴 때 늘어나도 혹이 둥글게 남는다
+        const stretchQ = () => Math.max(1, Math.round(stretchX() * 10) / 10);
         // 맵 텍셀 (0, 0)의 월드 좌표(css px)와 텍셀당 px(ppt 가로, ppy 세로. 넓은 화면에선 ppt만 늘어난다).
         // 기존 덩어리 레이어는 덩어리에 붙는다: 맵 가로 가운데 = 덩어리 가운데, 맵 밑변 BASE_BOT 위 = 덩어리 밑변
         function frame(L) {
             const G = baseGeom(L), P = G && B.place(L.base);
             if (P) {
-                const ky = P.ky || P.k, ppt = P.k * G.h0 / (RES * G.hh), ppy = ky * G.h0 / (RES * G.hh);
-                return { x0: P.dx + (G.pad + G.w0 / 2) * P.k - MW / 2 * ppt, y0: P.dy + (G.pad + G.h0) * ky - (MH - BASE_BOT) * ppy, ppt, ppy };
+                // P.sx: 덩어리 스프라이트를 넓게 구운 배율 → 맵도 덩어리 가운데 기준으로 가로만 그만큼 늘어난다
+                const bs = P.sx || 1, ky = P.ky || P.k, ppt = P.k * bs * G.h0 / (RES * G.hh), ppy = ky * G.h0 / (RES * G.hh);
+                const cx = P.cx ?? P.dx + (G.pad + G.w0 / 2) * P.k;
+                return { x0: cx - MW / 2 * ppt, y0: P.dy + (G.pad + G.h0) * ky - (MH - BASE_BOT) * ppy, ppt, ppy };
             }
             const sx = stretchX(), ppy = ov.HZ / RES;
             return { x0: anchorX(L) + U0[L.anchor] * ov.HZ * sx + swayOff(L), y0: V0 * ov.HZ, ppt: ppy * sx, ppy };
@@ -331,14 +339,17 @@
             L._builtAt = performance.now();
             if (!bb) { dropSprite(L); return; }
             // 격자는 맵 전체(고정 원점): 그리는 중에 경계 상자가 커져도 혹 무늬가 미끄러지지 않는다. 값은 shapeField가 만든 엔벨로프
-            const gw = Math.ceil(MW * GK), gh = Math.ceil(MH * GK), S = shapeField(L.maps.s, bb, L.seed | 0);
+            // 넓은 화면(sq > 1): 가로 격자만 sq배 → 맵 텍셀 하나가 가로 격자 GK × sq칸. 혹 노이즈는 격자 단위라 비율이 유지된다
+            const sq = stretchQ(), GKX = GK * sq;
+            L._sq = sq;
+            const gw = Math.ceil(MW * GKX), gh = Math.ceil(MH * GK), S = shapeField(L.maps.s, bb, L.seed | 0);
             const E = new Float32Array(gw * gh).fill(EMIN);
-            const gx0 = Math.max(0, Math.floor((bb.x0 - 24) * GK)), gx1 = Math.min(gw, Math.ceil((bb.x1 + 24) * GK));
+            const gx0 = Math.max(0, Math.floor((bb.x0 - 24) * GKX)), gx1 = Math.min(gw, Math.ceil((bb.x1 + 24) * GKX));
             const gy0 = Math.max(0, Math.floor((bb.y0 - 24) * GK)), gy1 = Math.min(gh, Math.ceil((bb.y1 + 24) * GK));
             for (let gy = gy0; gy < gy1; gy++) {
                 const sy = clamp((gy + 0.5) / GK - 0.5, 0, MH - 1.001), y0 = sy | 0, ty = sy - y0;
                 for (let gx = gx0; gx < gx1; gx++) {
-                    const sx = clamp((gx + 0.5) / GK - 0.5, 0, MW - 1.001), x0 = sx | 0, tx = sx - x0, i = y0 * MW + x0;
+                    const sx = clamp((gx + 0.5) / GKX - 0.5, 0, MW - 1.001), x0 = sx | 0, tx = sx - x0, i = y0 * MW + x0;
                     const a = S[i] + (S[i + 1] - S[i]) * tx, b = S[i + MW] + (S[i + MW + 1] - S[i + MW]) * tx;
                     E[gy * gw + gx] = a + (b - a) * ty;
                 }
@@ -351,12 +362,13 @@
             const w0 = GR * Math.sqrt(1.44 - 1);
             // 광원 = 장면의 구름 틈 빛(DY_LX/DY_LY) → 레이어 격자 좌표
             const lu = (ov.W * CFG.DY_LX - anchorX(L)) / ((ov.HZ || 1) * stretchX()), lv = CFG.DY_LY;
-            const lgx = (lu - ub0) * GR;
+            const lgx = (lu - ub0) * GR * sq;
             let sun = L.sun;
             if (sun === null || sun === undefined || !Number.isFinite(+sun)) {
                 // 자동: 형태 중심에서 광원을 향하는 방향(y-up 각도)
                 const cu = ub0 + (bb.x0 + bb.x1) / 2 / RES, cv = V0 + (bb.y0 + bb.y1) / 2 / RES;
-                sun = Math.atan2(-(lv - cv), lu - cu) * 180 / Math.PI;
+                // 화면에서는 가로가 sq배 벌어져 보이므로 방향도 그 비율로
+                sun = Math.atan2(-(lv - cv), (lu - cu) * sq) * 180 / Math.PI;
                 // 광원보다 위에 있는 구름도 빛은 위쪽 반원에서 오게(아래에서 비추면 혹 명암이 뒤집힌다)
                 sun = sun < 0 ? (sun > -90 ? 15 : 165) : clamp(sun, 15, 165);
             }
@@ -386,6 +398,7 @@
             return performance.now() - (L._builtAt || 0) < ms;
         }
         function ensureSprite(L) {
+            if (L._spr && L._sq !== stretchQ()) L._dirty.s = true;   // 화면비 단계가 바뀌면(기준 화면비 조정 포함) 다시 굽는다
             if (!L._dirty.s || throttled(L, 120)) return;
             buildSprite(L);
         }
@@ -529,6 +542,27 @@
                 if (!scopeSelf) mods(env.CL, env.cloudLayer);
             }
         }
+        // 그리기 프레임 밖(유휴 시간)에서 형태 굽기를 한 레이어씩 미리 끝낸다: 기본 레이어는 덩어리 형태 고치기를 넘기고,
+        // 손으로 그린 레이어는 스프라이트를 굽는다. 처음 그리는 프레임에서 큰 덩어리를 한꺼번에 다시 굽지 않게.
+        // 아직 그리지 않았으면 W/HZ로 화면 크기를 맞춘다. 한 레이어를 처리했으면 true(더 남았을 수 있음), 없으면 false
+        function warm(W, HZ) {
+            if (W > 0 && HZ > 0 && !(ov.W > 0 && ov.HZ > 0)) { ov.W = W; ov.HZ = HZ; }
+            checkCfg();   // 처음 그릴 때 장면 값 확인이 미리 구운 스프라이트를 다시 굽지 않게 여기서 먼저 맞춘다
+            for (const L of ov.doc.layers) {
+                if (L._live || !L._dirty) continue;
+                if (L.base) {
+                    if (!L._dirty.s) continue;
+                    ensureBase(L);
+                    return true;
+                }
+                if (!(ov.W > 0 && ov.HZ > 0)) continue;
+                if (L._spr && L._sq !== stretchQ()) L._dirty.s = true;
+                if (!L._dirty.s) continue;
+                buildSprite(L);
+                return true;
+            }
+            return false;
+        }
         // skipBase: 기본 레이어(기존 구름)는 빼고
         function draw(stage, env, skipBase) {
             ov.W = env.W; ov.HZ = env.HZ; ov.clock = env.clock || 0;
@@ -654,7 +688,7 @@
 
         mergeBase(ov.doc);
         Object.assign(ov, {
-            draw, renderImage, thumb, flashLayer, setDoc, invalidate, removeLayer, resize, load, loadFile,
+            draw, warm, renderImage, thumb, flashLayer, setDoc, invalidate, removeLayer, resize, load, loadFile,
             saveLocal, hasLocal, clearLocal, frame, newLayer, canShape, edited,
             newBaseDoc: () => mergeBase(newDoc()),
             serialize: () => serialize(ov.doc),

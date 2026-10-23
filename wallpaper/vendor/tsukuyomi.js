@@ -58,6 +58,9 @@
             const FG = fg.getContext('2d');
 
             const elPanel = document.getElementById('panel');
+            // 海(공백) 세계 패널: 별 궤적·공백 밤 토글이 여기 있다(tsukuyomi.html). 없으면(랜딩·월페이퍼) 토글은 elPanel 안에 있다
+            const elSeaPanel = document.getElementById('seaPanel');
+            const ENGINE_PANELS = [elPanel, elSeaPanel].filter(Boolean);
             const elStatus = document.getElementById('status');
             const elDay = document.getElementById('btnDay');
             const elDusk = document.getElementById('btnDusk');
@@ -133,7 +136,8 @@
                 DY_F0: 0.2, DY_F1: 0.5,
                 DY_BAND_N: 7, DY_SP: 0.0035, DY_SWAY: 0.01,
                 // DY_REF_AR: 큰 덩어리·구름 오버레이(clouds/day-overlay.json)를 맞춘 기준 화면비(너비 / 수평선 높이).
-                // 이보다 넓은 화면에서는 가로로만 (W / HZ) / DY_REF_AR 배 늘려 배치 그대로 화면을 채운다(오른쪽 끝 잘림·하늘 노출 방지)
+                // 이보다 넓은 화면에서는 덩어리를 (W / HZ) / DY_REF_AR 배 넓게 다시 구워 배치 그대로 화면을 채운다(오른쪽 끝 잘림·하늘 노출 방지).
+                // 그린 뒤 가로로 늘리지 않으므로 혹 비율은 화면비와 무관하게 그대로다
                 DY_REF_AR: 2.3,
                 DY_COV: 0.6, DY_SCALE: 8.0, DY_ABSORB: 1.9,
                 DY_VLIFT: 0.15, DY_SKYBOT: 0.7, DY_UPK: 0.45,
@@ -151,6 +155,10 @@
                 // 하늘은 SKY_DN으로, 구름은 짙은 남색 실루엣(DN_CLOUD = 덮는 세기)으로, 틈 빛은 DN_LIGHT만 남긴다.
                 // DN_FADE: 전환 시간(초), DN_STAR: 공백 밤에서 별 궤적 밝기 배율, DN_WATER: 수면 추가 어둡힘
                 DN_FADE: 1.8, DN_CLOUD: 0.86, DN_LIGHT: 0.08, DN_STAR: 1.35, DN_WATER: 0.35,
+                // 파스텔 색조(reference-images/sea-pastel-ref.webp): 바다 색감 그룹에서 '색조'(bi-thermometer-half) 선택 시 공백 장면 전체에 색 보정을 얹는다.
+                // 기존 색감은 그대로 두고 수면까지 그린 뒤 한 번에 덮는다(라벤더 리프트 → 채도 감소 → 핑크 soft-light → 수평선 핑크 안개).
+                // TN_A: 전체 세기, TN_FADE: 전환 시간(초), TN_DESAT: 채도 감소, TN_PINK: 핑크 soft-light 배율, TN_BAND: 수평선 안개 배율
+                TN_A: 1, TN_FADE: 1.4, TN_DESAT: 0.24, TN_PINK: 1, TN_BAND: 0.75,
                 // DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
                 DY_COLUMN: 0,
                 // 구름 뚫림(ref: 어두운 앞 구름이 불균일하게 찢겨 그 너머 햇빛 받은 흰 구름이 비친다):
@@ -554,6 +562,16 @@
             const day2W = () => sunVis * day2On();
             // 공백 밤: dnOn = 토글 상태, dnA = 전환 페이드(0..1). 새 낮 분기에서만 쓰이므로 day2W를 곱한 dnW()로 적용한다.
             let dnOn = false, dnA = 0;
+            // 파스텔 색조: tnOn = 토글 상태, tnA = 전환 페이드(0..1). 공백 밤과 같이 새 낮 분기에서만 쓴다.
+            let tnOn = false, tnA = 0;
+            const tnW = () => ss(0, 1, tnA) * day2W();
+            // 색조 팔레트(PIL/numpy로 참조 이미지 분위수·행 중앙값에 맞춘 값): screen 리프트(하늘 위/수평선, 수면 수평선/아래),
+            // soft-light 핑크와 세로 세기(하늘 위/수평선/수면 아래), 수평선 안개 색·폭(화면 높이 비율)
+            const TONE = {
+                lift: ['#30426a', '#584d99', '#997892', '#322745'],
+                pink: '#dcc4c2', pinkA: [0.56, 0.41, 0.31],
+                band: '#b8949a', bandW: 0.14
+            };
             const dnW0 = () => (day2On() ? ss(0, 1, dnA) : 0);
             const dnW = () => ss(0, 1, dnA) * day2W();
             // 하늘 색: 낮 분기(SKY_DAY2 또는 기존 SKY_DAY)와 황혼 분기(SKY)를 sunVis로 보간. idle에서는 한쪽만 쓰인다.
@@ -3114,7 +3132,7 @@ void main() {
                 const eL = 0.35 / SC * 0.5;            // 혹 크기에 비례한 미분 간격 (uv)
                 const dU = 0.02 / UV;                   // 윗면/아랫면 판정 간격 (격자 px)
                 const lit = o.lit, shade = o.shade;
-                const lax = (PAD + w0 * (o.lx ?? 0.1)) * RS, lay = top + hh * (o.ly ?? 0), ldiag = Math.hypot(w0, h0) * RS;
+                const lax = ((m.padX ?? PAD) + w0 * (o.lx ?? 0.1)) * RS, lay = top + hh * (o.ly ?? 0), ldiag = Math.hypot(w0, h0) * RS;
                 const glow = o.glow ? [o.glow[0] * RS, o.glow[1] * RS, o.glow[2] * RS] : null;
                 const [GD0, GD1] = o.gd ?? [1.2, 0.62];
                 const RC_ = o.rimC ?? [255, 217, 178], GC_ = o.glowC ?? [255, 250, 236];
@@ -3199,16 +3217,17 @@ void main() {
                 lo.getContext('2d').putImageData(img, 0, 0);
                 const c = document.createElement('canvas');
                 c.width = m.width; c.height = m.height;
-                c.w0 = w0; c.h0 = h0; c.pad = PAD;
+                c.w0 = w0; c.h0 = h0; c.pad = PAD; c.padX = m.padX ?? PAD;
                 const g = c.getContext('2d');
                 g.imageSmoothingQuality = 'high';
                 g.drawImage(lo, 0, 0, c.width, c.height);
                 return c;
             }
-            function duskMask(w0, h0, PAD) {
+            // PADX: 좌우 여백(기본 = PAD). 넓게 구운 새 낮 덩어리는 여백도 같은 배율로 넓혀 둘레 혹이 잘리지 않게 한다
+            function duskMask(w0, h0, PAD, PADX = PAD) {
                 const m = document.createElement('canvas');
-                m.width = w0 + PAD * 2; m.height = h0 + PAD * 2;
-                m.w0 = w0; m.h0 = h0; m.pad = PAD;
+                m.width = w0 + PADX * 2; m.height = h0 + PAD * 2;
+                m.w0 = w0; m.h0 = h0; m.pad = PAD; m.padX = PADX;
                 return m;
             }
             // 큰 뭉게 덩어리 하나 + 윗둘레의 중간 덩어리들: 엔벨로프(큰 형태)만 잡고 잔 혹은 duskRender의 빌로우 노이즈가 만든다
@@ -3376,9 +3395,12 @@ void main() {
             const DY_SHADE_DARK = [[0, [68, 84, 126]], [0.5, [52, 66, 106]], [1, [40, 52, 88]]];
             // spec.prof: 윗면 프로파일 [[u, top], ...] (u = 가로 비율, top = 콘텐츠 상단으로부터의 높이 비율)
             // ex(선택): { eMod, eKeep, t0 } — 구름 레이어 편집기가 이 덩어리의 형태를 고칠 때(duskRender 참고)
-            function makeDay2MassSprite(lr, spec, ex) {
-                const { w0, h0 } = spec, PAD = 180;
-                const m = duskMask(w0, h0, PAD);
+            // sx(≥ 1): 넓은 화면 가로 배율. 그려진 뒤 가로로 늘리지 않고 덩어리 자체를 sx배 넓게(열 수도 sx배) 구워
+            // 혹 크기·비율은 그대로 둔다. 프로파일·구멍·핫스팟은 가로 비율(u)이라 같이 넓어진다
+            function makeDay2MassSprite(lr, spec0, ex, sx = 1) {
+                const spec = sx > 1 ? Object.assign({}, spec0, { w0: Math.round(spec0.w0 * sx), cols: Math.max(1, Math.round(spec0.cols * sx)) }) : spec0;
+                const { w0, h0 } = spec, PAD = 180, PADX = Math.round(PAD * sx);
+                const m = duskMask(w0, h0, PAD, PADX);
                 const P = [];
                 const prof = spec.prof;
                 const topAt = u => {
@@ -3393,7 +3415,7 @@ void main() {
                     const u = (i + 0.15 + lr() * 0.7) / NC;
                     const tp = topAt(u) + (lr() - 0.5) * 0.03;
                     const R0 = clamp(colW * (0.7 + lr() * 0.35), 26, 110);
-                    const x = PAD + w0 * u;
+                    const x = PADX + w0 * u;
                     let y = PAD + h0 * tp + R0 * 0.8;
                     // 윗면 덩어리: 윗둘레 잔 덩어리가 많아 콜리플라워 실루엣
                     duskBillow(P, lr, x, y, R0, 1 + lr() * 0.25, 0.85 + lr() * 0.15, 3 + ((lr() * 3) | 0));
@@ -3413,11 +3435,11 @@ void main() {
                     const u = 0.06 + lr() * 0.88;
                     const tp = topAt(u);
                     const R = 18 + lr() * 30;
-                    const x = PAD + w0 * u + (lr() - 0.5) * w0 * 0.06;
+                    const x = PADX + w0 * u + (lr() - 0.5) * w0 * 0.06;
                     const y = Math.max(PAD * 0.45, PAD + h0 * tp - R * (1.0 + lr() * 0.9));
                     duskBillow(P, lr, x, y, R, 1 + lr() * 0.35, 0.75 + lr() * 0.2, 1 + ((lr() * 2) | 0));
                 }
-                const holes = CFG.DY_HOLE > 0 ? day2Holes(lr, spec, PAD, topAt) : null;
+                const holes = CFG.DY_HOLE > 0 ? day2Holes(lr, spec, PAD, topAt, PADX) : null;
                 const gl = spec.glow;
                 const isFront = spec.layer === 'front';
                 return duskRender(m, P, {
@@ -3427,7 +3449,7 @@ void main() {
                     holeC: isFront ? [228, 236, 250] : [246, 250, 255], holeC2: isFront ? [128, 146, 186] : [150, 170, 210],
                     lit: spec.lit ?? (isFront ? DY_LIT_FRONT : DY_LIT_BACK),
                     shade: spec.shade ?? (isFront ? DY_SHADE_FRONT : DY_SHADE_BACK),
-                    glow: gl ? [PAD + w0 * gl[0], PAD + h0 * gl[1], w0 * gl[2]] : null,
+                    glow: gl ? [PADX + w0 * gl[0], PAD + h0 * gl[1], spec0.w0 * gl[2]] : null,
                     fade: spec.fade ?? 0.9, ax: 1, seed: (lr() * 1e6) | 0,
                     sun: spec.sun, lx: spec.lx, ly: spec.ly, gd: spec.gd ?? (isFront ? [1.25, 0.5] : [1.4, 0.42]),
                     cov: spec.cov ?? (isFront ? Math.min(0.8, CFG.DY_COV + 0.02) : CFG.DY_COV),
@@ -3443,7 +3465,7 @@ void main() {
             // 구멍 묶음: spec.holes [[u, v, s], ...] (u 가로 비율, v 콘텐츠 상단으로부터의 높이 비율, s 크기 = h0 비율)
             // + DY_HOLE_N개 무작위 구멍. 구멍 하나는 가로로 긴 주 타원 + 둘레로 삐져나간 작은 타원 3~6개라 윤곽이 들쭉날쭉하고,
             // 윗둘레 가까운 것은 바깥 하늘과 이어져 깊게 파인 골이 된다. 반환: [x, y, rx, ry] (스프라이트 px)
-            function day2Holes(lr, spec, PAD, topAt) {
+            function day2Holes(lr, spec, PAD, topAt, PADX = PAD) {
                 const { w0, h0 } = spec, out = [];
                 const list = (spec.holes || []).map(h => h.slice());
                 const nr = Math.max(0, Math.round(spec.nHole ?? CFG.DY_HOLE_N));
@@ -3456,7 +3478,7 @@ void main() {
                     const R = s0 * h0 * SZ;
                     // 틈은 둥근 구멍이 아니라 비스듬히 갈라진 골: 가운데서 양쪽으로 걸어가며 크기가 들쭉날쭉한 타원을 잇는다
                     const dir = (lr() - 0.5) * 1.2;
-                    const cx = PAD + w0 * u, cy = PAD + h0 * v;
+                    const cx = PADX + w0 * u, cy = PAD + h0 * v;
                     out.push([cx, cy, R * (1.0 + lr() * 0.4), R * (0.7 + lr() * 0.3)]);
                     for (const sg of [-1, 1]) {
                         let x = cx, y = cy, a = dir + (sg < 0 ? Math.PI : 0), r = R;
@@ -3606,7 +3628,9 @@ void main() {
                         const c = day2Clouds.find(c => c.kind === 'mass' && c.spec.id === ref);
                         if (!c || !c.spr) return null;
                         const G = day2Geom(c, 1);
-                        return { dx: G.dx, dy: G.dy, k: G.tw / c.spr.width, ky: G.th / c.spr.height };
+                        // sx: 스프라이트를 넓게 구운 배율(편집 맵은 덩어리를 따라 가로로 그만큼 늘어난다)
+                        const k = G.tw / c.spr.width;
+                        return { dx: G.dx, dy: G.dy, k, ky: G.th / c.spr.height, sx: c.spr.w0 / c.spec.w0, cx: G.dx + c.spr.width / 2 * k };
                     },
                     items(ref) {
                         return ref === 'band' ? day2Clouds.filter(c => c.kind === 'band') : day2Clouds.filter(c => c.kind === 'mass' && c.spec.id === ref);
@@ -3671,13 +3695,42 @@ void main() {
                 const lr = mulberry32(c.seed);
                 const mod = c.kind === 'mass' && day2Mods[c.spec.id];
                 // 고친 덩어리는 퍼프 엔벨로프를 c에 남겨 둔다(다시 고칠 때 퍼프 계산 생략). t0 = 끓음 위상 이어 가기
-                c.spr = c.kind === 'mass' ? makeDay2MassSprite(lr, c.spec, mod ? { eMod: mod, eKeep: c, t0: clock } : null) : makeDay2BandSprite(lr);
+                if (c.kind === 'mass') {
+                    const sx = day2SXq();
+                    if (c.sx !== sx) delete c.E0;   // 격자 크기가 바뀌면 퍼프 엔벨로프 캐시도 새로
+                    c.sx = sx;
+                    c.spr = makeDay2MassSprite(lr, c.spec, mod ? { eMod: mod, eKeep: c, t0: clock } : null, sx);
+                } else c.spr = makeDay2BandSprite(lr);
                 day2Builds++;
             }
+            // 화면비가 바뀌어 가로 배율 단계(day2SXq)가 달라지면 덩어리를 그 배율로 다시 굽는다.
+            // 창 크기를 끄는 동안은 기다렸다가(그 사이엔 옛 스프라이트를 조금 늘려 그린다) 유휴 시간에 하나씩 바꾼다
+            let day2SxTimer = 0, day2SxSeen = 0;
+            function day2CheckSX() {
+                clearTimeout(day2SxTimer);
+                day2SxTimer = setTimeout(() => {
+                    const sx = day2SXq();
+                    const next = () => {
+                        const c = day2Clouds.find(c => c.kind === 'mass' && c.spr && c.sx !== sx);
+                        if (!c || day2SXq() !== sx) return;
+                        const old = c.spr;
+                        buildDay2Sprite(c);
+                        if (cloudLive && cloudLive.remove && old !== c.spr) cloudLive.remove(old);
+                        day2SxTimer = setTimeout(next, 30);
+                    };
+                    next();
+                }, 350);
+            }
             // 스프라이트는 유휴 시간에 하나씩 굽는다(첫 화면 지연 방지). 낮이 먼저 필요해지면 ensureDay2가 남은 것을 즉시 굽는다.
+            // 구름 오버레이가 있으면 문서를 읽을 때까지 기다렸다가 기본 레이어 형태 고치기부터 넘긴다(cloudOv.warm).
+            // 그러면 덩어리를 고친 형태로 한 번만 굽고, 처음 공백을 그리는 프레임에서 큰 덩어리를 다시 굽지 않는다.
+            // 덩어리를 먼저 구운 뒤 문서가 바뀌면(편집기 저장 등) 다시 굽기도 여기서 유휴 시간에 하나씩 한다.
+            let day2OvReady = !cloudOv;
             function scheduleDay2() {
                 clearTimeout(day2Timer);
                 const next = () => {
+                    if (!day2OvReady) { day2Timer = setTimeout(next, 100); return; }
+                    if (cloudOv && cloudOv.warm(W, HZ)) { day2Timer = setTimeout(next, 30); return; }
                     const c = day2Clouds.find(c => !c.spr);
                     if (!c) return;
                     buildDay2Sprite(c);
@@ -3690,16 +3743,20 @@ void main() {
             }
             // 넓은 화면 가로 늘림 배율: 덩어리 크기는 수평선 높이를, 자리는 화면 너비를 따르므로 기준 화면비보다 넓으면
             // 덩어리 사이·화면 끝이 벌어져 하늘이 드러난다 → 기준보다 넓은 만큼 가로로만 늘려 기준 화면비의 배치를 유지한다
+            // 덩어리는 이 배율만큼 넓게 구워 혹 비율을 지키고(makeDay2MassSprite), 다시 굽기를 줄이려 0.1 단위로 끊는다(day2SXq).
+            // 끊고 남은 차이(5% 이내)만 그릴 때 가로로 맞춘다
             const day2SX = () => HZ > 0 ? Math.max(1, W / HZ / Math.max(0.5, CFG.DY_REF_AR || 2.3)) : 1;
+            const day2SXq = () => Math.max(1, Math.round(day2SX() * 10) / 10);
             function day2Geom(c, base) {
-                const sp = c.spr, pad = sp.pad, w0 = sp.w0, h0 = sp.h0;
+                const sp = c.spr, pad = sp.pad, padX = sp.padX ?? pad, w0 = sp.w0, h0 = sp.h0;
                 if (c.kind === 'mass') {
                     const S = c.spec;
                     // 가운데 덩어리는 좁은 화면에서 틈을 다 덮지 않게 너비로도 제한 (양옆 벽은 화면 밖으로 밀어낸다)
                     let k = S.hh * HZ / h0;
-                    if (S.al === 0.5) k = Math.min(k, 2 * S.wmax * W / w0);
-                    const kx = k * day2SX();
-                    const cw = w0 * kx, ch = h0 * k, pdx = pad * kx, pdy = pad * k;
+                    if (S.al === 0.5) k = Math.min(k, 2 * S.wmax * W / S.w0);
+                    // 스프라이트가 이미 c.sx배 넓으므로 남은 차이만 가로로 맞춘다(배치 폭 = 원래 너비 × day2SX)
+                    const kx = k * day2SX() * S.w0 / w0;
+                    const cw = w0 * kx, ch = h0 * k, pdx = padX * kx, pdy = pad * k;
                     const over = Math.max(0, cw - S.wmax * W);
                     // 앞턱은 더 크게 흔들려 시차(parallax)가 생긴다. 뒷벽은 거의 고정.
                     const swayK = S.swayK ?? 1;
@@ -3830,9 +3887,13 @@ void main() {
             function measureCardZone() {
                 if (!(CFG.LANTERN_CARD_AVOID >= 0.5)) return null;
                 try {
-                    if (!elPanel || !elPanel.getBoundingClientRect) return null;
-                    const r = elPanel.getBoundingClientRect();
-                    if (!(r.width > 0 && r.height > 0)) return null;
+                    // 보이는 패널(月 또는 海) 기준. 숨은 독은 크기 0
+                    let r = null;
+                    for (const pn of ENGINE_PANELS) {
+                        const q = pn.getBoundingClientRect();
+                        if (q.width > 0 && q.height > 0) { r = q; break; }
+                    }
+                    if (!r) return null;
                     return {
                         cardCx: r.left + r.width / 2,
                         cardHalf: r.width / 2 + CARD_MARGIN,
@@ -4437,6 +4498,7 @@ void main() {
                 return CFG.TORII_X;
             }
             function resize() {
+                xfStop();   // 크기가 바뀌면 떠 둔 화면이 맞지 않으므로 크로스페이드를 끝낸다
                 W = window.innerWidth; H = window.innerHeight;
                 // 레이아웃 전환 시 랜턴 기본값 추종: 사용자가 N을 직접 바꾸지 않은 경우에만 전환.
                 const mob = isMobileLayout();
@@ -4465,6 +4527,7 @@ void main() {
                 pole = { x: W * CFG.POLE_X, y: HZ * CFG.POLE_Y };
                 placeDuskCb();
                 if (cloudOv) cloudOv.resize();
+                day2CheckSX();
                 const m = Math.min(W, H);
                 sunR = clamp(m * CFG.SUN_F, CFG.SUN_MIN, CFG.SUN_MAX);
                 moonR = clamp(m * CFG.MOON_F, CFG.MOON_MIN, CFG.MOON_MAX) * (CFG.MOON_SIZE ?? 1);
@@ -4589,6 +4652,11 @@ void main() {
                     if (dsOn) dsK = Math.min(1, dsK + dt / Math.max(0.05, CFG.DS_GROW));
                     dsTail += CFG.W_SLOW * dt;
                     if (!dsOn && dsA <= 0) { dsK = 0; dsTail = 0; }
+                }
+                // 파스텔 색조 전환 페이드
+                if (tnOn ? tnA < 1 : tnA > 0) {
+                    const fd = Math.max(0.05, CFG.TN_FADE);
+                    tnA = tnOn ? Math.min(1, tnA + dt / fd) : Math.max(0, tnA - dt / fd);
                 }
                 // 공백 밤 전환 페이드
                 if (dnOn ? dnA < 1 : dnA > 0) {
@@ -4818,6 +4886,8 @@ void main() {
                         }
                     } else if (set === day2Clouds) {
                         ensureDay2();
+                        // 기준 화면비(DY_REF_AR)를 패널에서 바꿔도 덩어리를 새 배율로 다시 굽게
+                        if (day2SXq() !== day2SxSeen) { day2SxSeen = day2SXq(); day2CheckSX(); }
                         // 2층 합성: 먼 띠 + 뒷층(림층) 먼저 → 틈 라이트 → 앞턱(음영층) 나중에. 앞이 뒤를 가려 깊이가 생긴다
                         const isFront = c => c.kind === 'mass' && c.spec.layer === 'front';
                         // 구름 오버레이(레이어 문서)가 있으면 기존 덩어리도 그 순서대로 그린다: 뒷층 단('back') → 틈 림라이트 →
@@ -5244,6 +5314,46 @@ void main() {
                 S.restore();
             }
 
+            // 파스텔 색조 패스 (화면 좌표, 기기 px). 카메라 모드에서는 화면에 보이는 수평선 위치를 기준으로 한다.
+            function drawTone(a) {
+                const Wd = cv.width, Hd = cv.height;
+                const hy = clamp((camOn() ? camW2S(0, HZ).y : HZ) / H, 0.02, 0.98);
+                const rgbS = (c, al) => `rgba(${hex(c).map(Math.round).join(',')},${clamp(al, 0, 1).toFixed(3)})`;
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.globalAlpha = a;
+                // 1) 라벤더 리프트: 짙은 남색 그늘을 참조의 회보라로 들어 올린다
+                const L = TONE.lift;
+                const lg = ctx.createLinearGradient(0, 0, 0, Hd);
+                lg.addColorStop(0, L[0]); lg.addColorStop(hy, L[1]);
+                lg.addColorStop(Math.min(1, hy + 0.001), L[2]); lg.addColorStop(1, L[3]);
+                ctx.globalCompositeOperation = 'screen';
+                ctx.fillStyle = lg; ctx.fillRect(0, 0, Wd, Hd);
+                // 2) 채도 감소
+                ctx.globalCompositeOperation = 'saturation';
+                ctx.globalAlpha = a * clamp(CFG.TN_DESAT, 0, 1);
+                ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, Wd, Hd);
+                ctx.globalAlpha = a;
+                // 3) 핑크 soft-light: 중간톤·하이라이트를 복숭아빛 핑크로
+                const pk = CFG.TN_PINK, PA = TONE.pinkA;
+                const pg = ctx.createLinearGradient(0, 0, 0, Hd);
+                pg.addColorStop(0, rgbS(TONE.pink, PA[0] * pk)); pg.addColorStop(hy, rgbS(TONE.pink, PA[1] * pk));
+                pg.addColorStop(1, rgbS(TONE.pink, PA[2] * pk));
+                ctx.globalCompositeOperation = 'soft-light';
+                ctx.fillStyle = pg; ctx.fillRect(0, 0, Wd, Hd);
+                // 4) 수평선 핑크 안개 (가우시안 근사)
+                const bw = TONE.bandW, bA = CFG.TN_BAND;
+                const y0 = Math.max(0, hy - bw * 2.2), y1 = Math.min(1, hy + bw * 2.2);
+                const bg = ctx.createLinearGradient(0, y0 * Hd, 0, y1 * Hd);
+                for (let i = 0; i <= 12; i++) {
+                    const t = i / 12, y = lerp(y0, y1, t), d = (y - hy) / bw;
+                    bg.addColorStop(t, rgbS(TONE.band, bA * Math.exp(-d * d)));
+                }
+                ctx.globalCompositeOperation = 'screen';
+                ctx.fillStyle = bg; ctx.fillRect(0, y0 * Hd, Wd, (y1 - y0) * Hd);
+                ctx.restore();
+            }
+
             function render() {
                 let zp = zpNow();
                 drawSky();
@@ -5450,6 +5560,9 @@ void main() {
                 const sg = ctx.createLinearGradient(0, HZ - 6, 0, HZ + 14);
                 sg.addColorStop(0, rgba(hl, 0)); sg.addColorStop(0.3, rgba(hl, CFG.SEAM_A)); sg.addColorStop(1, rgba(hl, 0));
                 ctx.fillStyle = sg; ctx.fillRect(0, HZ - 6, W, 20);
+                // 파스텔 색조: 하늘·구름·수면을 다 그린 뒤 화면 전체에 덮는다(전경·비네팅은 제외). 공백 밤·밤 전환에서는 빠진다
+                const tw = (CFG.TN_A ?? 1) * tnW() * (1 - ss(CFG.DY_F0, CFG.DY_F1, qR)) * (1 - dnR);
+                if (tw > 0.005) drawTone(Math.min(1, tw));
                 zpAdd('water', zp);
                 zp = zpNow();
 
@@ -5649,7 +5762,10 @@ void main() {
             const DRAG_MIN_DIST = 24;    // css px between spawned ripples
             const DRAG_MIN_DT = 0.06;    // seconds between spawned ripples
             const overUI = t => document.body.hasAttribute('data-world-busy') ||
-                ((t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad,#worldMount'));
+                ((t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad,#worldMount,#worldEarth,' +
+                    // 랜딩(landing.html): 글자·링크·버튼 위에서는 리플/클릭 이펙트를 내지 않는다.
+                    // [data-scene-off]는 다른 세계(山)가 화면을 덮고 있는 동안 루트에 붙는다.
+                    '.l-copy,.l-cta,a,button,[data-scene-off]'));
 
             window.addEventListener('pointerdown', e => {
                 if (!gl || RM.matches || e.button > 0) return;
@@ -5791,6 +5907,82 @@ void main() {
             const activeOf = () => { const t = targetOf(state); return t === 'night' && moonTarget === 'mirror' ? 'mirror' : t; };
             // 아이콘 클릭 → 현재 p에서 목표까지 자연스럽게 전환 (전환 중 재클릭도 현재 p에서 다시 시작)
             // 'night' = 밤 + 일반 달, 'mirror' = 밤 + 미러볼 달(일반 달 → 미러볼 전환 연출, 밤이 아니면 밤 도착 후 실행)
+            // ---------- 공백 ↔ 황혼 스냅샷 크로스페이드 ----------
+            // 두 장면을 매 프레임 함께 그리며 파라미터를 보간하면(구름 세트 2벌·블룸 2번) 전환 내내 무겁다.
+            // 대신 전환 순간의 화면(장면 + 물결 + 전경)을 오버레이 캔버스에 떠 두고, 장면은 바로 목표 상태로 바꿔 혼자 그린다.
+            // 오버레이는 CSS opacity 전환으로 걷혀(합성기에서 돌아 메인 스레드가 바빠도 매끄럽다) 새 장면이 그 아래서 드러난다.
+            // 진행 중에 다시 누르면 지금 보이는 화면(오버레이 + 장면)을 다시 떠서 이어 간다. 캔버스 2장을 번갈아 쓴다.
+            const xfEls = [0, 1].map(() => {
+                const c = document.createElement('canvas');
+                c.setAttribute('aria-hidden', 'true');
+                Object.assign(c.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '100%', pointerEvents: 'none', display: 'none' });
+                fg.parentNode.insertBefore(c, fg.nextSibling);
+                return c;
+            });
+            const XF = { cur: null, want: null, go: false };
+            const xfOK = () => !suspended && !camOn() && cv.width > 0 && (state === 'day' || state === 'dusk' || state === 'toDay' || state === 'toDusk');
+            // 목표 정지 상태로 바로 맞춘다(디버그 state 설정·전환 도착과 같은 값)
+            function snapIdle(v) {
+                const day = v === 'day';
+                state = v; tState = 0;
+                p = day ? CFG.P_DAY : CFG.P_DUSK; transFrom = p; transTo = p; transTarget = v;
+                duskW = duskFrom = duskTo = day ? 0 : 1; structW = structFrom = duskW;
+                nk = nkFrom = nkTo = 0;
+                sunVis = svFrom = svTo = day ? 1 : 0;
+                phi = 0; phiTail = null; omega = 0;
+                moonTarget = 'plain'; mbMix = 0; mbPending = false;
+                fishClear();
+            }
+            function xfHide(c) {
+                clearTimeout(c._t);
+                c.style.transition = 'none';
+                c.style.display = 'none';
+                c.width = c.height = 1;   // 화면 크기 버퍼를 바로 놓아준다
+                if (XF.cur === c) XF.cur = null;
+            }
+            function xfStop() { XF.want = null; XF.go = false; for (const c of xfEls) xfHide(c); }
+            // frame() 끝(그린 직후)에서 부른다: WebGL 물결 캔버스는 그린 프레임 안에서만 읽힌다
+            function xfCapture() {
+                const tgt = XF.want;
+                XF.want = null;
+                const prev = XF.cur, c = prev === xfEls[0] ? xfEls[1] : xfEls[0];
+                fitCanvas(c, cv.width, cv.height);
+                const g = c.getContext('2d');
+                g.setTransform(1, 0, 0, 1, 0, 0);
+                g.globalAlpha = 1;
+                g.globalCompositeOperation = 'copy';
+                g.drawImage(cv, 0, 0);
+                g.globalCompositeOperation = 'source-over';
+                if (glOn) g.drawImage(glc, 0, floorTop);
+                g.drawImage(fg, 0, 0);
+                if (prev) {
+                    const o = parseFloat(getComputedStyle(prev).opacity) || 0;
+                    if (o > 0.003) { g.globalAlpha = o; g.drawImage(prev, 0, 0); g.globalAlpha = 1; }
+                }
+                c.style.transition = 'none';
+                c.style.opacity = '1';
+                c.style.display = 'block';
+                if (prev) xfHide(prev);
+                XF.cur = c;
+                snapIdle(tgt);
+                XF.go = true;   // 새 장면이 한 번 그려진 다음 프레임에 걷기 시작
+            }
+            function xfGo() {
+                XF.go = false;
+                const c = XF.cur;
+                if (!c) return;
+                const sec = Math.max(0.05, CFG.T_DAY);
+                void c.offsetWidth;   // opacity 1을 먼저 확정해야 전환이 걸린다
+                c.style.transition = `opacity ${sec}s cubic-bezier(0.45, 0, 0.55, 1)`;
+                c.style.opacity = '0';
+                // 다 걷히면(transitionend) 내린다. 이벤트가 안 오는 경우(탭 숨김 등)를 위해 넉넉한 예비 타이머
+                clearTimeout(c._t);
+                c._t = setTimeout(() => xfHide(c), sec * 1000 + 1500);
+            }
+            for (const c of xfEls) c.addEventListener('transitionend', e => {
+                if (e.propertyName === 'opacity' && c.style.opacity === '0' && c.style.display !== 'none') xfHide(c);
+            });
+
             function goTo(target) {
                 if (target !== 'day' && target !== 'dusk' && target !== 'night' && target !== 'mirror') return;
                 if (target === 'night' || target === 'mirror') {
@@ -5807,7 +5999,13 @@ void main() {
                     // 밤 도착 전에 낮/황혼으로 돌아가면 예약된 연출 취소
                     if (mbPending) { mbPending = false; moonTarget = 'plain'; }
                 }
+                if (XF.want) {
+                    // 아직 뜨기 전(같은 프레임 안 연속 입력): 목표만 바꾸고, 원래 장면으로 돌아오면 취소
+                    if (target === 'day' || target === 'dusk') { XF.want = targetOf(state) === target ? null : target; return; }
+                    XF.want = null;
+                }
                 if (targetOf(state) === target) return;
+                if ((target === 'day' || target === 'dusk') && xfOK()) { XF.want = target; return; }
                 transFrom = p;
                 nkFrom = nk;
                 duskFrom = duskW;
@@ -5851,7 +6049,7 @@ void main() {
                 }
                 // card switches to its night palette once the sky has gone dark
                 const night = palQ() >= 0.5 || dnW() >= 0.5;
-                if (night !== lastNight) { lastNight = night; elPanel.classList.toggle('is-night', night); }
+                if (night !== lastNight) { lastNight = night; for (const pn of ENGINE_PANELS) pn.classList.toggle('is-night', night); }
                 if (active !== lastActive) {
                     lastActive = active;
                     elPanel.classList.toggle('scene-day', active === 'day');
@@ -5868,7 +6066,8 @@ void main() {
 
             // 강조 커서(thumb): 현재 시간 아이콘 위로 슬라이드 이동.
             // 평소 1칸 버블(접힘)에서는 x=0, 펼침에서는 인덱스*칸 이동.
-            const ORDER = () => [elDay, elDusk, elNight, elMirror];
+            // 공백 버튼이 없는 패널(tsukuyomi.html: 공백은 海 세계로 분리)에서는 빠진 칸 없이 센다
+            const ORDER = () => [elDay, elDusk, elNight, elMirror].filter(Boolean);
             const HOVER_OK = (() => { try { return window.matchMedia('(hover: hover)').matches; } catch (e) { return true; } })();
             const TOUCH_UI = (() => { try { return window.matchMedia('(hover: none)').matches; } catch (e) { return false; } })();
             let thumbInit = false;
@@ -5928,23 +6127,23 @@ void main() {
                 let cardROTimer = 0;
                 let cardLastRect = '';
                 try {
-                    const r0 = elPanel.getBoundingClientRect();
-                    cardLastRect = [r0.left, r0.top, r0.width, r0.height].join(',');
+                    const z0 = measureCardZone();
+                    cardLastRect = z0 ? [z0.cardCx, z0.cardHalf, z0.cardTop].join(',') : '';
                 } catch (e) { /* 측정 실패 시 첫 콜백에서 처리 */ }
                 try {
                     const cardRO = new ResizeObserver(() => {
                         clearTimeout(cardROTimer);
                         cardROTimer = setTimeout(() => {
                             try {
-                                const r = elPanel.getBoundingClientRect();
-                                const key = [r.left, r.top, r.width, r.height].join(',');
+                                const z = measureCardZone();
+                                const key = z ? [z.cardCx, z.cardHalf, z.cardTop].join(',') : '';
                                 if (key === cardLastRect) return;
                                 cardLastRect = key;
                                 projectLanterns();
                             } catch (e) { /* 측정 실패 시 현상 유지 */ }
                         }, 200);
                     });
-                    cardRO.observe(elPanel);
+                    for (const pn of ENGINE_PANELS) cardRO.observe(pn);
                 } catch (e) { /* observer 미지원 시 resize 때만 반영 */ }
             }
 
@@ -5980,11 +6179,13 @@ void main() {
             // 바깥 탭 시 접기 (모바일)
             if (TOUCH_UI) {
                 document.addEventListener('pointerdown', e => {
-                    if (!elPanel || !elPanel.classList.contains('expanded')) return;
-                    if (e.target instanceof Element && elPanel.contains(e.target)) return;
-                    elPanel.classList.remove('expanded');
-                    clearTimeout(collapseTimer);
-                    moveThumb();
+                    for (const pn of ENGINE_PANELS) {
+                        if (!pn.classList.contains('expanded')) continue;
+                        if (e.target instanceof Element && pn.contains(e.target)) continue;
+                        pn.classList.remove('expanded');
+                        clearTimeout(collapseTimer);
+                        moveThumb();
+                    }
                 });
             }
 
@@ -6005,41 +6206,51 @@ void main() {
             }
             if (elStars) elStars.addEventListener('click', e => {
                 e.stopPropagation();
-                if (TOUCH_UI && elPanel && !elPanel.classList.contains('expanded')) {
-                    elPanel.classList.add('expanded');
+                const pn = elStars.closest('.panel') || elPanel;
+                if (TOUCH_UI && pn && !pn.classList.contains('expanded')) {
+                    pn.classList.add('expanded');
                     moveThumb();
                 }
                 setDayStars(!dsOn);
-                if (TOUCH_UI && elPanel) {
+                if (TOUCH_UI && pn) {
                     clearTimeout(collapseTimer);
                     collapseTimer = setTimeout(() => {
-                        elPanel.classList.remove('expanded');
+                        pn.classList.remove('expanded');
                         moveThumb();
                     }, 900);
                 }
             });
 
-            // ---------- 공백 밤 토글 (공백 장면에서만 노출, 기본값 비활성화) ----------
-            // 별 궤적 토글과 같은 방식. 켜면 공백 장면이 DN_FADE초에 걸쳐 밤(day-empty-dark)으로 어두워진다.
-            const elDark = document.getElementById('btnDark');
-            function setDayDark(on) {
-                dnOn = !!on;
-                if (elDark) {
-                    elDark.classList.toggle('on', dnOn);
-                    elDark.setAttribute('aria-pressed', dnOn ? 'true' : 'false');
+            // ---------- 바다 색감 그룹 [기본 / 색조 / 밤] (공백 장면에서만 노출, 기본값 '기본') ----------
+            // 밤에서는 색조 차이가 보이지 않으므로 셋 중 하나만 고른다. 색조(tnOn)·밤(dnOn)은 각자 페이드(TN_FADE/DN_FADE)로 교차 전환된다.
+            const elSeaGroup = document.getElementById('seaModeGroup');
+            const seaBtns = elSeaGroup ? [...elSeaGroup.querySelectorAll('button[data-sea]')] : [];
+            const seaModeOf = () => (dnOn ? 'dark' : tnOn ? 'tone' : 'base');
+            function setSeaMode(m) {
+                if (m !== 'tone' && m !== 'dark') m = 'base';
+                dnOn = m === 'dark';
+                tnOn = m === 'tone';
+                for (const btn of seaBtns) {
+                    const on = btn.dataset.sea === m;
+                    btn.classList.toggle('on', on);
+                    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
                 }
+                if (elSeaGroup) elSeaGroup.classList.toggle('is-base', m === 'base');
             }
-            if (elDark) elDark.addEventListener('click', e => {
+            const setDayDark = on => setSeaMode(on ? 'dark' : (dnOn ? 'base' : seaModeOf()));
+            const setDayTone = on => setSeaMode(on ? 'tone' : (tnOn ? 'base' : seaModeOf()));
+            for (const btn of seaBtns) btn.addEventListener('click', e => {
                 e.stopPropagation();
-                if (TOUCH_UI && elPanel && !elPanel.classList.contains('expanded')) {
-                    elPanel.classList.add('expanded');
+                const pn = btn.closest('.panel') || elPanel;
+                if (TOUCH_UI && pn && !pn.classList.contains('expanded')) {
+                    pn.classList.add('expanded');
                     moveThumb();
                 }
-                setDayDark(!dnOn);
-                if (TOUCH_UI && elPanel) {
+                setSeaMode(btn.dataset.sea);
+                if (TOUCH_UI && pn) {
                     clearTimeout(collapseTimer);
                     collapseTimer = setTimeout(() => {
-                        elPanel.classList.remove('expanded');
+                        pn.classList.remove('expanded');
                         moveThumb();
                     }, 900);
                 }
@@ -6099,9 +6310,13 @@ void main() {
                 // 공백 장면 토글 (하단 btnStars/btnDark과 동일, Wallpaper Engine 일반 옵션에서 쓴다)
                 get dayStars() { return dsOn; }, set dayStars(v) { setDayStars(!!v); },
                 get dayDark() { return dnOn; }, set dayDark(v) { setDayDark(!!v); },
+                get dayTone() { return tnOn; }, set dayTone(v) { setDayTone(!!v); },
+                get seaMode() { return seaModeOf(); }, set seaMode(v) { setSeaMode(v); },
                 // 밤 물고기 군집 배치 옵션 (하단 btnCursorOff/Track/Moon과 동일)
                 get cursor() { return cursorMode !== 0; }, set cursor(v) { setCursorMode(v ? 1 : 0); },
                 get cursorMode() { return cursorMode; }, set cursorMode(v) { setCursorMode(v); },
+                // 토리이 클릭과 같은 수면 상승 물고기 1회. 밤 계열 장면이 아니면(전환 초반 포함) false를 돌려준다
+                fishRise() { return fishFire(); },
                 get moonTarget() { return moonTarget; }, get mbMix() { return mbMix; }, get showT() { return showT; },
                 show: SHOW, showDefaults: SHOW_DEF,
                 get sunK() { return sunK(); },
@@ -6302,6 +6517,8 @@ void main() {
                 zp = zpNow();
                 drawRipples();
                 zpAdd('ripple', zp);
+                if (XF.go) xfGo();
+                if (XF.want) xfCapture();
                 tickReflGovernor(performance.now() - t0);
                 updateUI();
                 if (ZP.on) zpPush(now, gap, performance.now() - fz);
@@ -6324,7 +6541,10 @@ void main() {
             buildLanterns();
             loadLanternSprite();
             resize();
-            if (cloudOv) cloudOv.load();
+            if (cloudOv) {
+                cloudOv.on(what => { if (what === 'doc') scheduleDay2(); });
+                cloudOv.load().finally(() => { day2OvReady = true; });
+            }
             resumeLoop();
         })();
     
