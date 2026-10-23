@@ -67,11 +67,11 @@ canvas.layer{pointer-events:none}
       <stop offset="0.85" stop-color="#2596be" stop-opacity="0"/>
       <stop offset="1" stop-color="#2596be" stop-opacity="1"/>
     </linearGradient>
-    <symbol id="torii" viewBox="124 62 432 360">
-      <path style="fill:var(--tr)" d="M216 110H244L247 410H213Z M436 110H464L467 410H433Z M331 118h18v76h-18Z M168 192h344v20h-344Z M146 86Q340 124 534 86L532 108Q340 146 148 108Z"/>
+    <symbol id="torii" viewBox="124 62 432 500">
+      <path style="fill:var(--tr)" d="M216 110H244L249 550H211Z M436 110H464L469 550H431Z M331 118h18v76h-18Z M168 192h344v20h-344Z M146 86Q340 124 534 86L532 108Q340 146 148 108Z"/>
       <path style="fill:var(--tb)" d="M126 64Q340 108 554 64L548 85Q340 126 132 85Z"/>
-      <path fill="#2596be" d="M210 392h40v28h-40Z M430 392h40v28h-40Z"/>
-      <path fill="url(#legFade)" d="M216 110H244L247 410H213Z M436 110H464L467 410H433Z"/>
+      <path fill="#2596be" d="M208 532h44v28h-44Z M428 532h44v28h-44Z"/>
+      <path fill="url(#legFade)" d="M216 110H244L249 550H211Z M436 110H464L469 550H431Z"/>
     </symbol>
   </defs>
 
@@ -87,10 +87,7 @@ canvas.layer{pointer-events:none}
 
   <g id="clouds" fill="#eaf4f3"></g>
 
-  <!-- 토리이 (발 = 기준점, 파도 언덕 뒤로 묻힘) -->
-  <g id="toriis"></g>
-
-  <!-- 파도 언덕 (밑동은 바닥 캔버스에 가려짐) -->
+  <!-- 파도 언덕 + 토리이 (토리이는 지정한 파도 줄 사이에 끼워 다리 아래쪽이 앞줄에 가려짐) -->
   <g id="waves"></g>
 </svg>
 
@@ -173,20 +170,20 @@ canvas.layer{pointer-events:none}
     }
   })();
 
-  // 토리이: [발 x, 발 y, 크기, 기울기(도), 앞/뒤 팔레트]
-  (()=>{
-    const g=document.getElementById('toriis');
+  // 토리이: [발 x, 파도 줄(WAVE_ROWS 인덱스, 이 줄부터 앞쪽 줄이 다리를 가림), 크기, 기울기(도), 팔레트]
+  // 발은 그 줄 바닥선 아래에 묻힌다. buildWaves()가 줄을 그릴 때 함께 끼워 넣는다.
+  const TORII=(()=>{
     const NEAR='--tr:#c3e2e2;--tb:#4f8f9b', MID='--tr:#d3ebe9;--tb:#77acb4', FAR='--tr:#dff1ef;--tb:#9cc8cc';
-    const list=[
-      [ 250,560,.30, 3,FAR],[ 720,535,.24,-4,FAR],[ 905,545,.22, 5,FAR],[1300,540,.28,-3,FAR],
-      [ 600,560,.40,-9,MID],[1020,555,.44, 5,MID],[1190,545,.34,-7,MID],
-      [  70,590,.50, 6,NEAR],[ 400,600,.66,-14,NEAR],[1530,600,.66,15,NEAR],
+    return [
+      [ 250,1,.25, 3,FAR],[ 720,0,.20,-4,FAR],[ 905,1,.19, 5,FAR],[1300,1,.24,-3,FAR],
+      [ 600,3,.34,-9,MID],[1020,3,.37, 5,MID],[1190,2,.29,-7,MID],
+      [  70,5,.43, 6,NEAR],[ 400,6,.56,-14,NEAR],[1530,6,.56,15,NEAR],
     ];
-    for (const [x,y,s,a,pal] of list){
-      const u=el('use',{href:'#torii',x:124,y:62,width:432,height:360,style:pal},g);
-      u.setAttribute('transform',`translate(${x},${y}) rotate(${a}) scale(${s}) translate(-340,-420)`);
-    }
   })();
+  const drawTorii=(x,y,s,a,pal,g)=>{
+    const u=el('use',{href:'#torii',x:124,y:62,width:432,height:500,style:pal},g);
+    u.setAttribute('transform',`translate(${x},${y}) rotate(${a}) scale(${s}) translate(-340,-560)`);
+  };
 
   // 파도 언덕: 뒤에서 앞으로 줄마다 단색 반타원 봉우리
   // news.mp4 10–11초: 봉우리마다 속도가 제각각이다.
@@ -284,6 +281,7 @@ canvas.layer{pointer-events:none}
     const fastRows=new Set(), fastN=Math.min(P.FAST_N,rows.length);
     while (fastRows.size<fastN) fastRows.add(Math.floor(R()*rows.length));
     rows.forEach(([base,r0],ri)=>{
+      for (const [x,row,s,a,pal] of TORII) if (row===ri) drawTorii(x,base+6,s,a,pal,g);
       const front=ri===last;
       const depth=last?ri/last:1; // 0=맨 뒷줄, 1=맨 앞줄
       const r=r0*(P.DEPTH_SIZE+(1-P.DEPTH_SIZE)*depth), vk=P.DEPTH_SPEED+(1-P.DEPTH_SPEED)*depth;
