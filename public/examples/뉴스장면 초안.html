@@ -785,7 +785,9 @@ canvas.layer{pointer-events:none}
      칸 줄(깊이 1칸)마다 평면 띠 캔버스에 타일을 그린 뒤, 화면 가로줄 단위로 잘라 붙인다(정확한 원근).
      깊이 BAND_ROW 칸부터 먼 쪽(파도 언덕·랜턴 바로 앞)은 별 패턴 띠 구간 — 가로등과 같은 속도로 스크롤. */
   const HORIZON=537, FAR_Y=704, TILE_K=0.355, DEPTH=3500;
-  const BAND_ROW=14;
+  // 띠 구간 화면 높이를 원래(BAND_ROW=14, y 704–787)의 0.6배로 줄이고, 줄어든 만큼 앞쪽 움직이는 타일을 먼 쪽으로 늘림.
+  // 목표 경계 y≈754 → DEPTH/(754−HORIZON)≈16.1 → 칸 단위로 16 (띠 y 704–756, 약 0.62배).
+  const BAND_ROW=16;
   // 뒤쪽 띠 바닥 + 가로등 슬라이드 (news.mp4 9.5–12초: 오른쪽으로. 가로등 하나가 왼쪽 끝에서 들어와 화면 가운데까지 LAMP_IN초)
   const LAMP_BASE_Y=741, LAMP_GAP=557, LAMP_W=280, LAMP_TOP=374;
   const LAMP_IN=3.5;                                // 원본 3~4초
