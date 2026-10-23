@@ -130,7 +130,7 @@ canvas.layer{pointer-events:none}
   (()=>{
     const g=document.getElementById('rays'), R=rng(11), cx=815, cy=523, N=28;
     for (let i=0;i<N;i++){
-      const a=(i*360/N+(R()-.5)*8)*Math.PI/180, w=(1+R()*1.8)*Math.PI/180, L=380+R()*150;
+      const a=(i*360/N+(R()-.5)*8)*Math.PI/180, w=(1+R()*1.8)*Math.PI/180, L=325+R()*55;
       const p=[[cx,cy],[cx+Math.cos(a-w)*L,cy+Math.sin(a-w)*L],[cx+Math.cos(a+w)*L,cy+Math.sin(a+w)*L]];
       el('polygon',{points:p.map(q=>q.map(v=>v.toFixed(1)).join(',')).join(' '),opacity:(.08+R()*.1).toFixed(2)},g);
     }
