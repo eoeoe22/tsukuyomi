@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>newstile demo (로컬 dist)</title>
+<style>body{margin:20px;font-family:system-ui,sans-serif}#tile{width:min(320px,80vw);background:#0d2b31}button{margin:8px 4px 0 0}</style>
+</head>
+<body>
+<div id="tile"></div>
+<div>
+  <button id="play">일시 정지</button>
+  <button id="seek">중간 프레임으로</button>
+  <button id="svg">SVG 복사</button>
+</div>
+<script src="./dist/newstile.umd.js"></script>
+<script>
+  const tile = Newstile.mount('#tile');
+  const playBtn = document.getElementById('play');
+  playBtn.onclick = () => { playBtn.textContent = tile.toggle() ? '일시 정지' : '재생'; };
+  document.getElementById('seek').onclick = () => tile.seek(tile.get().total / 2);
+  document.getElementById('svg').onclick = async () => {
+    const svg = tile.toSVG();
+    try { await navigator.clipboard.writeText(svg); alert('복사됨'); }
+    catch { console.log(svg); }
+  };
+</script>
+</body>
+</html>
