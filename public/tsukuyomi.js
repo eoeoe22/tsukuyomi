@@ -159,6 +159,10 @@
                 // 기존 색감은 그대로 두고 수면까지 그린 뒤 한 번에 덮는다(라벤더 리프트 → 채도 감소 → 핑크 soft-light → 수평선 핑크 안개).
                 // TN_A: 전체 세기, TN_FADE: 전환 시간(초), TN_DESAT: 채도 감소, TN_PINK: 핑크 soft-light 배율, TN_BAND: 수평선 안개 배율
                 TN_A: 1, TN_FADE: 1.4, TN_DESAT: 0.24, TN_PINK: 1, TN_BAND: 0.75,
+                // 색조 렌더 레이어(WebGL2, drawTone 위 toneGL 참고). TN_GL 1 = 레이어 사용, 0 = 위의 2D 필터.
+                // TN_K: 원래 색차 유지(0 = 밝기만으로 착색), TN_HBAND: 수평선 위 라벤더 안개, TN_MAUVE: 수면 수평선 쪽 모브,
+                // TN_DEEP: 깊은 수면 청색, TN_BLOOM: 하이라이트 핑크 번짐, TN_SPARK: 수면 반짝임
+                TN_GL: 1, TN_K: 0.8, TN_HBAND: 0.6, TN_MAUVE: 0.5, TN_DEEP: 0.5, TN_BLOOM: 0.38, TN_SPARK: 0.6,
                 // DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
                 DY_COLUMN: 0,
                 // 구름 뚫림(ref: 어두운 앞 구름이 불균일하게 찢겨 그 너머 햇빛 받은 흰 구름이 비친다):
@@ -5314,10 +5318,162 @@ void main() {
                 S.restore();
             }
 
+            // ---------- 파스텔 색조 렌더 레이어 (WebGL2 후처리) ----------
+            // 단순 필터(screen 리프트)는 그늘까지 들어 올려 대비가 죽고 뿌옇게 보였다. 대신 화면을 텍스처로 받아
+            //   1) 밝기별 색 매핑(LUT): 기본 장면 밝기 분위수를 참조(reference-images/sea-pastel-ref.webp) 분위수에 맞춘 그라데이션 맵.
+            //      out = A(L) + TN_K·(rgb − B(L)) — A = 참조의 같은 분위수 평균색, B = 기본 장면의 그 밝기 평균색. 하늘/수면 따로.
+            //      그늘은 슬레이트 블루로 남고 밝은 구름·반사는 크림 핑크로 펴져 대비가 산다. 상대 색차(하늘 파랑 vs 구름)는 TN_K만큼 유지.
+            //   2) 위치별 착색(명도 유지): 수평선 위 라벤더 안개(TN_HBAND), 수면 수평선 쪽 모브(TN_MAUVE), 깊은 수면 청색(TN_DEEP)
+            //   3) 하이라이트 핑크 번짐(TN_BLOOM): 밉맵 저해상도에서 밝은 곳만 골라 screen
+            //   4) 수면 반짝임(TN_SPARK): 원근(수평선 쪽일수록 작게)을 따른 가로 잔물결 반점이 밝은 반사 위에서 깜빡인다
+            // WebGL2가 없거나 컨텍스트를 잃으면 false → 아래 2D 필터(drawTone2D)로 대신 그린다.
+            const TONE_LUT_N = 33;
+            // 행 순서: 하늘 A, 하늘 B, 수면 A, 수면 B (각 33단계 RGB, L = 0..255 균등)
+            const TONE_LUT = [72,111,161,72,111,161,72,111,161,72,111,161,72,111,161,72,111,161,84,120,166,111,132,173,136,143,179,170,161,187,186,182,201,195,193,208,207,200,212,219,207,214,231,213,216,239,223,224,246,228,228,249,232,231,250,234,232,251,236,234,252,238,236,252,241,239,252,242,241,252,244,242,252,245,243,251,245,244,251,246,245,251,246,245,251,247,246,251,247,246,251,248,247,251,248,247,251,248,247,0,0,0,8,8,8,16,16,16,24,24,24,32,32,32,30,42,76,35,48,84,42,56,94,48,64,106,54,72,116,59,80,127,63,90,139,70,99,148,79,106,155,89,113,161,99,120,166,108,128,172,117,136,176,127,144,181,136,153,187,144,161,193,152,168,198,162,176,202,172,185,206,180,193,213,189,201,219,200,208,221,210,217,226,219,224,230,227,231,236,233,238,244,247,247,247,255,255,255,62,86,119,62,86,119,62,86,119,62,86,119,62,86,119,62,86,119,89,100,135,130,131,161,175,168,187,195,183,197,213,195,203,224,202,205,231,207,209,236,211,210,239,215,213,241,217,214,242,218,215,243,219,215,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,244,220,216,0,0,0,8,8,8,16,16,16,24,24,24,32,32,32,25,45,81,29,51,90,34,58,100,40,66,110,46,75,119,54,83,126,63,91,131,72,99,136,81,107,143,89,115,149,98,123,154,107,132,161,117,139,167,125,146,170,128,156,188,136,164,196,167,167,167,175,175,175,183,183,183,191,191,191,199,199,199,207,207,207,215,215,215,223,223,223,231,231,231,239,239,239,247,247,247,255,255,255];
+            const toneGL = (() => {
+                let c = null, gl = null, prog = null, tex = null, lutTex = null, U = null, dead = false;
+                const VS = `#version 300 es
+in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+                const FS = `#version 300 es
+precision highp float;
+uniform sampler2D uTex,uLut;
+uniform vec2 uRes;
+uniform float uHy,uA,uK,uBand,uMauve,uDeep,uBloom,uSpark,uT,uDpr,uLod;
+out vec4 o;
+const vec3 LW=vec3(.299,.587,.114);
+const float N=${TONE_LUT_N}.;
+vec3 lut(float L,float r){return texture(uLut,vec2((clamp(L,0.,1.)*(N-1.)+.5)/N,(r+.5)/4.)).rgb;}
+vec3 tint(vec3 c,vec3 t,float w){return mix(c,t-dot(t,LW)+dot(c,LW),clamp(w,0.,1.));}
+float h12(vec2 p){vec3 q=fract(vec3(p.xyx)*.1031);q+=dot(q,q.yzx+33.33);return fract((q.x+q.y)*q.z);}
+vec3 blur(vec2 uv,float l){vec2 d=exp2(l)/uRes;
+  return .2*(textureLod(uTex,uv,l).rgb+textureLod(uTex,uv+d*vec2(1.,.5),l).rgb+textureLod(uTex,uv-d*vec2(1.,.5),l).rgb
+    +textureLod(uTex,uv+d*vec2(-.5,1.),l).rgb+textureLod(uTex,uv-d*vec2(-.5,1.),l).rgb);}
+void main(){
+  vec2 uv=vec2(gl_FragCoord.x/uRes.x,1.-gl_FragCoord.y/uRes.y);
+  vec3 c=textureLod(uTex,uv,0.).rgb;
+  float L=dot(c,LW);
+  float sky=1.-smoothstep(uHy-.6/uRes.y,uHy+.6/uRes.y,uv.y), wat=1.-sky;
+  // 1) 밝기별 색 매핑
+  vec3 g=mix(lut(L,2.),lut(L,0.),sky)+uK*(c-mix(lut(L,3.),lut(L,1.),sky));
+  // 2) 위치별 착색
+  float d=(uv.y-uHy)/.12;
+  g=tint(g,vec3(.63,.55,.69),uBand*exp(-d*d)*sky);
+  float wd=clamp((uv.y-uHy)/max(.02,1.-uHy),0.,1.);
+  float mw=uMauve*exp(-wd*wd/.06)*wat;
+  g=mix(tint(g,vec3(.6,.49,.59),mw),vec3(.66,.6,.7),.3*mw*exp(-wd*wd/.004));
+  g=tint(g,vec3(.6,.49,.59),uMauve*exp(-wd*wd/.12)*wat);
+  g=tint(g,vec3(.43,.57,.73),uDeep*pow(wd,1.3)*wat);
+  // 3) 하이라이트 핑크 번짐
+  vec3 bl=.5*blur(uv,uLod)+.5*blur(uv,uLod+1.5);
+  float hl=smoothstep(.36,.8,dot(bl,LW));
+  g=1.-(1.-clamp(g,0.,1.))*(1.-uBloom*hl*hl*vec3(1.,.8,.78));
+  // 4) 수면 반짝임: 수평선 아래 거리 py에 비례하는 셀(가로 X = x/py, 세로 Z = log py)이라 멀수록 작고 촘촘하다.
+  //    셀이 1px보다 작아지는 수평선 근처는 깜빡임 노이즈가 되므로 지운다
+  if(wat>.5&&uSpark>0.){
+    float py=max(.5,(uv.y-uHy)*uRes.y/uDpr), px=(uv.x-.5)*uRes.x/uDpr;
+    vec2 q=vec2(px/py/.08,45.*log(py));
+    float row=floor(q.y);
+    float xo=q.x+h12(vec2(row,3.1))*7.;
+    vec2 cell=vec2(floor(xo),row), f=vec2(fract(xo),fract(q.y));
+    float h=h12(cell+vec2(.37,11.3)), h2=h12(cell.yx+vec2(5.1,.73));
+    float tw=pow(.5+.5*sin(uT*(.7+1.5*h2)+6.2831*h),8.);
+    float sh=smoothstep(0.,.35,f.x)*smoothstep(1.,.65,f.x)*max(0.,1.-abs(f.y*2.-1.)*1.4);
+    float cellPx=py/45.;
+    float on=step(.78,h)*tw*sh*smoothstep(.4,.85,dot(g,LW))*smoothstep(.8,1.6,cellPx);
+    g+=uSpark*on*vec3(1.,.93,.92)*.5;
+  }
+  o=vec4(mix(c,clamp(g,0.,1.),uA),1.);
+}`;
+                function init() {
+                    try {
+                        c = document.createElement('canvas');
+                        gl = c.getContext('webgl2', { alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false, depth: false, stencil: false });
+                        if (!gl) throw 0;
+                        const sh = (t, src) => {
+                            const x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x);
+                            if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x));
+                            return x;
+                        };
+                        prog = gl.createProgram();
+                        gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+                        gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+                        gl.bindAttribLocation(prog, 0, 'p');
+                        gl.linkProgram(prog);
+                        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+                        gl.useProgram(prog);
+                        const buf = gl.createBuffer();
+                        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+                        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+                        gl.enableVertexAttribArray(0);
+                        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+                        U = {};
+                        for (const n of ['uTex', 'uLut', 'uRes', 'uHy', 'uA', 'uK', 'uBand', 'uMauve', 'uDeep', 'uBloom', 'uSpark', 'uT', 'uDpr', 'uLod'])
+                            U[n] = gl.getUniformLocation(prog, n);
+                        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+                        lutTex = gl.createTexture();
+                        gl.activeTexture(gl.TEXTURE1);
+                        gl.bindTexture(gl.TEXTURE_2D, lutTex);
+                        const px = new Uint8Array(TONE_LUT_N * 4 * 4);
+                        for (let i = 0; i < TONE_LUT_N * 4; i++) {
+                            px[i * 4] = TONE_LUT[i * 3]; px[i * 4 + 1] = TONE_LUT[i * 3 + 1]; px[i * 4 + 2] = TONE_LUT[i * 3 + 2]; px[i * 4 + 3] = 255;
+                        }
+                        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, TONE_LUT_N, 4, 0, gl.RGBA, gl.UNSIGNED_BYTE, px);
+                        for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR],
+                            [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+                        tex = gl.createTexture();
+                        gl.activeTexture(gl.TEXTURE0);
+                        gl.bindTexture(gl.TEXTURE_2D, tex);
+                        for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR],
+                            [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+                        gl.uniform1i(U.uTex, 0); gl.uniform1i(U.uLut, 1);
+                        c.addEventListener('webglcontextlost', e => { e.preventDefault(); dead = true; });
+                        return true;
+                    } catch (e) {
+                        if (e) console.warn('[tsukuyomi] 색조 WebGL 레이어 비활성, 2D 필터 사용:', e);
+                        dead = true; return false;
+                    }
+                }
+                // src: 다 그린 장면 캔버스(기기 px). 성공하면 결과 캔버스, 아니면 null
+                return function (src, a, hy, t) {
+                    if (dead || (!gl && !init())) return null;
+                    const w = src.width, h = src.height;
+                    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+                    gl.viewport(0, 0, w, h);
+                    gl.activeTexture(gl.TEXTURE0);
+                    gl.bindTexture(gl.TEXTURE_2D, tex);
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+                    gl.generateMipmap(gl.TEXTURE_2D);
+                    gl.uniform2f(U.uRes, w, h);
+                    gl.uniform1f(U.uHy, hy); gl.uniform1f(U.uA, a); gl.uniform1f(U.uT, t);
+                    gl.uniform1f(U.uK, CFG.TN_K); gl.uniform1f(U.uBand, CFG.TN_HBAND);
+                    gl.uniform1f(U.uMauve, CFG.TN_MAUVE); gl.uniform1f(U.uDeep, CFG.TN_DEEP);
+                    gl.uniform1f(U.uBloom, CFG.TN_BLOOM); gl.uniform1f(U.uSpark, CFG.TN_SPARK);
+                    // 번짐 반경은 화면 높이 기준(720px에서 밉 4.5)으로 맞춘다
+                    gl.uniform1f(U.uDpr, dpr); gl.uniform1f(U.uLod, 4.5 + Math.log2(Math.max(1, h) / 720));
+                    gl.drawArrays(gl.TRIANGLES, 0, 3);
+                    if (gl.isContextLost()) { dead = true; return null; }
+                    return c;
+                };
+            })();
+
             // 파스텔 색조 패스 (화면 좌표, 기기 px). 카메라 모드에서는 화면에 보이는 수평선 위치를 기준으로 한다.
             function drawTone(a) {
-                const Wd = cv.width, Hd = cv.height;
                 const hy = clamp((camOn() ? camW2S(0, HZ).y : HZ) / H, 0.02, 0.98);
+                const out = CFG.TN_GL >= 0.5 ? toneGL(cv, a, hy, clock) : null;
+                if (out) {
+                    ctx.save();
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                    ctx.globalCompositeOperation = 'copy';
+                    ctx.globalAlpha = 1;
+                    ctx.drawImage(out, 0, 0);
+                    ctx.restore();
+                    return;
+                }
+                drawTone2D(a, hy);
+            }
+            // 예전 2D 필터 경로(라벤더 리프트 → 채도 감소 → 핑크 soft-light → 수평선 안개). WebGL2가 없을 때만 쓴다
+            function drawTone2D(a, hy) {
+                const Wd = cv.width, Hd = cv.height;
                 const rgbS = (c, al) => `rgba(${hex(c).map(Math.round).join(',')},${clamp(al, 0, 1).toFixed(3)})`;
                 ctx.save();
                 ctx.setTransform(1, 0, 0, 1, 0, 0);
