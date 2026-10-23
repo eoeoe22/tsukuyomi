@@ -41,7 +41,7 @@ wallpaper/
 
 ## 동결 버전
 
-- `CORE_VERSION.txt` 참조 (커밋 `45e409f`, newstile-v0.1.0 시점 재동결 — 동결 코어는 `789e000`과 동일, 2026-10-23 기준).
+- `CORE_VERSION.txt` 참조 (커밋 `7bad3a1`, 바다 색조 WebGL 후처리·수면 파스텔 재구성까지 재동결, 2026-10-23 기준).
 - `project.json`의 고급 기본값 194종은 동결 CFG에서 그대로 생성됐다 (공백 장면 DS_*/DN_*/DY_REF_AR/TN_* 18종 포함).
 - 물고기 (토리이 수면 상승) 고급 그룹 32종(반사광 켜기 체크 1 + 슬라이더 25 + 색 6)은 동결 FISH에서 생성됐다.
 - 검증: `python wallpaper/tools/verify-wallpaper.py` (vendor 해시·기본값·참조·git 범위 검사).

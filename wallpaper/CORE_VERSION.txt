@@ -1,4 +1,4 @@
-45e409f7f724209213f05cf4c6e9086f5c692b2f (동결 코어 변경 없음 — vendor가 789e000과 동일, newstile-v0.1.0 시점 재동결, 2026-10-23 기준)
+7bad3a1691077a9d33000f7c725de3f449a77eb2 (바다 색조 WebGL 후처리·수면 파스텔 레이어 재구성까지, 2026-10-23 기준)
 2026-10-23
 frozen source: public/tsukuyomi.js, public/tsukuyomi.css,
   public/cloud-live.js, public/cloud-overlay.js, public/tsukuyomi.mount.js,
