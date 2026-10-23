@@ -31,14 +31,15 @@ canvas.layer{pointer-events:none}
       <stop offset=".75" stop-color="#8fc3cb"/>
     </linearGradient>
     <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#fffbe9" stop-opacity=".95"/>
-      <stop offset=".35" stop-color="#f6efcf" stop-opacity=".45"/>
-      <stop offset="1" stop-color="#f6efcf" stop-opacity="0"/>
+      <stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset=".52" stop-color="#fffdf0" stop-opacity=".9"/>
+      <stop offset=".68" stop-color="#fbf6dd" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#f8f2d6" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="sunBody" x1="0.2" y1="0" x2="0.6" y2="1">
-      <stop offset="0" stop-color="#7fbcc4"/>
-      <stop offset=".45" stop-color="#3f8291"/>
-      <stop offset="1" stop-color="#245a6a"/>
+      <stop offset="0" stop-color="#8cc6cd"/>
+      <stop offset=".45" stop-color="#4a8d9b"/>
+      <stop offset="1" stop-color="#2b6474"/>
     </linearGradient>
     <filter id="blur18" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="18"/></filter>
     <filter id="blur6" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="6"/></filter>
@@ -68,11 +69,11 @@ canvas.layer{pointer-events:none}
 
   <rect width="1600" height="1066" fill="url(#sky)"/>
 
-  <!-- 태양: 후광 → 빛줄기 → 본체 -->
+  <!-- 태양: 후광(태양과 같은 중심, 균일) → 빛줄기(사방에 고르게, 약하게) → 테두리 빛 → 본체 -->
   <g id="sun">
-    <circle cx="900" cy="300" r="520" fill="url(#glow)" opacity=".55"/>
-    <g id="rays" fill="#fffbe9" filter="url(#blur6)"></g>
-    <circle cx="830" cy="512" r="298" fill="#fff7dc" filter="url(#blur18)"/>
+    <circle cx="815" cy="523" r="560" fill="url(#glow)" opacity=".7"/>
+    <g id="rays" fill="#fffef4" filter="url(#blur6)"></g>
+    <circle cx="815" cy="523" r="306" fill="#fffbea" filter="url(#blur18)"/>
     <circle cx="815" cy="523" r="287" fill="url(#sunBody)"/>
   </g>
 
@@ -125,13 +126,13 @@ canvas.layer{pointer-events:none}
 
   /* ───────── 정적 배치 ───────── */
 
-  // 빛줄기: 태양 오른쪽 위에서 바깥으로 퍼지는 쐐기
+  // 빛줄기: 태양 중심에서 사방으로 고르게 퍼지는 짧고 옅은 쐐기(특정 방향 편중 없음)
   (()=>{
-    const g=document.getElementById('rays'), R=rng(11), cx=905, cy=330;
-    for (let i=0;i<9;i++){
-      const a=(-115+i*10+R()*6)*Math.PI/180, w=(1.2+R()*2.2)*Math.PI/180, L=520+R()*260;
+    const g=document.getElementById('rays'), R=rng(11), cx=815, cy=523, N=28;
+    for (let i=0;i<N;i++){
+      const a=(i*360/N+(R()-.5)*8)*Math.PI/180, w=(1+R()*1.8)*Math.PI/180, L=380+R()*150;
       const p=[[cx,cy],[cx+Math.cos(a-w)*L,cy+Math.sin(a-w)*L],[cx+Math.cos(a+w)*L,cy+Math.sin(a+w)*L]];
-      el('polygon',{points:p.map(q=>q.map(v=>v.toFixed(1)).join(',')).join(' '),opacity:(.07+R()*.12).toFixed(2)},g);
+      el('polygon',{points:p.map(q=>q.map(v=>v.toFixed(1)).join(',')).join(' '),opacity:(.08+R()*.1).toFixed(2)},g);
     }
   })();
 
@@ -154,7 +155,8 @@ canvas.layer{pointer-events:none}
       }
     });
     put(10,150,190,.95,false); put(1380,90,120,.9,true); put(120,30,110,.85,false); put(760,15,95,.85,true);
-    for (let i=0;i<78;i++){
+    put(1080,170,130,.9,false); put(470,95,115,.88,true);
+    for (let i=0;i<117;i++){
       const x=-40+R()*1680, y=20+Math.pow(R(),1.25)*470;
       const w=34+Math.pow(R(),2.2)*80;
       put(x,y,w,.55+R()*.4,R()<.45,R()<.25?'#bfdde1':null);
