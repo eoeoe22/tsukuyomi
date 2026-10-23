@@ -43,6 +43,10 @@
             <canvas id="roomScene" aria-hidden="true"></canvas>
         </div>
     </div>
+    <!-- 犬: 뉴스 츠쿠요미 장면 (tsukuyomi.news.js, 처음 필요할 때 로드). 경로는 #news. 단일 장면이라 조절 버튼 없음 -->
+    <div class="world" id="worldNews" hidden>
+        <div class="world-view"></div>
+    </div>
 
     <div class="dock">
         <section class="panel intro-hidden" id="panel" aria-label="장면 전환">
@@ -95,6 +99,9 @@
     </div>
     <div class="dock" id="roomDock" hidden>
         <section class="panel is-night" id="roomPanel" aria-label="야치요의 방"></section>
+    </div>
+    <div class="dock" id="newsDock" hidden>
+        <section class="panel is-night" id="newsPanel" aria-label="뉴스 츠쿠요미"></section>
     </div>
 
     <script src="cloud-live.js"></script>
