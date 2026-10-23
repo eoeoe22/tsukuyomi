@@ -1,34 +1,65 @@
 # newstile
 
 뉴스장면 바닥 타일 1개를 웹페이지에 배치하는 단일 파일 라이브러리입니다.
-의존성이 없고, `<script>` 한 줄과 함수 호출 한 번이면 됩니다. 타일은 캔버스로 그려지며, 원본 예제의 100×100 타일 루프를 그대로 재생합니다.
+의존성이 없고, `<script>` 한 줄로 바로 쓸 수 있습니다. 타일은 캔버스로 그려지며, 원본 예제의 100×100 타일 루프를 그대로 재생합니다.
 
 원본: `public/examples/뉴스장면 바닥 타일.html`에서 무한 확장·카메라·UI를 제거하고 타일 1개 루프만 남긴 것입니다.
 타이밍은 `public/examples/뉴스장면 초안.html` 기준입니다 (`TOTAL 114.8`, `SPEED 1.08`).
 
-배포(CDN/태그)는 나중에 하므로, 지금은 로컬 `dist`를 직접 읽어 씁니다.
+## 설치
 
-## 사용
-
-### `<script>` 태그 (UMD, 로컬)
+### `<script>` 태그 (UMD)
 
 ```html
-<div id="tile" style="width: 320px"></div>
-
-<script src="./dist/newstile.umd.js"></script>
-<script>
-  const tile = Newstile.mount("#tile");
-</script>
+<script
+  src="https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.1.0/packages/newstile/dist/newstile.umd.js"
+  integrity="sha384-/aFG27tfToRfaN+bi599pO1J00qylSMcUSCZ3c2veeGlebyb3v22Vds5sNnlm0Yl"
+  crossorigin="anonymous"></script>
 ```
 
 로드되면 전역 객체 `window.Newstile`이 생깁니다.
 
-### ES 모듈 (로컬)
+### ES 모듈
 
 ```html
+<script type="importmap">
+{
+  "imports": {
+    "newstile": "https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.1.0/packages/newstile/dist/newstile.esm.js"
+  },
+  "integrity": {
+    "https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.1.0/packages/newstile/dist/newstile.esm.js": "sha384-vdqbai8z2p86QV2DCR3KKYmYASbIFvOEwedZsXTRUs5soSaYEqQr/5PXRFdf0rDd"
+  }
+}
+</script>
 <script type="module">
-  import { mount } from "./dist/newstile.esm.js";
+  import { mount } from "newstile";
   const tile = mount("#tile");
+</script>
+```
+
+`import` 문 자체에는 `integrity`를 붙일 수 없어서, 무결성 검사를 하려면 위처럼 import map의 `integrity` 필드를 써야 합니다. 이 필드를 지원하지 않는 브라우저에서는 검사 없이 그냥 로드됩니다.
+
+### 무결성 해시
+
+| 파일 | integrity |
+| --- | --- |
+| `newstile.umd.js` | `sha384-/aFG27tfToRfaN+bi599pO1J00qylSMcUSCZ3c2veeGlebyb3v22Vds5sNnlm0Yl` |
+| `newstile.esm.js` | `sha384-vdqbai8z2p86QV2DCR3KKYmYASbIFvOEwedZsXTRUs5soSaYEqQr/5PXRFdf0rDd` |
+
+해시는 `newstile-v0.1.0` 태그 기준입니다. 버전을 바꾸면 해시도 바뀌니 함께 교체하세요.
+
+## 빠른 시작
+
+```html
+<div id="tile" style="width: 320px"></div>
+
+<script
+  src="https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.1.0/packages/newstile/dist/newstile.umd.js"
+  integrity="sha384-/aFG27tfToRfaN+bi599pO1J00qylSMcUSCZ3c2veeGlebyb3v22Vds5sNnlm0Yl"
+  crossorigin="anonymous"></script>
+<script>
+  const tile = Newstile.mount("#tile");
 </script>
 ```
 
@@ -134,7 +165,3 @@ SPA에서 컴포넌트가 사라질 때는 꼭 `destroy()`를 호출하세요. �
 ```js
 tile.destroy();
 ```
-
-## 개발
-
-`node build.mjs`로 `dist`를 재생성합니다 (`newstile.esm.js`, `newstile.umd.js`, `newstile.umd.min.js`).
