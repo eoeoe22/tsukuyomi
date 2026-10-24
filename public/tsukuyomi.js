@@ -10,6 +10,20 @@
             const bloomA = document.createElement('canvas'), BA = bloomA.getContext('2d');
             const bloomB = document.createElement('canvas'), BB = bloomB.getContext('2d');
             const bloomP = [0, 1, 2].map(() => { const c = document.createElement('canvas'); return { c, g: c.getContext('2d') }; });
+            // bloom cache: 비싼 다운스케일/거듭제곱/blur 빌드는 BLOOM_EVERY 프레임마다만, 사이엔 캐시 합성만
+            let bloomTick = 0, bloomBuilt = false, bloomCW = 0, bloomCH = 0;
+            // lantern halo/pool sprites: 매프레임 radial gradient(최대 260개) 대신 사전렌더+drawImage
+            const haloC = document.createElement('canvas'), poolC = document.createElement('canvas');
+            { haloC.width = haloC.height = 256; const g = haloC.getContext('2d');
+                const hg0 = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+                hg0.addColorStop(0, 'rgba(255,196,118,1)'); hg0.addColorStop(0.35, 'rgba(255,178,96,0.45)');
+                hg0.addColorStop(1, 'rgba(255,170,90,0)'); g.fillStyle = hg0; g.fillRect(0, 0, 256, 256); }
+            { poolC.width = poolC.height = 128; const g = poolC.getContext('2d');
+                const pg0 = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+                pg0.addColorStop(0, 'rgba(255,174,64,1)'); pg0.addColorStop(1, 'rgba(255,138,26,0)');
+                g.fillStyle = pg0; g.fillRect(0, 0, 128, 128); }
+            // tone cache: WebGL 업로드+셰이더는 TN_EVERY 프레임마다만, 사이엔 캐시 blit
+            let toneTick = 0, toneLast = null, toneLW = 0, toneLH = 0;
             // 뒷층 림라이트용 스크래치: 방사형 빛을 그려 수직 페이드로 자른 뒤 CL에 source-atop 합성.
             // (하부 구름층·수평선에는 닿지 않고 상부·뒷층만 밝힌다)
             const rimL = document.createElement('canvas'), RL = rimL.getContext('2d');
@@ -129,7 +143,8 @@
                 CL_LIVE: 1, CL_RATE: 1, CL_BOIL: 1, CL_WARP: 1, CL_RAND: 1, CL_HZ: 12, CL_UP: 0.9,
                 // 구름 블룸: BLOOM 세기(0 = 끔), BLOOM_POW 밝은 부분 추출 문턱(2/4/8/16, 클수록 가장 밝은 곳만 번진다),
                 // BLOOM_R 가까운 번짐 반경(하늘 높이 비율), BLOOM_WIDE 넓은 후광 비중
-                BLOOM: 0.7, BLOOM_POW: 4, BLOOM_R: 0.02, BLOOM_WIDE: 0.6,
+                // BLOOM_EVERY: 블러 빌드 주기(1 = 매프레임, 2 = 격프레임; 합성은 매프레임 수행)
+                BLOOM: 0.7, BLOOM_POW: 4, BLOOM_R: 0.02, BLOOM_WIDE: 0.6, BLOOM_EVERY: 2,
                 DY_SEED: 3, DY_LX: 0.34, DY_LY: 0.06, DY_LIGHT: 1.05,
                 // DY_GLOW_R: 틈 빛번짐 크기 배율, DY_GLOW_CORE: 중앙부 밝기 배율(코어만), DY_GLOW_A: 전체 밝기 배율(헤일로+코어)
                 DY_GLOW_R: 2, DY_GLOW_CORE: 0.47, DY_GLOW_A: 0.93,
@@ -162,7 +177,9 @@
                 // 색조 렌더 레이어(WebGL2, drawTone 위 toneGL 참고). TN_GL 1 = 레이어 사용, 0 = 위의 2D 필터.
                 // TN_K: 원래 색차 유지(0 = 밝기만으로 착색), TN_HBAND: 수평선 위 라벤더 안개, TN_MAUVE: 수면 수평선 쪽 모브,
                 // TN_DEEP: 깊은 수면 청색, TN_BLOOM: 하이라이트 핑크 번짐, TN_SPARK: 수면 반짝임
+                // TN_EVERY: 색조 레이어 빌드 주기(1 = 매프레임, 2 = 격프레임; 사이 프레임은 캐시 blit)
                 TN_GL: 1, TN_K: 0.8, TN_HBAND: 0.6, TN_MAUVE: 0.5, TN_DEEP: 0.5, TN_BLOOM: 0.38, TN_SPARK: 0.6, TN_REFL: 0.9, TN_MIR: 1.6, TN_STROKE: 0.35, TN_WGLOW: 0.4, TN_RDET: 0.55,
+                TN_EVERY: 2,
                 // DY_COLUMN: 틈 빛의 수면 기둥 세기(0 = 없음)
                 DY_COLUMN: 0,
                 // 구름 뚫림(ref: 어두운 앞 구름이 불균일하게 찢겨 그 너머 햇빛 받은 흰 구름이 비친다):
@@ -180,7 +197,7 @@
                 HAZE_MIX: 0.22, HAZE_A: 0.32,
                 REFL_AMP0: 0.15, REFL_AMP1: 2.4, SEAM_A: 0.22,
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 8,
-                REFL_SCALE: 1, REFL_AUTO: 1, REFL_MAX_STEP: 8,
+                REFL_SCALE: 0.5, REFL_AUTO: 1, REFL_MAX_STEP: 8,
                 RIP_MAX: 20, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
                 LANTERN_N: 130, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
                 LANTERN_TX: 1, LANTERN_PAD: 2, LANTERN_DEPTH_K: 2,
@@ -5226,33 +5243,25 @@ void main() {
                         const gx = L.x, gy = L.y - L.h * 0.52;
                         FG.globalCompositeOperation = 'lighter';
                         // halo behind the glass: 먼(수평선 쪽) 랜턴일수록 반경을 키워 더 번져 보이게
+                        // 사전렌더 스프라이트 1회 blit (매프레임 radial gradient 생성 제거)
                         const farK = 1 - clamp(L.sn, 0, 1);
                         const hr = L.h * (0.6 + Math.max(0, CFG.LANTERN_HALO ?? 1) * 1.4 * farK * farK);
                         if (hr > 1) {
-                            const ha = 0.6 * night * CFG.LANTERN_GLOW;
-                            const hg = FG.createRadialGradient(gx, gy, 0, gx, gy, hr);
-                            hg.addColorStop(0, `rgba(255,196,118,${ha})`);
-                            hg.addColorStop(0.35, `rgba(255,178,96,${ha * 0.45})`);
-                            hg.addColorStop(1, 'rgba(255,170,90,0)');
-                            FG.fillStyle = hg;
-                            FG.beginPath(); FG.arc(gx, gy, hr, 0, Math.PI * 2); FG.fill();
+                            FG.globalAlpha = a * 0.6 * night * CFG.LANTERN_GLOW;
+                            FG.drawImage(haloC, gx - hr, gy - hr, hr * 2, hr * 2);
+                            FG.globalAlpha = a;
                         }
                         // lit glass
                         FG.fillStyle = `rgba(255,224,160,${0.28 * night * CFG.LANTERN_GLOW})`;
                         FG.fillRect(gx - L.w * 0.14, top + L.h * 0.157, L.w * 0.28, L.h * 0.667);
-                        // warm pool on the floor
+                        // warm pool on the floor (사전렌더 스프라이트 타원 blit)
                         const pa = 0.35 * night * CFG.LANTERN_POOL;
                         if (pa > 0.005) {
-                            FG.save();
-                            FG.translate(gx, L.y + L.h * 0.02);
-                            FG.scale(1, 0.25);
                             const pr = L.w * 0.95;
-                            const pg = FG.createRadialGradient(0, 0, 0, 0, 0, pr);
-                            pg.addColorStop(0, `rgba(255,174,64,${pa})`);
-                            pg.addColorStop(1, 'rgba(255,138,26,0)');
-                            FG.fillStyle = pg;
-                            FG.beginPath(); FG.arc(0, 0, pr, 0, Math.PI * 2); FG.fill();
-                            FG.restore();
+                            const py = L.y + L.h * 0.02;
+                            FG.globalAlpha = a * pa;
+                            FG.drawImage(poolC, gx - pr, py - pr * 0.25, pr * 2, pr * 0.5);
+                            FG.globalAlpha = a;
                         }
                         FG.globalCompositeOperation = 'source-over';
                     }
@@ -5268,41 +5277,47 @@ void main() {
                 const cw = cloudLayer.width, ch = cloudLayer.height;
                 if (!cw || !ch) return;
                 const w4 = Math.max(1, Math.round(cw / 4)), h4 = Math.max(1, Math.round(ch / 4));
-                fitCanvas(bloomA, w4, h4); fitCanvas(bloomB, w4, h4);
-                // 1) 밝은 부분: 검정 위에 구름(프리멀티플라이드라 알파가 곧 밝기에 반영) → 자기 자신과 곱해 x^POW (색상 유지)
-                BA.setTransform(1, 0, 0, 1, 0, 0);
-                BA.globalCompositeOperation = 'source-over'; BA.globalAlpha = 1; BA.filter = 'none';
-                BA.fillStyle = '#000'; BA.fillRect(0, 0, w4, h4);
-                BA.imageSmoothingEnabled = true; BA.imageSmoothingQuality = 'medium';
-                BA.drawImage(cloudLayer, 0, 0, w4, h4);
-                const sq = clamp(Math.round(Math.log2(Math.max(1, CFG.BLOOM_POW))), 0, 4);
-                for (let i = 0; i < sq; i++) {
-                    BB.globalCompositeOperation = 'copy'; BB.filter = 'none'; BB.drawImage(bloomA, 0, 0);
-                    BA.globalCompositeOperation = 'multiply'; BA.drawImage(bloomB, 0, 0);
+                // 빌드는 BLOOM_EVERY 프레임마다만 (구름은 천천히 움직이므로 캐시 유효)
+                const every = Math.max(1, Math.round(CFG.BLOOM_EVERY ?? 2));
+                const sizeChanged = (cw !== bloomCW || ch !== bloomCH);
+                if (!bloomBuilt || sizeChanged || (bloomTick % every) === 0) {
+                    fitCanvas(bloomA, w4, h4); fitCanvas(bloomB, w4, h4);
+                    // 1) 밝은 부분: 검정 위에 구름(프리멀티플라이드라 알파가 곧 밝기에 반영) → 자기 자신과 곱해 x^POW (색상 유지)
+                    BA.setTransform(1, 0, 0, 1, 0, 0);
+                    BA.globalCompositeOperation = 'source-over'; BA.globalAlpha = 1; BA.filter = 'none';
+                    BA.fillStyle = '#000'; BA.fillRect(0, 0, w4, h4);
+                    BA.imageSmoothingEnabled = true; BA.imageSmoothingQuality = 'medium';
+                    BA.drawImage(cloudLayer, 0, 0, w4, h4);
+                    const sq = clamp(Math.round(Math.log2(Math.max(1, CFG.BLOOM_POW))), 0, 4);
+                    for (let i = 0; i < sq; i++) {
+                        BB.globalCompositeOperation = 'copy'; BB.filter = 'none'; BB.drawImage(bloomA, 0, 0);
+                        BA.globalCompositeOperation = 'multiply'; BA.drawImage(bloomB, 0, 0);
+                    }
+                    BA.globalCompositeOperation = 'source-over';
+                    // 2) 축소 피라미드 1/8 → 1/16 → 1/32 (반씩 줄이면 쌍선형 필터가 쌓여 그 자체로 흐림이 된다)
+                    let src = bloomA, sw = w4, sh = h4;
+                    for (const P of bloomP) {
+                        sw = Math.max(1, sw >> 1); sh = Math.max(1, sh >> 1);
+                        fitCanvas(P.c, sw, sh);
+                        P.g.globalCompositeOperation = 'copy'; P.g.filter = 'none';
+                        P.g.imageSmoothingEnabled = true; P.g.imageSmoothingQuality = 'medium';
+                        P.g.drawImage(src, 0, 0, sw, sh);
+                        src = P.c;
+                    }
+                    // 3) 가까운 번짐(near) + 넓은 후광(wide)
+                    if (FILTER_OK) {
+                        const r = Math.max(0.5, CFG.BLOOM_R * ch / 4);
+                        BB.globalCompositeOperation = 'copy'; BB.filter = `blur(${r.toFixed(2)}px)`;
+                        BB.drawImage(bloomA, 0, 0); BB.filter = 'none';
+                        const P = bloomP[1];   // 1/16에서 넓게: 같은 비용으로 반경 4배
+                        P.g.globalCompositeOperation = 'copy'; P.g.filter = `blur(${(r * 0.75).toFixed(2)}px)`;
+                        P.g.drawImage(P.c, 0, 0); P.g.filter = 'none';
+                    }
+                    bloomBuilt = true; bloomCW = cw; bloomCH = ch;
                 }
-                BA.globalCompositeOperation = 'source-over';
-                // 2) 축소 피라미드 1/8 → 1/16 → 1/32 (반씩 줄이면 쌍선형 필터가 쌓여 그 자체로 흐림이 된다)
-                let src = bloomA, sw = w4, sh = h4;
-                for (const P of bloomP) {
-                    sw = Math.max(1, sw >> 1); sh = Math.max(1, sh >> 1);
-                    fitCanvas(P.c, sw, sh);
-                    P.g.globalCompositeOperation = 'copy'; P.g.filter = 'none';
-                    P.g.imageSmoothingEnabled = true; P.g.imageSmoothingQuality = 'medium';
-                    P.g.drawImage(src, 0, 0, sw, sh);
-                    src = P.c;
-                }
-                // 3) 가까운 번짐(near) + 넓은 후광(wide)
+                bloomTick++;
                 let near = bloomP[0].c, wide = bloomP[2].c;
-                if (FILTER_OK) {
-                    const r = Math.max(0.5, CFG.BLOOM_R * ch / 4);
-                    BB.globalCompositeOperation = 'copy'; BB.filter = `blur(${r.toFixed(2)}px)`;
-                    BB.drawImage(bloomA, 0, 0); BB.filter = 'none';
-                    near = bloomB;
-                    const P = bloomP[1];   // 1/16에서 넓게: 같은 비용으로 반경 4배
-                    P.g.globalCompositeOperation = 'copy'; P.g.filter = `blur(${(r * 0.75).toFixed(2)}px)`;
-                    P.g.drawImage(P.c, 0, 0); P.g.filter = 'none';
-                    wide = P.c;
-                }
+                if (FILTER_OK) { near = bloomB; wide = bloomP[1].c; }
                 S.save();
                 S.setTransform(1, 0, 0, 1, 0, 0);
                 S.globalCompositeOperation = 'screen';
@@ -5443,7 +5458,7 @@ void main(){
                 function init() {
                     try {
                         c = document.createElement('canvas');
-                        gl = c.getContext('webgl2', { alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false, depth: false, stencil: false });
+                        gl = c.getContext('webgl2', { alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: false, antialias: false, depth: false, stencil: false });
                         if (!gl) throw 0;
                         const sh = (t, src) => {
                             const x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x);
@@ -5527,9 +5542,19 @@ void main(){
             })();
 
             // 파스텔 색조 패스 (화면 좌표, 기기 px). 카메라 모드에서는 화면에 보이는 수평선 위치를 기준으로 한다.
+            // 업로드+풀스크린 셰이더는 TN_EVERY 프레임마다만 수행, 사이엔 캐시 blit (반짝임은 1프레임 양자화)
             function drawTone(a) {
                 const hy = clamp((camOn() ? camW2S(0, HZ).y : HZ) / H, 0.02, 0.98);
-                const out = CFG.TN_GL >= 0.5 ? toneGL(cv, a, hy, clock) : null;
+                let out = null;
+                if (CFG.TN_GL >= 0.5) {
+                    const every = Math.max(1, Math.round(CFG.TN_EVERY ?? 2));
+                    const resized = !toneLast || cv.width !== toneLW || cv.height !== toneLH;
+                    if (resized || (toneTick % every) === 0) {
+                        out = toneGL(cv, a, hy, clock);
+                        if (out) { toneLast = out; toneLW = cv.width; toneLH = cv.height; }
+                    } else out = toneLast;
+                    toneTick++;
+                }
                 if (out) {
                     ctx.save();
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -6680,6 +6705,8 @@ void main() {
                         reflStep = Math.max(1, Math.round(CFG.ROW_STEP)); reflLastBase = reflStep; reflEMA = 16; reflCool = 0;
                         torKey = ''; torRKey = ''; torBuilds = 0;
                         bandValid = false; bandTick = 0; bandLastP = -1; bandBuilds = 0;
+                        bloomBuilt = false; bloomTick = 0; bloomCW = 0; bloomCH = 0;
+                        toneTick = 0; toneLast = null; toneLW = 0; toneLH = 0;
                         // 기본값으로: INTRO_NIGHT면 황혼에서 밤으로 가는 인트로를 처음부터 다시 재생, 아니면 황혼 idle.
                         transFrom = 0; transTo = INTRO_NIGHT ? 1 : 0; transTarget = INTRO_NIGHT ? 'night' : 'dusk';
                         duskW = 1; duskFrom = 1; duskTo = 1; structW = 1; structFrom = 1;
