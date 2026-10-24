@@ -2,7 +2,8 @@
 """wallpaper 패키지 검증 (읽기 전용, 수정 없음).
 
 검사:
-  1. vendor/components 동결본 == public 현행본 (sha256, 코어 11종 + 방 컴포넌트 3종)
+  1. vendor/components 동결본 == public 현행본 (sha256, 코어 11종 + 컴포넌트 4종)
+     + newstile 번들==dist, 웹 뉴스 장면 CDN(integrity)·로컬 폴백·구 코드 제거
   2. project.json 유효성 (file/type/기본 8종/전 GROUPS 커버/기본값 일치/타입·조건)
   3. wallpaper.js 내 REBUILD 맵 == tools/rebuild-map.json (GROUPS rebuild와 1:1)
   4. wallpaper.html 참조 무결성 (vendor만 참조, public/debug/cloudedit/bootstrap 금지)
@@ -38,11 +39,12 @@ FROZEN_FILES = [
     "tsukuyomi.news.js",
 ]
 
-# 八(야치요의 방) 런타임 의존: public/components -> wallpaper/components (페이지 기준 상대경로 그대로)
+# 八(야치요의 방) 런타임 의존 + 犬(뉴스) 타일 패키지 번들: public/components -> wallpaper/components (페이지 기준 상대경로 그대로)
 COMPONENT_FILES = [
     "components/lantern-frustum.html",
     "components/lantern-cylinder.html",
     "components/yachiroom.umd.js",
+    "components/newstile.umd.js",
 ]
 
 failures = []
@@ -76,7 +78,7 @@ def main() -> int:
         check(f"동결 일치: {rel}", sha256(pub) == sha256(ven),
               f"public와 vendor 해시 불일치 (동결 깨짐)")
 
-    # 1a. components == public/components (방 장면 런타임 의존)
+    # 1a. components == public/components (방 장면 런타임 의존 + 뉴스 타일 번들)
     for rel in COMPONENT_FILES:
         pub, wp = PUB / rel, WP / rel
         if not pub.is_file():
@@ -87,6 +89,35 @@ def main() -> int:
             continue
         check(f"동결 일치: {rel}", sha256(pub) == sha256(wp),
               f"public와 wallpaper 해시 불일치 (동결 깨짐)")
+
+    # 1a-2. 뉴스 타일 번들: public/components/newstile.umd.js == packages/newstile/dist/newstile.umd.js
+    # (월페이퍼 오프라인용 번들, 웹은 CDN 우선·로컬 폴백)
+    try:
+        dist_ns = ROOT / "packages" / "newstile" / "dist" / "newstile.umd.js"
+        pub_ns = PUB / "components" / "newstile.umd.js"
+        if not dist_ns.is_file():
+            check("newstile dist 존재", False, "packages/newstile/dist/newstile.umd.js 없음 (node build.mjs 필요)")
+        elif not pub_ns.is_file():
+            check("newstile 번들 존재", False, "public/components/newstile.umd.js 없음")
+        else:
+            check("newstile 번들==dist", sha256(dist_ns) == sha256(pub_ns),
+                  "public/components/newstile.umd.js가 dist와 다름 (복사 필요)")
+    except Exception as e:
+        check("newstile 번들 확인", False, str(e))
+
+    # 1a-3. 웹 뉴스 장면은 README 기준 배포 CDN을 integrity와 함께 사용
+    try:
+        news_pub = (PUB / "tsukuyomi.news.js").read_text(encoding="utf-8")
+        check("뉴스 CDN URL", "https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.2.0/packages/newstile/dist/newstile.umd.js" in news_pub,
+              "README 배포 CDN URL 없음")
+        check("뉴스 CDN integrity", "sha384-sMjp+kTXk623rftnEqw6vr95Q9cPQfeHTCQe59MCcEEqixmv3tC2JwWZdTMTiLx8" in news_pub,
+              "README integrity 해시 없음")
+        check("뉴스 로컬 폴백", "components/newstile.umd.js" in news_pub,
+              "로컬 번들 폴백 경로 없음 (오프라인/월페이퍼용)")
+        check("뉴스 구 타일 코드 제거", "TRI_TOP" not in news_pub and "rtCache" not in news_pub and "HOLD_EXTRA" not in news_pub,
+              "중복 타일 코드 잔존 (패키지 위임 필요)")
+    except Exception as e:
+        check("뉴스 CDN 확인", False, str(e))
 
     # 1b. 코어 브릿지: 공백 토글·물고기 군집 세터가 있어야 WE 일반 옵션이 동작한다
     try:

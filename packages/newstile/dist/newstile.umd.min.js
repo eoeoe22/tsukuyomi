@@ -29,7 +29,8 @@ const DEFAULTS = {
 const TIMING_KEYS = ['pairOut', 'rectIn', 'circIn', 'rcOut', 'rtDraw', 'rtOut', 'pairIn', 'holdExtra', 'pairCut'];
 
 // 초안.html과 같은 유도: 베이스 키를 holdExtra만큼 뒤로 민 뒤,
-// rcOut은 직각삼각형이 그려지기 시작할 때 사라지기 시작해 rtDraw 중간에 완전히 사라지도록 덮어쓴다.
+// rcOut은 직각삼각형 진입 3분의 1 지점부터 사라지기 시작해 rtDraw 끝에 완전히 사라지도록
+// [rtDraw 시작 + rtDraw 길이/3, rtDraw 끝]으로 덮어쓴다.
 // TOTAL은 베이스 루프(118)에 holdExtra를 더하고 pairCut을 뺀다.
 function buildTiming(o) {
   const k = {
@@ -37,7 +38,7 @@ function buildTiming(o) {
     rcOut: [...o.rcOut], rtDraw: [...o.rtDraw], rtOut: [...o.rtOut], pairIn: [...o.pairIn],
   };
   for (const n of ['rcOut', 'rtDraw', 'rtOut', 'pairIn']) k[n] = k[n].map(v => v + o.holdExtra);
-  k.rcOut = [k.rtDraw[0], (k.rtDraw[0] + k.rtDraw[1]) / 2];
+  k.rcOut = [k.rtDraw[0] + (k.rtDraw[1] - k.rtDraw[0]) / 3, k.rtDraw[1]];
   const TOTAL = BASE_TOTAL + o.holdExtra - o.pairCut;
   return { K: k, TOTAL };
 }
@@ -303,6 +304,6 @@ const internals = {
   BASE_TOTAL, TILE,
 };
 
-global.Newstile = { Newstile, createNewstile, mount, DEFAULTS };
+global.Newstile = { Newstile, createNewstile, mount, DEFAULTS, internals };
 if (typeof module !== "undefined" && module.exports) module.exports = global.Newstile;
 })(typeof globalThis !== "undefined" ? globalThis : window);

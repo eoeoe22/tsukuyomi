@@ -12,8 +12,8 @@
 
 ```html
 <script
-  src="https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.1.0/packages/newstile/dist/newstile.umd.js"
-  integrity="sha384-/aFG27tfToRfaN+bi599pO1J00qylSMcUSCZ3c2veeGlebyb3v22Vds5sNnlm0Yl"
+  src="https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.2.0/packages/newstile/dist/newstile.umd.js"
+  integrity="sha384-sMjp+kTXk623rftnEqw6vr95Q9cPQfeHTCQe59MCcEEqixmv3tC2JwWZdTMTiLx8"
   crossorigin="anonymous"></script>
 ```
 
@@ -25,10 +25,10 @@
 <script type="importmap">
 {
   "imports": {
-    "newstile": "https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.1.0/packages/newstile/dist/newstile.esm.js"
+    "newstile": "https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.2.0/packages/newstile/dist/newstile.esm.js"
   },
   "integrity": {
-    "https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.1.0/packages/newstile/dist/newstile.esm.js": "sha384-vdqbai8z2p86QV2DCR3KKYmYASbIFvOEwedZsXTRUs5soSaYEqQr/5PXRFdf0rDd"
+    "https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.2.0/packages/newstile/dist/newstile.esm.js": "sha384-0H+t00NQOtzLBOzFKDXt4ddvES4zT9E2k1IyZMegUzsy5SE/BDw5IqOgJtdvJRyA"
   }
 }
 </script>
@@ -44,10 +44,10 @@
 
 | 파일 | integrity |
 | --- | --- |
-| `newstile.umd.js` | `sha384-/aFG27tfToRfaN+bi599pO1J00qylSMcUSCZ3c2veeGlebyb3v22Vds5sNnlm0Yl` |
-| `newstile.esm.js` | `sha384-vdqbai8z2p86QV2DCR3KKYmYASbIFvOEwedZsXTRUs5soSaYEqQr/5PXRFdf0rDd` |
+| `newstile.umd.js` | `sha384-sMjp+kTXk623rftnEqw6vr95Q9cPQfeHTCQe59MCcEEqixmv3tC2JwWZdTMTiLx8` |
+| `newstile.esm.js` | `sha384-0H+t00NQOtzLBOzFKDXt4ddvES4zT9E2k1IyZMegUzsy5SE/BDw5IqOgJtdvJRyA` |
 
-해시는 `newstile-v0.1.0` 태그 기준입니다. 버전을 바꾸면 해시도 바뀌니 함께 교체하세요.
+해시는 `newstile-v0.2.0` 태그 기준입니다. 버전을 바꾸면 해시도 바뀌니 함께 교체하세요.
 
 ## 빠른 시작
 
@@ -55,8 +55,8 @@
 <div id="tile" style="width: 320px"></div>
 
 <script
-  src="https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.1.0/packages/newstile/dist/newstile.umd.js"
-  integrity="sha384-/aFG27tfToRfaN+bi599pO1J00qylSMcUSCZ3c2veeGlebyb3v22Vds5sNnlm0Yl"
+  src="https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.2.0/packages/newstile/dist/newstile.umd.js"
+  integrity="sha384-sMjp+kTXk623rftnEqw6vr95Q9cPQfeHTCQe59MCcEEqixmv3tC2JwWZdTMTiLx8"
   crossorigin="anonymous"></script>
 <script>
   const tile = Newstile.mount("#tile");
@@ -101,7 +101,7 @@
 
 모든 옵션은 `mount()`에서 초기값으로 넘기거나 `set()`으로 나중에 바꿀 수 있습니다. `size`만 생성할 때 적용되며, `set()`으로 바꿔도 반영되지 않습니다.
 
-타이밍 유도식(초안.html과 동일): 베이스 키(`pairOut`~`pairIn`)를 `holdExtra`만큼 뒤로 민 뒤, `rcOut`은 `[rtDraw[0], rtDraw 중간]`으로 덮어씁니다. 루프 길이는 `TOTAL = 118 + holdExtra - pairCut`입니다. 기본값은 `holdExtra 2.8`, `pairCut 6`이라 `TOTAL 114.8`이 됩니다.
+타이밍 유도식(초안.html 기준 변형): 베이스 키(`pairOut`~`pairIn`)를 `holdExtra`만큼 뒤로 민 뒤, `rcOut`은 `[rtDraw 시작 + rtDraw 길이/3, rtDraw 끝]`으로 덮어씁니다. 루프 길이는 `TOTAL = 118 + holdExtra - pairCut`입니다. 기본값은 `holdExtra 2.8`, `pairCut 6`이라 `TOTAL 114.8`이 됩니다.
 
 ### 색상
 

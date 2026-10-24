@@ -5,6 +5,10 @@
  * 세 레이어는 같은 1600×1066 설계 좌표를 "가운데 맞춰 꽉 채우기(slice)"로 공유한다.
  * 초안의 ` 조절 패널·참고 영상·localStorage 저장은 빼고 초안 기본값으로 고정했다.
  * SVG id는 다른 장면과 겹치지 않게 nw- 접두어를 붙였다.
+ *
+ * 바닥 타일은 packages/newstile README 기준 배포 CDN(newstile.umd.js, integrity 포함)으로 로드해
+ * Newstile.internals.drawTile/buildTiming으로 그린다. CDN 실패 시 로컬 components/newstile.umd.js
+ * (월페이퍼 오프라인 번들 복사본과 동일 파일)로 폴백한다.
  */
 (() => {
 'use strict';
@@ -254,79 +258,54 @@ function starScaleFor(p, mode) {
   return p;
 }
 
-/* ───────── 바닥 타일 (뉴스장면 바닥 타일.html) ───────── */
-const HOLD_EXTRA = (42 - 35) * 0.4;
-const PAIR_CUT = (118 - 108 + 10) * 0.3;
-const FPS = 24, TOTAL = 118 + HOLD_EXTRA - PAIR_CUT, SPEED = 1.35 * 0.8;
-const K = (() => {
-  const k = { pairOut: [10, 22], rectIn: [18, 28], circIn: [25, 35], rcOut: [42, 51], rtDraw: [51, 77], rtOut: [82, 108], pairIn: [94, 108] };
-  for (const n of ['rcOut', 'rtDraw', 'rtOut', 'pairIn']) k[n] = k[n].map(v => v + HOLD_EXTRA);
-  k.rcOut = [k.rtDraw[0], (k.rtDraw[0] + k.rtDraw[1]) / 2];
-  return k;
-})();
-const CELL = '#0d2b31', SAND = '#d9c79c';
-const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-const prog = (f, [a, b]) => clamp((f - a) / (b - a), 0, 1);
-const eIn = t => t * t * t, eOut = t => 1 - Math.pow(1 - t, 3);
-const eIO = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-
-const RT_C = [[5.07, 97.9], [97.9, 97.9], [97.9, 5.07]], RT_W = 2.1, RT_R = 8;
-const RT = (() => {
-  const n = RT_C.length;
-  const cx = RT_C.reduce((s, p) => s + p[0], 0) / n, cy = RT_C.reduce((s, p) => s + p[1], 0) / n;
-  const E = [];
-  for (let i = 0; i < n; i++) {
-    const A = RT_C[i], B = RT_C[(i + 1) % n];
-    const dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy), d = [dx / len, dy / len];
-    let nn = [-d[1], d[0]];
-    if (nn[0] * ((A[0] + B[0]) / 2 - cx) + nn[1] * ((A[1] + B[1]) / 2 - cy) < 0) nn = [-nn[0], -nn[1]];
-    E.push({ A, d, n: nn, len });
-  }
-  const isect = (P, d1, Q, d2) => {
-    const den = d1[0] * d2[1] - d1[1] * d2[0];
-    const t = ((Q[0] - P[0]) * d2[1] - (Q[1] - P[1]) * d2[0]) / den;
-    return [P[0] + d1[0] * t, P[1] + d1[1] * t];
-  };
-  const off = (e, sg) => [e.A[0] + sg * RT_W * e.n[0], e.A[1] + sg * RT_W * e.n[1]];
-  let acc = 0;
-  E.forEach((e, i) => {
-    e.start = acc; acc += e.len;
-    const pv = E[(i + n - 1) % n], nx = E[(i + 1) % n];
-    e.side = {};
-    for (const sg of [1, -1]) {
-      const base = off(e, sg);
-      const cs = isect(base, e.d, off(pv, sg), pv.d), ce = isect(base, e.d, off(nx, sg), nx.d);
-      const proj = p => (p[0] - base[0]) * e.d[0] + (p[1] - base[1]) * e.d[1];
-      e.side[sg] = { base, s0: proj(cs), s1: proj(ce) };
-    }
+/* ───────── 바닥 타일 (packages/newstile, CDN) ─────────
+ * packages/newstile/README.md 기준 배포 CDN을 integrity와 함께 로드한다.
+ * 웹: CDN 우선. CDN 실패(오프라인 등) 시 로컬 components/newstile.umd.js로 폴백.
+ * 월페이퍼: 같은 파일이 components/newstile.umd.js 번들 복사본으로 동작해 오프라인 사용 가능.
+ */
+const NEWSTILE_CDN = {
+  url: 'https://cdn.jsdelivr.net/gh/eoeoe22/tsukuyomi@newstile-v0.2.0/packages/newstile/dist/newstile.umd.js',
+  integrity: 'sha384-sMjp+kTXk623rftnEqw6vr95Q9cPQfeHTCQe59MCcEEqixmv3tC2JwWZdTMTiLx8',
+};
+const NEWSTILE_LOCAL = 'components/newstile.umd.js';
+function loadScript(src, integrity) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    if (integrity) { s.integrity = integrity; s.crossOrigin = 'anonymous'; }
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error(src + ' 로드 실패'));
+    document.head.appendChild(s);
   });
-  return { E, P: acc };
-})();
-function rtPiece(e, u0, u1) {
-  const b0 = clamp(1 - u0 / RT_R, 0, 1), b1 = clamp(1 - (e.len - u1) / RT_R, 0, 1);
-  const pt = (S, u) => `${(S.base[0] + e.d[0] * u).toFixed(3)} ${(S.base[1] + e.d[1] * u).toFixed(3)}`;
-  const seg = {};
-  for (const sg of [1, -1]) {
-    const S = e.side[sg];
-    let a = u0 * (1 - b0) + S.s0 * b0, b = u1 * (1 - b1) + S.s1 * b1;
-    if (a > b) a = b = (a + b) / 2;
-    seg[sg] = [pt(S, a), pt(S, b)];
-  }
-  return `M${seg[1][0]}L${seg[1][1]}L${seg[-1][1]}L${seg[-1][0]}Z`;
 }
-function rtPath(T, H) {
-  const P = RT.P; let d = '';
-  if (H - T >= 1 - 1e-6) { for (const e of RT.E) d += rtPiece(e, 0, e.len); return d; }
-  const x0 = T * P, x1 = H * P;
-  for (let k = Math.floor(x0 / P) - 1; k <= Math.floor(x1 / P) + 1; k++) {
-    for (const e of RT.E) {
-      const s = k * P + e.start, t = s + e.len;
-      const a = Math.max(x0, s), b = Math.min(x1, t);
-      if (b - a > 1e-6) d += rtPiece(e, a - s, b - s);
-    }
-  }
-  return d;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+// 패키지 로드 전 placeholder (start()에서 ensure 후 initTileParams로 덮어쓴다)
+let FPS = 24, TOTAL = 114.8, SPEED = 1.08, K = null;
+let CELL = '#0d2b31', SAND = '#d9c79c', TILE_O = { cell: CELL, sand: SAND };
+let tileReady = false, tilePromise = null;
+function ensureNewstile() {
+  if (window.Newstile && window.Newstile.internals && window.Newstile.DEFAULTS) return Promise.resolve();
+  if (tilePromise) return tilePromise;
+  tilePromise = loadScript(NEWSTILE_CDN.url, NEWSTILE_CDN.integrity).catch(() => loadScript(NEWSTILE_LOCAL, null)).then(() => {
+    if (!window.Newstile || !window.Newstile.internals || !window.Newstile.DEFAULTS) throw new Error('Newstile 없음');
+  }).catch(e => { tilePromise = null; throw e; });
+  return tilePromise;
 }
+function initTileParams() {
+  const D = window.Newstile.DEFAULTS, I = window.Newstile.internals;
+  const built = I.buildTiming(D);
+  K = built.K; TOTAL = built.TOTAL;
+  FPS = D.fps; SPEED = D.speed; CELL = D.cell; SAND = D.sand;
+  TILE_O = { cell: CELL, sand: SAND };
+  memo.clear();
+  frame = mod(frame, TOTAL);
+}
+function drawTile(g, f) {
+  window.Newstile.internals.drawTile(g, f, K, TILE_O);
+}
+// 엔진 스크립트 로드 직후 타일도 미리 받아 둔다 (worlds prewarm 시 전환이 끊기지 않게).
+// 실패해도 start()에서 다시 시도하므로 여기서는 무시한다.
+try { ensureNewstile().catch(() => {}); } catch (e) { /* 무시 */ }
 
 // 칸 좌표 → 시작 오프셋 (흩뿌림 배열)
 function hash(x, y) {
@@ -375,56 +354,6 @@ function offsetOf(x, y) {
     memo.set(k, computeCell(cx, cy, sx, sy)); stack.pop();
   }
   return memo.get(key);
-}
-
-const TRI_TOP = new Path2D('M5.07 2.1L94.93 2.1L50 47.03Z');
-const TRI_BOT = new Path2D('M5.07 97.9L94.93 97.9L50 52.97Z');
-const rtCache = new Map();
-function rtFor(f) {
-  const k = f.toFixed(3);
-  let p = rtCache.get(k);
-  if (p !== undefined) return p;
-  let T, Hd;
-  if (f < K.rtOut[0]) { const q = eIO(prog(f, K.rtDraw)); Hd = 2 * q; T = q; }
-  else { const q = eIO(prog(f, K.rtOut)); Hd = 1 + q; T = 2 * q; }
-  p = Hd - T > 0.0005 ? new Path2D(rtPath(T, Hd)) : null;
-  rtCache.set(k, p); return p;
-}
-function drawTile(g, f) {
-  const scaleAt = (cx, cy, s) => { g.translate(cx, cy); g.scale(s, s); g.translate(-cx, -cy); };
-  g.fillStyle = CELL; g.fillRect(0, 0, 100, 100);
-  g.save();
-  g.beginPath(); g.rect(0, 0, 100, 100); g.clip();
-  g.strokeStyle = SAND; g.fillStyle = SAND; g.lineJoin = 'miter'; g.miterLimit = 10;
-  let off, op;
-  if (f < K.pairIn[0]) { const p = eIn(prog(f, K.pairOut)); off = 30 * p; op = 1 - p; }
-  else { const q = eOut(prog(f, K.pairIn)); off = 30 * (1 - q); op = q; }
-  if (op > 0.001) {
-    g.globalAlpha = op; g.lineWidth = 4.2;
-    g.save(); g.translate(0, -off); g.stroke(TRI_TOP); g.restore();
-    g.save(); g.translate(0, off); g.stroke(TRI_BOT); g.restore();
-  }
-  const shapeState = (inSeg) => {
-    if (f < inSeg[0] || f >= K.rcOut[1]) return { s: 0, o: 0 };
-    if (f < K.rcOut[0]) return { s: eOut(prog(f, inSeg)), o: 1 };
-    const p = eOut(prog(f, K.rcOut)); return { s: 1 + 0.12 * p, o: 1 - p };
-  };
-  const r = shapeState(K.rectIn), c = shapeState(K.circIn);
-  g.lineWidth = 4.8;
-  if (r.o > 0.001 && r.s > 0.0005) {
-    g.globalAlpha = r.o; g.save(); scaleAt(50, 97.3, r.s);
-    g.strokeRect(3.15, 78.8, 93.7, 18.5); g.restore();
-  }
-  if (c.o > 0.001 && c.s > 0.0005) {
-    g.globalAlpha = c.o; g.save(); scaleAt(49.4, 37.4, c.s);
-    g.beginPath(); g.arc(49.4, 37.4, 27.6, 0, Math.PI * 2); g.stroke(); g.restore();
-  }
-  if (f >= K.rtDraw[0] && f < K.rtOut[1]) {
-    const p = rtFor(f);
-    if (p) { g.globalAlpha = 1; g.fill(p); }
-  }
-  g.restore();
-  g.globalAlpha = 1;
 }
 
 /* ───────── 원근 투영 ─────────
@@ -502,7 +431,6 @@ function render(frame, slide, sec) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, W, H);
   ctx.fillStyle = CELL; ctx.fillRect(0, far, W, H - far);
-  rtCache.clear();
   const bandGens = starGens(sec);
 
   const rMin = Math.max(1, Math.floor(c / (H - hy))), rMax = Math.ceil(c / (far - hy));
@@ -578,14 +506,16 @@ window.addEventListener('resize', () => {
   rzT = setTimeout(() => { resize(); if (running) drawNow(); }, 120);
 });
 function start() {
-  resize();
-  drawNow();   // 첫 프레임을 바로 그려 두고 전환이 시작되게 한다
-  if (!running) {
-    running = true;
-    last = null;
-    if (!raf) raf = requestAnimationFrame(tick);
-  }
-  return Promise.resolve();
+  const ready = tileReady ? Promise.resolve() : ensureNewstile().then(() => { initTileParams(); tileReady = true; });
+  return ready.then(() => {
+    resize();
+    drawNow();   // 첫 프레임을 바로 그려 두고 전환이 시작되게 한다
+    if (!running) {
+      running = true;
+      last = null;
+      if (!raf) raf = requestAnimationFrame(tick);
+    }
+  });
 }
 function stop() { running = false; if (raf) { cancelAnimationFrame(raf); raf = 0; } }
 

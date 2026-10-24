@@ -19,7 +19,7 @@ const stripped = esm
 const umd = `(function (global) {
 "use strict";
 ${stripped}
-global.Newstile = { Newstile, createNewstile, mount, DEFAULTS };
+global.Newstile = { Newstile, createNewstile, mount, DEFAULTS, internals };
 if (typeof module !== "undefined" && module.exports) module.exports = global.Newstile;
 })(typeof globalThis !== "undefined" ? globalThis : window);
 `;

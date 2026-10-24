@@ -20,5 +20,6 @@ mkdir -p wallpaper/components
 cp public/components/lantern-frustum.html wallpaper/components/lantern-frustum.html
 cp public/components/lantern-cylinder.html wallpaper/components/lantern-cylinder.html
 cp public/components/yachiroom.umd.js wallpaper/components/yachiroom.umd.js
+cp public/components/newstile.umd.js wallpaper/components/newstile.umd.js
 python3 wallpaper/tools/generate-project-json.py
 python3 wallpaper/tools/verify-wallpaper.py

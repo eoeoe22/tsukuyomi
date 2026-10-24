@@ -20,5 +20,6 @@ New-Item -ItemType Directory -Force wallpaper/components | Out-Null
 Copy-Item public/components/lantern-frustum.html wallpaper/components/lantern-frustum.html -Force
 Copy-Item public/components/lantern-cylinder.html wallpaper/components/lantern-cylinder.html -Force
 Copy-Item public/components/yachiroom.umd.js wallpaper/components/yachiroom.umd.js -Force
+Copy-Item public/components/newstile.umd.js wallpaper/components/newstile.umd.js -Force
 python wallpaper/tools/generate-project-json.py
 python wallpaper/tools/verify-wallpaper.py

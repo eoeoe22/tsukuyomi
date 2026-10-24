@@ -5,5 +5,6 @@ frozen source: public/tsukuyomi.js, public/tsukuyomi.css,
   public/tsukuyomi.earth.js, public/tsukuyomi.room.js, public/tsukuyomi.news.js,
   public/clouds/day-overlay.json, public/lantern-front.svg, public/assets/icons/icon.svg,
   public/components/lantern-frustum.html, public/components/lantern-cylinder.html,
-  public/components/yachiroom.umd.js
+  public/components/yachiroom.umd.js, public/components/newstile.umd.js
+  (newstile.umd.js는 packages/newstile/dist와 바이트 동일, 웹 CDN 우선·월페이퍼 오프라인 번들)
 verify: python wallpaper/tools/verify-wallpaper.py

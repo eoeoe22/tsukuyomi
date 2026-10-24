@@ -26,8 +26,8 @@ wallpaper/
     tsukuyomi.room.js (야치요의 방) / tsukuyomi.news.js (뉴스 츠쿠요미)
     clouds/day-overlay.json (공백 구름 손그림 레이어 문서)
     lantern-front.svg / assets/icons/icon.svg
-  components/         방 장면 런타임 의존 복사본 (public/components와 바이트 동일, 수정 금지)
-    lantern-frustum.html / lantern-cylinder.html (랜턴 iframe) / yachiroom.umd.js
+  components/         방 장면 런타임 의존 + 뉴스 타일 번들 복사본 (public/components와 바이트 동일, 수정 금지)
+    lantern-frustum.html / lantern-cylinder.html (랜턴 iframe) / yachiroom.umd.js / newstile.umd.js (뉴스 바닥 타일, 오프라인용)
   tools/
     generate-project-json.py  project.json 생성기 (vendor CFG + public GROUPS 읽기만)
     rebuild-map.json          GROUPS rebuild 플래그 추출본 (wallpaper.js REBUILD와 대조용)
@@ -99,19 +99,20 @@ python wallpaper/tools/verify-wallpaper.py
 
 ## 배포 패키지 (`dist-we/Tsukuyomi-WE.zip`)
 
-필수 19종만 포함. `tools/`·`README.md`·`CORE_VERSION.txt`는 제외.
+필수 20종만 포함. `tools/`·`README.md`·`CORE_VERSION.txt`는 제외.
 
 - `project.json` (`"preview": "preview.jpg"` 포함), `wallpaper.html`,
   `wallpaper.js`, `wallpaper.css`, `preview.jpg`
 - `vendor/` 11종: `tsukuyomi.js`·`tsukuyomi.css`·`cloud-live.js`·`cloud-overlay.js`·
   `tsukuyomi.mount.js`·`tsukuyomi.earth.js`·`tsukuyomi.room.js`·`tsukuyomi.news.js`·
   `clouds/day-overlay.json`·`lantern-front.svg`·`assets/icons/icon.svg`
-- `components/` 3종(야치요의 방 런타임 의존): `lantern-frustum.html`·`lantern-cylinder.html`·`yachiroom.umd.js`
+- `components/` 4종(야치요의 방 런타임 의존 3종 + 뉴스 타일 번들 1종): `lantern-frustum.html`·`lantern-cylinder.html`·`yachiroom.umd.js`·`newstile.umd.js`
+  (`newstile.umd.js`는 `packages/newstile/dist`와 바이트 동일, 웹은 README 배포 CDN 우선·로컬 폴백, 월페이퍼는 오프라인 번들로 동작)
 - `preview.jpg`는 `thumbnail.png`(원본, 128px)를 300x300 JPEG으로 변환한
   WE용 썸네일이다. WE가 인식하는 썸네일명은 `preview.jpg`/`preview.gif`뿐이므로
   `thumbnail.png`를 직접 지정하면 표시되지 않는다. `thumbnail.png`는 원본 보관용으로
   소스에만 두고 배포 zip에는 넣지 않는다.
-- 재생성은 이 19개를 `Tsukuyomi/` 폴더에 담아 zip으로 묶으면 된다.
+- 재생성은 이 20개를 `Tsukuyomi/` 폴더에 담아 zip으로 묶으면 된다.
 
 ## Workshop 릴리즈 업로드 (폴더째 복사 방식)
 
