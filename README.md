@@ -28,6 +28,9 @@ python -m http.server 8788 --directory wallpaper
 ```
 public/tsukuyomi.html  기본 웹 배포판
 public/landing.html    랜딩페이지 (실험용)
+public/tsukuyomi.*.js  세계별 장면 (mount·earth·room·news는 지연 로드)
+public/components/     장면이 런타임에 쓰는 외부 파일 복사본 (랜턴 iframe 2종, yachiroom·newstile UMD)
+packages/              장면 부품 패키지 원본 (yachiroom, newstile, mirrorball 등)
 wallpaper/             월페이퍼엔진 포팅 (vendor 동결본 + wallpaper.html/js/css/project.json)
 preview-worker.js      "/" -> tsukuyomi.html, "/landing" -> landing.html 매핑
 ```
@@ -47,6 +50,14 @@ preview-worker.js      "/" -> tsukuyomi.html, "/landing" -> landing.html 매핑
 ### 地 — 역광 지구 + 죽순 (`public/tsukuyomi.earth.js`, `#earth` 지연 로드)
 본체는 전체화면 프래그먼트 셰이더 하나(WebGL2: 지구·대기·렌즈플레어) + 2D 오프스크린 죽순 텍스처 합성이다. 죽순은 `createTakenoko`가 실루엣 프로파일(`R_LUT`)·잎집 가림·역광 림라이트를 CPU로 그린다. 로드 시에는 셰이더 컴파일 + 죽순 굽기만 하고, 올릴 때마다 `start()`로 인트로(태양 상승·죽순 후퇴)를 처음부터 재생, 내릴 때 `stop()`한다. WebGL2가 없으면 모듈을 만들지 않아 전환이 실패하고 현재 세계에 남는다. 조절값은 `__EARTH__.cfg`, `?earthT=`로 시간 고정 캡처가 가능하다.
 
-공통: 세계 전환(`public/tsukuyomi.worlds.js`)은 해시(`#sea` / `#mount` / `#earth`, 없음=月)로 라우팅하고 月↔海는 엔진 모드 전환, 그 외는 단순 페이드 + 미사용 엔진 `stop()`이다. 산·지구는 첫 진입 때 동적 `<script>` 로드 후 `start()`하고, 드롭다운 호버·포커스·유휴 시간에 미리 데워둔다(`prewarm`). 수치 튜닝은 `__TSUKUYOMI__` / `__TSUKUYOMI_DEBUG__` 브릿지(F12 패널, `public/tsukuyomi.debug.js`)로 라이브 조절한다.
+### 八 — 야치요의 방 (`public/tsukuyomi.room.js`, `#room` 지연 로드)
+본체는 1600×900 고정 설계 캔버스 하나에 그린 뒤 화면을 꽉 채우도록(cover) `#roomScene`에 옮겨 그린다. 방은 눈높이 1.6m 카메라에서 −z를 보는 미터 단위 원근 투영(`proj`)으로 짓고, 하늘·바다·천장·옆벽(원창)·바닥 문양·뒷벽·우측 단·장지·병풍을 `yachiroom.umd.js` 부품(`buildPrims`/`drawPrims`, 깊이별 배율 + `rot`/`tilt` 근사)으로 1회 래스터해 곱하기로 밤 실내처럼 어둡힌 바탕(`base`)으로 둔다.
+등불은 `components/`의 랜턴 iframe 2종(`lantern-frustum.html` 사각뿔대 바닥등 10개, `lantern-cylinder.html` 원통 스탠딩 2개)을 숨겨 띄워 자리마다 기울기·회전을 맞춘 SVG를 받아 이미지로 굽고, 잘림 윤곽이 생기는 자체 후광·빛웅덩이는 빼고 장면 쪽 방사 그라디언트로 대신한다. 원통 랜턴은 등 속 점광원에서 투각·종이창 무늬를 지난 빛을 뒷벽·옆벽·천장·바닥 평면에 투영하며, 고정 무늬(`litLayer`)와 회전하는 종이창 무늬(`paperLayer`, 랜턴 `PERIOD` 주기)를 나눠 매 프레임 후자만 다시 그린다. 움직이는 것은 이 회전뿐이고, 동작 줄이기 설정이면 멈춘다.
+
+### 犬 — 뉴스 츠쿠요미 (`public/tsukuyomi.news.js`, `#news` 지연 로드)
+레이어는 뒤 SVG(하늘·햇무리 빛줄기·구름 글리프·파도 언덕·토리이) → 바닥 캔버스 → 앞 SVG(가로등) 세 장이고, 모두 1600×1066 설계 좌표를 `xMidYMid slice`로 공유한다. 구름·파도 봉우리는 고정 시드로 배치해 각자 방향·속도로 흐르고, 토리이 10기는 파도 줄 사이에 끼워 앞줄이 다리를 가린다.
+바닥은 지평선 거리로 깊이를 구하는 원근 타일 바닥을 줄 단위 스트립으로 그린다. 가까운 칸은 `newstile` 패키지 타일 애니메이션(`Newstile.internals.drawTile`/`buildTiming`, jsDelivr CDN + integrity, 실패 시 `components/newstile.umd.js` 폴백), 먼 칸(`BAND_ROW` 이후)은 별 패턴 띠로 가로등과 같은 속도(`SLIDE`)로 흐르고 끝에 안개를 깐다. 시간은 내렸다 올려도 이어지며, 동작 줄이기 설정이면 정지 화면이다.
+
+공통: 세계 전환(`public/tsukuyomi.worlds.js`)은 해시(`#sea` / `#mount` / `#earth` / `#room` / `#news`, 없음=月)로 라우팅하고 月↔海는 엔진 모드 전환, 그 외는 단순 페이드 + 미사용 엔진 `stop()`이다. 산·지구·방·뉴스는 첫 진입 때 동적 `<script>` 로드 후 `start()`하고, 드롭다운 호버·포커스·유휴 시간에 미리 데워둔다(`prewarm`). 수치 튜닝은 `__TSUKUYOMI__` / `__TSUKUYOMI_DEBUG__` 브릿지(F12 패널, `public/tsukuyomi.debug.js`)로 라이브 조절한다.
 
 https://vialinks.xyz/tsukuyomi
