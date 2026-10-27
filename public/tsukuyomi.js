@@ -415,7 +415,7 @@
             // 버퍼행 = 화면행 + camExtra.
             let camExtra = 0;
             // ---------- 줌 프로파일러 (계측 전용) ----------
-            // worlds.js가 포털 확대 애니메이션을 begin/end로 감싼다. 구간 중에만 프레임별 JS 구간 시간(ms)과
+            // hub.js가 랜드마크 확대·복귀 애니메이션을 begin/end로 감싼다. 구간 중에만 프레임별 JS 구간 시간(ms)과
             // 캐시 재굽기·버퍼 재할당 이벤트를 모으고, 구간 밖에서는 performance.now 호출도 하지 않는다.
             // GPU/합성 시간은 JS에서 보이지 않으므로 rAF 간격(dt)과 JS 합계(js)의 차이로 추정한다.
             // 콘솔 출력: URL에 ?zprof 또는 __TSUKUYOMI__.zoomProf.log = true. 마지막 요약은 zoomProf.last.
@@ -6013,7 +6013,8 @@ void main() {
             const DRAG_MIN_DIST = 24;    // css px between spawned ripples
             const DRAG_MIN_DT = 0.06;    // seconds between spawned ripples
             const overUI = t => document.body.hasAttribute('data-world-busy') ||
-                ((t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad,#worldMount,#worldEarth,' +
+                // .focus-ui: 허브 페이지(hub.html)의 랜드마크 핀·설명카드 (tsukuyomi.hub.js)
+                ((t instanceof Element) && !!t.closest('.panel,.tsd-panel,#tsdFab,.tsce-pad,#worldMount,#worldEarth,.focus-ui,' +
                     // 랜딩(landing.html): 글자·링크·버튼 위에서는 리플/클릭 이펙트를 내지 않는다.
                     // [data-scene-off]는 다른 세계(山)가 화면을 덮고 있는 동안 루트에 붙는다.
                     '.l-copy,.l-cta,a,button,[data-scene-off]'));
@@ -6578,14 +6579,14 @@ void main() {
                 get suspended() { return suspended; },
                 suspend() { suspended = true; },
                 resume() { resumeLoop(); },
-                // 인-캔버스 카메라 (tsukuyomi.worlds.js의 토리이 포털 전환이 구동). CSS transform 대신 장면을 직접 다시 그린다.
+                // 인-캔버스 카메라 (허브 페이지의 랜드마크 확대, tsukuyomi.hub.js가 구동). CSS transform 대신 장면을 직접 다시 그린다.
                 setCamView(f, m, s, res, path) { setCamView(f, m, s, res, path); },
                 clearCam() { clearCam(); },
                 getCamView() { return CAM.on ? { f: { x: CAM.fx, y: CAM.fy }, m: { x: CAM.mx, y: CAM.my }, s: CAM.s } : null; },
                 worldToScreen(x, y) { return camW2S(x, y); },
                 screenToWorld(x, y) { return camS2W(x, y); },
                 get camOn() { return camOn(); },
-                // 줌 프로파일러: worlds.js가 begin/end로 포털 확대 구간을 감싼다 (요약은 last, 콘솔은 log)
+                // 줌 프로파일러: hub.js가 begin/end로 확대·복귀 구간을 감싼다 (요약은 last, 콘솔은 log)
                 zoomProf: {
                     begin(label) { zpBegin(label); },
                     end() { return zpEnd(); },

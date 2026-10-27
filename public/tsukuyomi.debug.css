@@ -185,6 +185,9 @@
     .tsd-panel { top: 8px; right: 8px; width: calc(100vw - 16px); }
 }
 
+/* 카드 미리보기 (cards/*.wiki, 허브 페이지) */
+.tsd-body textarea.tsd-card-src { min-height: 220px; resize: vertical; white-space: pre; tab-size: 2; }
+
 /* 구름 레이어 편집기 (tsukuyomi.cloudlayers.js) — 공백 장면 오버레이 */
 .tcl-panel {
     position: fixed;

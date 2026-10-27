@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<!-- 허브: tsukuyomi.html과 같은 세계들 + 랜드마크 클릭 인디케이터·설명카드 (tsukuyomi.hub.js). 경로 /hub -->
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>月 | ( ◠ ᗜ ◠ )</title>
+    <link rel="icon" href="/assets/icons/icon.svg" type="image/x-icon">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="tsukuyomi.css">
+    <link rel="stylesheet" href="tsukuyomi.hub.css">
+    <link rel="stylesheet" href="components/tsukuyomi.markup.css">
+    <link rel="stylesheet" href="tsukuyomi.debug.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
+</head>
+
+<body>
+    <!-- 月: 수면 토리이 장면 (tsukuyomi.js) -->
+    <div class="world" id="worldMoon">
+        <div class="world-view">
+            <canvas id="scene" aria-hidden="true"></canvas>
+            <canvas id="ripple" aria-hidden="true"></canvas>
+            <canvas id="fg" aria-hidden="true"></canvas>
+        </div>
+    </div>
+    <!-- 山: 산정 토리이 장면 (tsukuyomi.mount.js, 처음 필요할 때 로드). 경로는 #mount -->
+    <div class="world" id="worldMount" hidden>
+        <div class="world-view">
+            <canvas id="mountScene" aria-hidden="true"></canvas>
+        </div>
+    </div>
+    <!-- 地: 역광 지구 장면 (tsukuyomi.earth.js, 처음 필요할 때 로드). 경로는 #earth -->
+    <div class="world" id="worldEarth" hidden>
+        <div class="world-view">
+            <canvas id="earthScene" aria-hidden="true"></canvas>
+        </div>
+    </div>
+    <!-- 八: 야치요의 방 장면 (tsukuyomi.room.js, 처음 필요할 때 로드). 경로는 #room. 단일 장면이라 조절 버튼 없음 -->
+    <div class="world" id="worldRoom" hidden>
+        <div class="world-view">
+            <canvas id="roomScene" aria-hidden="true"></canvas>
+        </div>
+    </div>
+    <!-- 犬: 뉴스 츠쿠요미 장면 (tsukuyomi.news.js, 처음 필요할 때 로드). 경로는 #news. 단일 장면이라 조절 버튼 없음 -->
+    <div class="world" id="worldNews" hidden>
+        <div class="world-view"></div>
+    </div>
+
+    <div class="dock">
+        <section class="panel intro-hidden" id="panel" aria-label="장면 전환">
+            <div class="icongroup" id="icongroup" role="group" aria-label="황혼 / 밤 / 미러볼 선택">
+                <span class="thumb" id="thumb" aria-hidden="true"></span>
+                <button type="button" id="btnDusk" class="on" aria-label="황혼" aria-pressed="true"><i
+                        class="bi bi-cloud-sun-fill" aria-hidden="true"></i></button>
+                <button type="button" id="btnNight" aria-label="밤" aria-pressed="false"><i class="bi bi-moon-fill"
+                        aria-hidden="true"></i></button>
+                <button type="button" id="btnMirror" aria-label="미러볼" aria-pressed="false"><i class="bi bi-globe2"
+                        aria-hidden="true"></i></button>
+            </div>
+            <span class="cursor-group" id="cursorGroup" role="group" aria-label="물고기 군집 배치">
+                <button type="button" id="btnCursorOff" class="on" aria-label="물고기 군집 숨김"
+                    aria-pressed="true"><i class="bi bi-ban" aria-hidden="true"></i></button>
+                <button type="button" id="btnCursorTrack" aria-label="커서 추적 물고기 군집"
+                    aria-pressed="false"><i class="bi bi-cursor-fill" aria-hidden="true"></i></button>
+                <button type="button" id="btnCursorMoon" aria-label="달 배치 물고기 군집"
+                    aria-pressed="false"><i class="bi bi-moon-fill" aria-hidden="true"></i></button>
+            </span>
+            <span class="sr-only" id="status" aria-live="polite"></span>
+        </section>
+    </div>
+
+    <!-- 海: 츠쿠요미 바다(공백 장면). 月와 같은 엔진(tsukuyomi.js)·캔버스를 쓰고 조절 패널만 따로. 경로는 #sea -->
+    <div class="dock" id="seaDock" hidden>
+        <section class="panel scene-day" id="seaPanel" aria-label="츠쿠요미 바다">
+            <button type="button" id="btnStars" class="wallpaper-toggle stars-toggle" aria-label="별 궤적"
+                aria-pressed="false"><i class="bi bi-stars" aria-hidden="true"></i></button>
+            <span class="sea-mode-group is-base" id="seaModeGroup" role="group" aria-label="바다 색감">
+                <button type="button" data-sea="base" class="on" aria-label="기본 색감" aria-pressed="true"><i
+                        class="bi bi-brightness-high-fill" aria-hidden="true"></i></button>
+                <button type="button" data-sea="tone" aria-label="파스텔 색조" aria-pressed="false"><i
+                        class="bi bi-thermometer-half" aria-hidden="true"></i></button>
+                <button type="button" data-sea="dark" id="btnDark" aria-label="공백 밤" aria-pressed="false"><i
+                        class="bi bi-brightness-alt-high-fill" aria-hidden="true"></i></button>
+            </span>
+        </section>
+    </div>
+
+    <div class="dock" id="mountDock" hidden>
+        <section class="panel" id="mountPanel" aria-label="산 장면 전환">
+            <div class="icongroup" id="mountGroup" role="group" aria-label="땅거미 / 노을 선택">
+                <span class="thumb" id="mountThumb" aria-hidden="true"></span>
+                <button type="button" data-scene="dusk" aria-label="땅거미" aria-pressed="false"><i
+                        class="bi bi-brightness-low-fill" aria-hidden="true"></i></button>
+                <button type="button" data-scene="sunset" aria-label="노을" aria-pressed="false"><i
+                        class="bi bi-cloud-sun-fill" aria-hidden="true"></i></button>
+            </div>
+        </section>
+    </div>
+
+    <!-- 세계 드롭다운(.world-picker)은 각 패널 맨 왼쪽에 tsukuyomi.worlds.js가 넣는다 -->
+    <div class="dock" id="earthDock" hidden>
+        <section class="panel is-night" id="earthPanel" aria-label="지구 장면"></section>
+    </div>
+    <div class="dock" id="roomDock" hidden>
+        <section class="panel is-night" id="roomPanel" aria-label="야치요의 방"></section>
+    </div>
+    <div class="dock" id="newsDock" hidden>
+        <section class="panel is-night" id="newsPanel" aria-label="뉴스 츠쿠요미"></section>
+    </div>
+
+    <!-- 랜드마크 핀(tsukuyomi.hub.js가 세계별로 만든다) · 뒤로가기 · 설명카드 -->
+    <div class="focus-ui" id="focusUi">
+        <button type="button" id="focusBack" hidden aria-label="처음 화면으로 돌아가기"><i class="bi bi-chevron-left"
+                aria-hidden="true"></i></button>
+        <aside id="focusCard" hidden aria-live="polite" aria-label="랜드마크 정보">
+            <h2 id="focusTitle">플레이스홀더</h2>
+            <p class="focus-lead" id="focusDesc">내용 준비 중입니다.</p>
+            <div class="focus-body" id="focusBody" aria-live="off"></div>
+        </aside>
+    </div>
+
+    <script src="cloud-live.js"></script>
+    <script src="cloud-overlay.js"></script>
+    <script src="tsukuyomi.js"></script>
+    <script src="tsukuyomi.worlds.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@18.0.3/lib/marked.umd.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.2/dist/purify.min.js" defer></script>
+    <script src="components/tsukuyomi.markup.js" defer></script>
+    <script src="tsukuyomi.hub.js" defer></script>
+    <script src="tsukuyomi.cloudlayers.js" defer></script>
+    <script src="tsukuyomi.debug.js" defer></script>
+</body>
+
+</html>
