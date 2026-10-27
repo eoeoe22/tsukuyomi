@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="ko"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>부유 대지 초안</title>
+<!-- 레퍼런스: reference-images/landscape.webp(어둠), landscape-light.webp(빛). 임시 폴더라 여기서 불러오지 않는다 -->
+<style>
+  html, body { height: 100%; margin: 0; background: #03060f; overflow: hidden; }
+  canvas#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .toggle { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 44px; height: 44px;
+            border-radius: 50%; border: 1px solid rgba(220, 230, 255, .28); background: rgba(8, 12, 24, .55);
+            color: #e8eefc; cursor: pointer; display: grid; place-items: center; padding: 0;
+            backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); transition: background .3s, border-color .3s; }
+  .toggle:hover { border-color: rgba(255, 210, 160, .7); }
+  .toggle:focus-visible { outline: 2px solid #f0b47a; outline-offset: 3px; }
+  .toggle svg { width: 20px; height: 20px; }
+  .toggle[aria-pressed="true"] { background: rgba(60, 40, 30, .55); color: #ffd9a8; }
+  .ctl { position: fixed; left: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); width: 240px; font: 12px system-ui, sans-serif;
+         color: #9aa6b4; background: rgba(8, 12, 20, .72); border-radius: 8px; padding: 8px 10px; }
+  .ctl summary { cursor: pointer; color: #cfd8e3; }
+  .ctl label { display: flex; justify-content: space-between; margin: 8px 0 2px; }
+  .ctl b { color: #e6edf5; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .ctl input[type=range] { width: 100%; accent-color: #c8925a; }
+  .err { position: fixed; inset: 0; display: grid; place-items: center; color: #9aa6b4; font: 14px system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<button class="toggle" id="toggle" type="button" aria-pressed="false" aria-label="빛 켜기">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/>
+  </svg>
+</button>
+<details class="ctl">
+  <summary>조절</summary>
+  <label for="expo">노출 <b id="v-expo"></b></label>
+  <input type="range" id="expo" min="0.3" max="3" step="0.01" value="1">
+  <label for="scale">렌더 배율 <b id="v-scale"></b></label>
+  <input type="range" id="scale" min="0.25" max="1" step="0.05" value="0.6">
+</details>
+<script>
+/* 부유 대지 초안
+ * - 고정 카메라. 전체 화면 프래그먼트 셰이더 하나(WebGL2)로 원반 대지·호수·섬·바깥 고리 대지·부유암·운해·하늘을 그린다
+ * - 빛 토글(버튼 1개): 어둠(landscape) ↔ 빛(landscape-light). uL 0→1 보간
+ * - 콘솔: __LAND__.cfg / URL: ?t=초(시간 고정), ?light=1(빛 상태로 시작), ?scale=0.5(렌더 배율)
+ */
+(() => {
+  'use strict';
+
+  const VS = `#version 300 es
+in vec2 a; void main(){ gl_Position = vec4(a, 0., 1.); }`;
+
+  const FS = `#version 300 es
+precision highp float;
+uniform vec2 uRes;
+uniform float uTime, uL, uExpo, uTanV;
+out vec4 outColor;
+
+// ── 카메라 (고정) ──
+const vec3 CAM = vec3(0.0, 0.92, 2.05);
+const vec3 TGT = vec3(0.0, -0.25, -0.05);
+// ── 원반 대지 ──
+const float R = 1.0;            // 반지름
+const float DISC_BOT = -0.20;   // 측면 절벽이 끝나는 높이 (그 아래는 뒤집힌 원뿔)
+// ── 바깥 고리 대지 ──
+const vec3 RING_C = vec3(0.18, 0.0, 0.05);
+const float RING_R = 1.92, RING_W = 0.30;
+
+float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float h11(float x){ return fract(sin(x * 127.1) * 43758.5453); }
+float h31(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float vn2(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + 1.), f.x), f.y);
+}
+float vn3(vec3 p){
+  vec3 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+  return mix(mix(mix(h31(i), h31(i + vec3(1,0,0)), f.x), mix(h31(i + vec3(0,1,0)), h31(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(h31(i + vec3(0,0,1)), h31(i + vec3(1,0,1)), f.x), mix(h31(i + vec3(0,1,1)), h31(i + 1.), f.x), f.y), f.z);
+}
+float fbm2(vec2 p){ float a = .5, s = 0.; for (int i = 0; i < 5; i++){ s += a * vn2(p); p = p * 2.03 + vec2(1.7, 9.2); a *= .5; } return s; }
+float fbm2s(vec2 p){ float a = .5, s = 0.; for (int i = 0; i < 3; i++){ s += a * vn2(p); p = p * 2.03 + vec2(1.7, 9.2); a *= .5; } return s / .875; }
+float fbm3(vec3 p){ float a = .5, s = 0.; for (int i = 0; i < 4; i++){ s += a * vn3(p); p = p * 2.02 + vec3(1.7, 9.2, 4.1); a *= .5; } return s; }
+
+// ── 높이 ──
+// 중앙 섬: 왼쪽은 낮은 도시, 오른쪽은 평평한 고원(메사)
+const vec2 ISL = vec2(-0.02, -0.16);
+float islandMask(vec2 q){
+  vec2 c = (q - ISL) * vec2(1.0, 1.45);
+  return 0.36 - length(c) + (fbm2s(q * 6.0) - 0.5) * 0.18;
+}
+float islandH(vec2 q){
+  float m = islandMask(q);
+  if (m < 0.) return m * 0.4;
+  float base = min(m * 0.30, 0.016);
+  vec2 d = (q - vec2(0.12, -0.18)) * vec2(1.0, 1.4);
+  float mesa = smoothstep(0.22, 0.12, length(d) + (fbm2s(q * 9.) - .5) * 0.06) * 0.045;
+  return base + mesa * smoothstep(0.0, 0.04, m);
+}
+// 가장자리 녹지 띠 (덩어리진 이끼 숲)
+float vegH(vec2 q, float r){
+  if (r < 0.78) return 0.;
+  float n = fbm2s(q * 6.5);
+  float band = smoothstep(0.91, 0.95, r + (n - 0.5) * 0.16);
+  float clump = fbm2s(q * 30.);
+  return band < 0.02 ? 0. : band * (0.006 + 0.016 * clump);
+}
+float topH(vec2 q){
+  float r = length(q);
+  return max(max(vegH(q, r), islandH(q)), 0.0);
+}
+// 바깥 고리: 기울어진 판. 가까운 쪽은 운해 아래로 가라앉는다
+float ringY(vec3 p){ return -0.14 - 0.09 * p.z + 0.05 * p.x; }
+float ringTop(vec2 q){
+  float n = fbm2(q * 3.5);
+  float rid = 1. - abs(fbm2s(q * 9.) * 2. - 1.);
+  return -0.02 + n * 0.09 + rid * 0.05;
+}
+
+// 부유암: 중심, 반지름, 색 종류
+const int NR = 6;
+const vec3 RC[NR] = vec3[](vec3(-0.98, -0.40, 0.98), vec3(-0.40, -0.48, 1.20), vec3(0.32, -0.46, 1.10),
+                           vec3(0.86, -0.40, 0.92), vec3(-0.02, -0.56, 1.36), vec3(1.04, -0.28, 0.56));
+const vec3 RS[NR] = vec3[](vec3(0.34, 0.15, 0.27), vec3(0.22, 0.10, 0.19), vec3(0.16, 0.09, 0.14),
+                           vec3(0.14, 0.13, 0.13), vec3(0.07, 0.10, 0.06), vec3(0.10, 0.09, 0.10));
+float sdEll(vec3 p, vec3 r){ float k0 = length(p / r), k1 = length(p / (r * r)); return k0 * (k0 - 1.) / k1; }
+
+float rockBob(int i){ return sin(uTime * 0.35 + float(i) * 1.7) * 0.012; }
+
+// 장면 SDF. id: 1 원반, 2 고리, 10+i 부유암
+vec2 map(vec3 p){
+  vec2 res = vec2(1e9, 0.);
+  // 원반
+  {
+    float r = length(p.xz);
+    float side = r - R;
+    float yb = DISC_BOT - (R - r) * 0.85;
+    float coarse = max(max(side, p.y - 0.08), yb - p.y);
+    float d = coarse;
+    if (coarse < 0.12) {
+      float strata = fbm3(p * vec3(7.0, 2.5, 7.0)) - 0.5;
+      side += strata * 0.035;
+      float top = (p.y - topH(p.xz)) * 0.7;
+      float bot = (yb + (fbm3(p * 5.0) - .5) * 0.10 - p.y) * 0.6;
+      d = max(max(side, top), bot);
+    }
+    if (d < res.x) res = vec2(d, 1.);
+  }
+  // 바깥 고리
+  {
+    vec3 c = p - RING_C;
+    float rr = length(c.xz);
+    float yl = p.y - ringY(p);
+    float band = abs(rr - RING_R) - RING_W;
+    float coarse = max(band, max(yl - 0.16, -yl - 0.22));
+    float d = coarse;
+    if (coarse < 0.12) {
+      float wob = (fbm2s(vec2(atan(c.z, c.x) * 6., 0.)) - 0.5) * 0.25;
+      band = abs(rr - RING_R - wob * 0.4) - RING_W * (0.8 + 0.5 * fbm2s(c.xz * 2.)) * (1. - clamp(-yl * 3.0, 0., 0.75));
+      band += (fbm3(p * vec3(6., 3., 6.)) - .5) * 0.05;
+      d = max(band * 0.7, max((yl - ringTop(p.xz)) * 0.6, -yl - 0.22 - (fbm3(p * 4.) - .5) * 0.2));
+    }
+    if (d < res.x) res = vec2(d, 2.);
+  }
+  // 부유암
+  for (int i = 0; i < NR; i++){
+    vec3 q = p - RC[i] - vec3(0., rockBob(i), 0.);
+    float d = sdEll(q * vec3(1., q.y < 0. ? 0.7 : 1., 1.), RS[i]);   // 아래로 처진 바위
+    d = max(d, q.y - RS[i].y * 0.45);                                   // 윗면은 평평하게 (이끼 덮인 섬)
+    if (d < 0.1) d += (fbm3(p * 7. + float(i) * 3.1) - .5) * 0.14 * RS[i].x / 0.2;
+    if (d < res.x) res = vec2(d, 10. + float(i));
+  }
+  return res;
+}
+
+vec3 calcNormal(vec3 p, float t){
+  float e = 0.0008 + 0.0006 * t;
+  vec2 k = vec2(1, -1);
+  return normalize(k.xyy * map(p + k.xyy * e).x + k.yyx * map(p + k.yyx * e).x +
+                   k.yxy * map(p + k.yxy * e).x + k.xxx * map(p + k.xxx * e).x);
+}
+
+vec2 march(vec3 ro, vec3 rd, float tMax, int steps){
+  float t = 0.02;
+  for (int i = 0; i < 200; i++){
+    if (i >= steps) break;
+    vec3 p = ro + rd * t;
+    vec2 h = map(p);
+    if (h.x < 0.0006 * t) return vec2(t, h.y);
+    t += h.x * 0.6;
+    if (t > tMax) break;
+  }
+  return vec2(-1., 0.);
+}
+
+// ── 빛 ──
+const vec3 LM = normalize(vec3(-0.15, 0.55, -1.0));      // 달빛: 뒤에서
+const vec3 LW = normalize(vec3(1.0, 0.55, -0.45));       // 빛 상태: 오른쪽 뒤 따뜻한 빛
+vec3 moonCol(){ return vec3(0.42, 0.52, 0.78); }
+vec3 warmCol(){ return vec3(1.0, 0.58, 0.40) * 1.25 * uL; }
+vec3 ambCol(float ny){ return mix(vec3(0.020, 0.030, 0.060), vec3(0.06, 0.09, 0.16), ny * .5 + .5) * (1. + uL * 0.9); }
+
+vec3 shade(vec3 alb, vec3 n, vec3 rd){
+  float dm = max(dot(n, LM), 0.);
+  float dw = max(dot(n, LW), 0.);
+  float rim = pow(1. - max(dot(n, -rd), 0.), 3.);
+  float df = max(dot(n, normalize(vec3(0.25, 0.5, 1.0))), 0.);
+  vec3 c = alb * (ambCol(n.y) + moonCol() * dm * 0.7 + warmCol() * dw + vec3(0.10, 0.11, 0.15) * df * (1. + uL));
+  c += rim * (moonCol() * 0.05 + warmCol() * 0.25 * max(dot(rd, LW) * .5 + .5, 0.)) * alb * 3.;
+  return c;
+}
+
+// ── 하늘 ──
+vec3 moonDir;
+vec3 stars(vec3 rd){
+  vec3 s = rd * 240.;
+  vec3 id = floor(s);
+  float h = h31(id);
+  if (h < 0.965) return vec3(0);
+  vec3 f = fract(s) - .5 - (vec3(h31(id + 3.1), h31(id + 7.7), h31(id + 1.3)) - .5) * .6;
+  float b = smoothstep(0.18, 0.0, length(f)) * (h - 0.965) / 0.035;
+  b *= 0.6 + 0.4 * sin(uTime * (1. + h * 3.) + h * 40.);
+  return vec3(0.75, 0.82, 1.0) * b * 1.4;
+}
+vec3 sky(vec3 rd, bool withMoon){
+  float up = rd.y;
+  vec3 c = mix(vec3(0.006, 0.012, 0.030), vec3(0.012, 0.024, 0.060), smoothstep(-0.6, 0.0, up));
+  c += vec3(0.012, 0.018, 0.035) * fbm2s(vec2(atan(rd.x, -rd.z) * 3., rd.y * 6.));
+  c += stars(rd);
+  float md = dot(rd, moonDir);
+  if (withMoon) {
+    float a = acos(clamp(md, -1., 1.));
+    float disc = smoothstep(0.0215, 0.0195, a);
+    c = mix(c, vec3(2.6, 2.7, 2.8), disc);
+  }
+  float a2 = acos(clamp(md, -1., 1.));
+  c += vec3(0.30, 0.55, 0.75) * exp(-a2 * 38.) * 0.9 + vec3(0.10, 0.20, 0.35) * exp(-a2 * 7.) * 0.35;
+  // 빛 상태: 오른쪽 위 따뜻한 산란
+  float w = max(dot(rd, LW), 0.);
+  c += uL * (vec3(0.55, 0.30, 0.22) * pow(w, 6.) * 0.35 + vec3(0.25, 0.15, 0.14) * pow(w, 2.) * 0.12);
+  return c;
+}
+
+// ── 운해: 높이 조각 여러 장으로 뭉게구름 흉내. tMax 앞만 누적 ──
+const int NS = 7;
+vec4 cloudSea(vec3 ro, vec3 rd, float tMax){
+  vec4 acc = vec4(0);
+  if (rd.y > -0.001) return acc;
+  for (int k = 0; k < NS; k++){
+    float fk = float(k) / float(NS - 1);           // 0 위 → 1 아래
+    float y = -0.36 - fk * 0.40;
+    float t = (y - ro.y) / rd.y;
+    if (t <= 0. || t > tMax) continue;
+    vec3 P = ro + rd * t;
+    vec2 q = P.xz;
+    vec2 drift = vec2(uTime * 0.006, uTime * 0.002);
+    float big = fbm2s(q * 0.6 + 3.0);
+    float n = fbm2(q * 1.7 + drift + big * 1.2);
+    // 원반 아래·폭포 근처를 더 짙게
+    float r = length(q);
+    float nearDisc = exp(-pow(max(r - 0.9, 0.) * 1.6, 2.)) * 0.26;
+    float far = smoothstep(4.2, 2.6, r);
+    float dens = n + nearDisc + big * 0.35 - 0.98 + fk * 0.26;   // 위 조각일수록 덜 덮음 → 둥근 윗면
+    float a = smoothstep(0.0, 0.08, dens) * 0.6 * far;
+    if (a < 0.002) continue;
+    // 위에서 빛을 받는 정도: 윗 조각일수록 밝고, 밀도 경사 쪽으로 림
+    float g = fbm2(q * 1.7 + drift + big * 1.2 + vec2(0.03, -0.03)) - n;
+    float lit = (1. - fk) * 0.75 + 0.25 + clamp(g * 12., -0.3, 0.3);
+    vec3 col = mix(vec3(0.006, 0.009, 0.018), vec3(0.06, 0.075, 0.11), lit);
+    vec3 warm = vec3(1.0, 0.62, 0.48) * uL * smoothstep(-0.4, 1.6, P.x - P.z * 0.4) * lit * 0.55;
+    col += warm + vec3(0.07, 0.10, 0.16) * uL * lit;
+    col += vec3(0.05, 0.09, 0.14) * exp(-max(r - 1.0, 0.) * 3.) * lit;   // 폭포 물안개
+    acc.rgb += (1. - acc.a) * a * col;
+    acc.a += (1. - acc.a) * a;
+    if (acc.a > 0.97) break;
+  }
+  return acc;
+}
+// 호수 위 낮은 구름 (수면에 비친다)
+vec4 lakeCloud(vec3 ro, vec3 rd, float tMax){
+  float y = 0.06;
+  if (abs(rd.y) < 1e-4) return vec4(0);
+  float t = (y - ro.y) / rd.y;
+  if (t <= 0. || t > tMax) return vec4(0);
+  vec3 P = ro + rd * t;
+  float r = length(P.xz);
+  if (r > 1.05) return vec4(0);
+  vec2 q = P.xz * vec2(4.0, 6.0) + vec2(uTime * 0.01, 0.);
+  float n = fbm2(q);
+  float a = smoothstep(0.66, 0.80, n) * smoothstep(1.0, 0.75, r) * smoothstep(0.08, 0.25, islandMask(P.xz) * -1. + 0.25);
+  vec3 col = mix(vec3(0.10, 0.13, 0.20), vec3(0.30, 0.36, 0.48), smoothstep(0.65, 0.85, n));
+  col *= 1. + uL * 1.4;
+  return vec4(col * a, a * 0.85);
+}
+
+// ── 재질 ──
+vec3 cityLights(vec2 q, float m){
+  if (m < 0.005 || q.x > ISL.x + 0.07 + (fbm2s(q * 14.) - .5) * 0.08) return vec3(0);
+  vec2 g = q * 320.;
+  vec2 id = floor(g);
+  float h = h21(id);
+  float on = step(0.88, h) * smoothstep(0.005, 0.03, m) * smoothstep(0.25, 0.55, fbm2s(q * 18.));
+  float tw = 0.75 + 0.25 * sin(uTime * (0.6 + h * 2.) + h * 60.);
+  vec3 c = h > 0.985 ? vec3(0.35, 1.0, 0.55) : h > 0.94 ? vec3(1.0, 0.30, 0.22) : vec3(1.0, 0.50, 0.20);
+  float glow = fbm2s(q * 40.) * smoothstep(0.0, 0.05, m);
+  return c * on * tw * 1.4 + vec3(0.40, 0.10, 0.04) * glow * 0.10;
+}
+
+vec3 discTop(vec3 p, vec3 n, vec3 rd){
+  vec2 q = p.xz;
+  float isl = islandMask(q);
+  vec3 alb;
+  vec3 emit = vec3(0);
+  if (isl > 0.0) {
+    float mesa = smoothstep(0.035, 0.05, p.y);
+    vec3 forest = mix(vec3(0.05, 0.09, 0.04), vec3(0.11, 0.17, 0.06), fbm2s(q * 50.));
+    vec3 cliff = vec3(0.20, 0.17, 0.12);
+    alb = mix(forest, cliff, smoothstep(0.7, 0.3, n.y));
+    vec3 ce = cityLights(q, isl) * (1. - mesa);
+    if (q.x < ISL.x + 0.05) alb = mix(alb, vec3(0.06, 0.05, 0.05), (1. - mesa) * smoothstep(0.0, 0.04, isl));
+    emit = ce;
+  } else {
+    float k = fbm2s(q * 60.);
+    alb = mix(vec3(0.03, 0.07, 0.03), vec3(0.12, 0.20, 0.06), k);
+    alb += vec3(0.06, 0.09, 0.02) * smoothstep(0.75, 0.9, fbm2s(q * 120.));
+  }
+  return shade(alb, n, rd) + emit;
+}
+
+vec3 waterfall(vec3 p, float th, float scale, float seed){
+  float w = th * scale;
+  float id = floor(w), f = fract(w);
+  float h = h11(id + seed);
+  if (h < 0.68) return vec3(0, 0, -1);
+  float width = 0.10 + 0.22 * h11(id * 3.1 + seed);
+  float prof = smoothstep(width, width * 0.4, abs(f - 0.5));
+  float streak = fbm2(vec2(th * scale * 18., p.y * 14. - uTime * 1.4));
+  float a = prof * smoothstep(0.25, 0.75, streak) * 1.1;
+  return vec3(a, h, 0.);
+}
+
+vec3 discSide(vec3 p, vec3 n, vec3 rd){
+  float bands = fbm3(vec3(p.xz * 3., p.y * 26.));
+  vec3 rock = mix(vec3(0.30, 0.25, 0.15), vec3(0.50, 0.40, 0.22), bands);
+  rock = mix(rock, vec3(0.18, 0.16, 0.13), smoothstep(-0.18, -0.34, p.y));
+  float th = atan(p.z, p.x);
+  float moss = smoothstep(-0.03 - fbm2s(vec2(th * 40., p.y * 3.)) * 0.14, -0.01, p.y);
+  moss = max(moss, smoothstep(0.6, 0.8, fbm3(p * 14.)) * 0.8);
+  vec3 alb = mix(rock, vec3(0.07, 0.13, 0.05), moss);
+  vec3 c = shade(alb, n, rd);
+  // 폭포
+  vec3 wf = waterfall(p, th, 16.0, 0.0);
+  if (wf.z > -0.5) {
+    float fade = smoothstep(-0.20 - wf.y * 0.10, -0.02, p.y);
+    vec3 wc = vec3(0.40, 0.48, 0.62) * (0.30 + uL * 0.8) + moonCol() * 0.15;
+    c = mix(c, wc, clamp(wf.x, 0., 1.) * fade * 0.7);
+  }
+  return c;
+}
+
+vec3 ringMat(vec3 p, vec3 n, vec3 rd){
+  float k = fbm2(p.xz * 5.);
+  float yl = p.y - ringY(p);
+  vec3 rock = mix(vec3(0.22, 0.22, 0.22), vec3(0.34, 0.32, 0.28), fbm3(p * 20.));
+  vec3 veg = mix(vec3(0.04, 0.08, 0.03), vec3(0.14, 0.22, 0.06), fbm2s(p.xz * 40.));
+  float vm = smoothstep(0.45, 0.6, n.y) * smoothstep(0.35, 0.55, k);
+  vec3 alb = mix(rock, veg, vm);
+  vec3 c = shade(alb, n, rd);
+  // 안쪽 벽 폭포 (오른쪽 큰 폭포)
+  vec3 cc = p - RING_C;
+  float th = atan(cc.z, cc.x);
+  float big = smoothstep(0.10, 0.02, abs(th - 0.42)) * step(length(cc.xz), RING_R);
+  float streak = fbm2(vec2(th * 120., p.y * 10. - uTime * 1.2));
+  c = mix(c, vec3(0.5, 0.58, 0.72) * (0.4 + uL * 1.1), big * (0.5 + 0.5 * streak) * smoothstep(0.5, 0.2, n.y));
+  // 사람 사는 불빛 몇 점
+  float l = step(0.997, h21(floor(p.xz * 260.))) * smoothstep(0.4, 0.7, n.y) * smoothstep(0.3, 0.6, fbm2s(p.xz * 3.));
+  c += vec3(1.0, 0.45, 0.2) * l * 1.2;
+  return c;
+}
+
+vec3 rockMat(int i, vec3 p, vec3 n, vec3 rd){
+  vec3 alb;
+  float top = smoothstep(0.2, 0.7, n.y + (fbm3(p * 12.) - .5) * 0.5);
+  float k = fbm3(p * 18.);
+  if (i == 0) alb = mix(vec3(0.20, 0.21, 0.22), vec3(0.08, 0.20, 0.05), top * 0.8);
+  else if (i == 4) alb = mix(vec3(0.05, 0.25, 0.06), vec3(0.15, 0.40, 0.08), k);
+  else if (i == 5) alb = mix(vec3(0.10, 0.10, 0.30), vec3(0.22, 0.20, 0.55), k);
+  else alb = mix(mix(vec3(0.32, 0.12, 0.07), vec3(0.45, 0.22, 0.10), k), vec3(0.10, 0.16, 0.05), top * 0.5);
+  return shade(alb, n, rd);
+}
+
+vec3 surface(float id, vec3 p, vec3 rd, float t){
+  vec3 n = calcNormal(p, t);
+  if (id < 1.5) {
+    if (n.y > 0.55 && p.y > -0.02) return discTop(p, n, rd);
+    return discSide(p, n, rd);
+  }
+  if (id < 2.5) return ringMat(p, n, rd);
+  return rockMat(int(id - 10. + .5), p, n, rd);
+}
+
+// 수면
+vec3 water(vec3 p, vec3 rd, float t){
+  vec2 q = p.xz;
+  float e = 0.004;
+  vec2 wq = q * 18. + vec2(uTime * 0.05, uTime * 0.03);
+  float h0 = fbm2s(wq), hx = fbm2s(wq + vec2(e * 18., 0)), hz = fbm2s(wq + vec2(0, e * 18.));
+  vec3 n = normalize(vec3(-(hx - h0) * 0.5, 1., -(hz - h0) * 0.5));
+  vec3 rr = reflect(rd, n);
+  float fres = 0.04 + 0.96 * pow(1. - max(dot(n, -rd), 0.), 5.);
+  // 반사: 섬·가장자리·고리를 짧게 다시 추적
+  vec3 refl;
+  vec2 h = march(p + vec3(0, 0.002, 0), rr, 4.0, 60);
+  if (h.x > 0.) {
+    vec3 hp = p + rr * h.x;
+    refl = surface(h.y, hp, rr, h.x);
+  } else {
+    refl = sky(rr, true);
+  }
+  vec4 lc = lakeCloud(p, rr, h.x > 0. ? h.x : 10.);
+  refl = refl * (1. - lc.a) + lc.rgb;
+  vec3 deep = mix(vec3(0.004, 0.012, 0.030), vec3(0.02, 0.07, 0.10), uL);
+  // 가장자리 얕은 물 / 섬 주변 얕은 물
+  float shallow = smoothstep(0.80, 0.98, length(q)) * 0.5 + smoothstep(-0.06, 0.0, islandMask(q)) * 0.5;
+  deep += vec3(0.01, 0.03, 0.03) * shallow * (1. + uL * 2.);
+  vec3 c = mix(deep, refl, clamp(fres * 1.6 + 0.12, 0., 1.));
+  // 섬 불빛 반사 (번진 띠)
+  float city = smoothstep(0.08, -0.04, abs(q.x - ISL.x + 0.05) - 0.12) * smoothstep(0.0, 0.25, q.y - ISL.y) * smoothstep(0.55, 0.2, q.y - ISL.y);
+  c += vec3(0.25, 0.10, 0.04) * city * 0.25 * (0.7 + 0.3 * fbm2s(wq * 0.5));
+  return c;
+}
+
+// 오른쪽 위에서 쏟아지는 빛줄기 (빛 상태)
+vec3 rays(vec2 uv){
+  vec2 o = vec2(1.15, 1.25) * vec2(uRes.x / uRes.y, 1.) * vec2(1.0, 1.0);
+  vec2 d = uv - vec2(uRes.x / uRes.y * 1.05, 1.15);
+  float ang = atan(d.y, d.x);
+  float len = length(d);
+  float s = fbm2s(vec2(ang * 22., 0.)) ;
+  s = smoothstep(0.45, 0.85, s);
+  float fall = exp(-len * 1.1) * smoothstep(0.0, 0.4, len);
+  return vec3(1.0, 0.70, 0.55) * s * fall * 0.22;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy * 2. - uRes) / uRes.y;
+  vec3 fw = normalize(TGT - CAM);
+  vec3 rt = normalize(cross(fw, vec3(0, 1, 0)));
+  vec3 up = cross(rt, fw);
+  vec3 rd = normalize(fw + (uv.x * rt + uv.y * up) * uTanV);
+  moonDir = normalize(fw + (0.015 * rt + 0.80 * up) * uTanV);
+
+  vec2 h = march(CAM, rd, 9.0, 200);
+  vec3 col;
+  float tHit = h.x > 0. ? h.x : 20.;
+  if (h.x > 0.) {
+    vec3 p = CAM + rd * h.x;
+    if (h.y < 1.5 && abs(p.y) < 0.012 && topH(p.xz) == 0. && length(p.xz) < 0.97) col = water(p, rd, h.x);
+    else col = surface(h.y, p, rd, h.x);
+    // 공기 원근
+    col = mix(col, vec3(0.03, 0.05, 0.10) * (1. + uL), 1. - exp(-h.x * 0.06));
+  } else {
+    col = sky(rd, true);
+  }
+  // 낮은 호수 구름 (원반 위)
+  vec4 lc = lakeCloud(CAM, rd, tHit);
+  col = col * (1. - lc.a) + lc.rgb;
+  // 운해
+  vec4 cs = cloudSea(CAM, rd, tHit);
+  col = col * (1. - cs.a) + cs.rgb;
+
+  // 달 블룸 (가림과 무관하게 얹는다)
+  float a = acos(clamp(dot(rd, moonDir), -1., 1.));
+  col += vec3(0.25, 0.55, 0.70) * exp(-a * 60.) * 0.6 * (h.x > 0. ? 0.6 : 0.);
+  col += rays(uv) * uL;
+
+  col *= uExpo * mix(1.0, 1.55, uL);
+  col = 1. - exp(-col * 1.25);
+  col = pow(col, vec3(1. / 2.2));
+  // 비네트
+  vec2 vq = gl_FragCoord.xy / uRes - .5;
+  col *= 1. - dot(vq, vq) * 0.6;
+  col += (h21(gl_FragCoord.xy + fract(uTime)) - .5) / 255.;
+  outColor = vec4(col, 1.);
+}`;
+
+  // ── 조절값 ──
+  const q = new URLSearchParams(location.search);
+  const num = (k, d) => { const v = q.get(k); return v != null && v !== '' && isFinite(+v) ? +v : d; };
+  const CFG = {
+    EXPO: 1,
+    SCALE: num('scale', 0.6),
+    FIXED_T: q.has('t') ? num('t', 0) : null,
+    FADE: 1.6,          // 빛 전환 시간(초)
+    TAN_V: 0.43,        // 세로 반화각 tan (넓은 화면 기준)
+    TAN_H_MIN: 0.62,    // 가로 반화각 tan 최소값 (좁은 화면에서 원반이 덜 잘리게)
+    TAN_V_MAX: 0.85,    // 세로 반화각 tan 상한 (세로 화면 왜곡 방지, 대신 원반 좌우가 조금 잘림)
+  };
+  const RM = matchMedia('(prefers-reduced-motion: reduce)');
+
+  const cv = document.getElementById('gl');
+  const gl = cv.getContext('webgl2', { antialias: false, depth: false, stencil: false });
+  if (!gl) { document.body.insertAdjacentHTML('beforeend', '<p class="err">WebGL2를 쓸 수 없습니다</p>'); return; }
+  function sh(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const aLoc = gl.getAttribLocation(prog, 'a');
+  gl.enableVertexAttribArray(aLoc);
+  gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+  const U = {};
+  for (const n of ['uRes', 'uTime', 'uL', 'uExpo', 'uTanV']) U[n] = gl.getUniformLocation(prog, n);
+
+  // ── 빛 토글 ──
+  let light = q.get('light') === '1';
+  let L = light ? 1 : 0, Lfrom = L, Lt0 = 0;
+  const btn = document.getElementById('toggle');
+  function syncBtn() {
+    btn.setAttribute('aria-pressed', String(light));
+    btn.setAttribute('aria-label', light ? '빛 끄기' : '빛 켜기');
+  }
+  function toggle() {
+    light = !light; Lfrom = L; Lt0 = performance.now();
+    syncBtn(); kick();
+  }
+  btn.addEventListener('click', toggle);
+  addEventListener('keydown', e => { if (e.key === 'l' || e.key === 'L') toggle(); });
+  syncBtn();
+
+  function resize() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.round(innerWidth * dpr * CFG.SCALE));
+    const h = Math.max(1, Math.round(innerHeight * dpr * CFG.SCALE));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    gl.viewport(0, 0, w, h);
+  }
+  addEventListener('resize', () => { resize(); kick(); });
+
+  const t0 = performance.now();
+  let raf = 0;
+  function frame(now) {
+    raf = 0;
+    const target = light ? 1 : 0;
+    if (L !== target) {
+      const k = RM.matches ? 1 : Math.min(1, (now - Lt0) / (CFG.FADE * 1000));
+      const e = k * k * (3 - 2 * k);
+      L = Lfrom + (target - Lfrom) * e;
+      if (k >= 1) L = target;
+    }
+    const t = CFG.FIXED_T != null ? CFG.FIXED_T : (now - t0) / 1000;
+    const aspect = cv.width / cv.height;
+    gl.uniform2f(U.uRes, cv.width, cv.height);
+    gl.uniform1f(U.uTime, t);
+    gl.uniform1f(U.uL, L);
+    gl.uniform1f(U.uExpo, CFG.EXPO);
+    gl.uniform1f(U.uTanV, Math.min(CFG.TAN_V_MAX, Math.max(CFG.TAN_V, CFG.TAN_H_MIN / aspect)));
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    // 시간 고정·동작 줄이기에선 빛 전환이 끝나면 멈춘다
+    const still = CFG.FIXED_T != null || RM.matches;
+    if (!still || L !== target) kick();
+  }
+  function kick() { if (!raf) raf = requestAnimationFrame(frame); }
+  resize(); kick();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
+
+  // ── 조절 패널 ──
+  const bind = (id, key, fmt, after) => {
+    const el = document.getElementById(id), out = document.getElementById('v-' + id);
+    el.value = CFG[key];
+    const upd = () => { CFG[key] = +el.value; out.textContent = fmt(CFG[key]); if (after) after(); kick(); };
+    el.addEventListener('input', upd); upd();
+  };
+  bind('expo', 'EXPO', v => v.toFixed(2));
+  bind('scale', 'SCALE', v => v.toFixed(2), resize);
+
+  window.__LAND__ = { cfg: CFG, toggle, get light() { return light; } };
+})();
+</script>
+</body>
+</html>
