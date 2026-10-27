@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 540" width="500" height="540">
+  <rect width="500" height="540" fill="#FFF6C8"/>
+  <g transform="rotate(-22 250 250)">
+    <!-- 맨 아래 팬케이크 -->
+    <ellipse cx="250" cy="350" rx="172" ry="69" fill="#F8C98E"/>
+    <!-- 아래 팬케이크 -->
+    <ellipse cx="250" cy="335" rx="170" ry="68" fill="#FBDDB6"/>
+    <rect x="80" y="275" width="340" height="60" fill="#FBDDB6"/>
+    <ellipse cx="250" cy="275" rx="170" ry="68" fill="#F8C98E"/>
+    <!-- 위 팬케이크 -->
+    <ellipse cx="245" cy="255" rx="162" ry="64" fill="#FCE2C0"/>
+    <rect x="83" y="190" width="324" height="65" fill="#FCE2C0"/>
+    <ellipse cx="245" cy="190" rx="162" ry="64" fill="#F7C07A"/>
+    <!-- 윗면 살짝 하이라이트 -->
+    <ellipse cx="230" cy="180" rx="120" ry="40" fill="#F9CB8C" opacity="0.6"/>
+    <!-- 버터 -->
+    <g transform="rotate(-8 245 185)">
+      <rect x="208" y="170" width="74" height="30" rx="5" fill="#F3DFB0"/>
+      <rect x="208" y="164" width="74" height="28" rx="5" fill="#FFF4DC"/>
+      <rect x="216" y="169" width="30" height="6" rx="3" fill="#FFFFFF" opacity="0.8"/>
+    </g>
+  </g>
+</svg>
