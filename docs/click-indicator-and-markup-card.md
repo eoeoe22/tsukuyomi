@@ -4,9 +4,10 @@
 장면 위 랜드마크(토리이, 달, 미러볼) 옆에 **클릭 인디케이터**가 떠 있고, 누르면 카메라가 그쪽으로 확대된다.
 확대된 랜드마크 옆에는 **설명카드**가 붙는다. 카드 본문은 위키 문법(`cards/*.wiki`)으로 쓰고, 경량 마크업 엔진이 렌더한다.
 
-> **현재 상태:** `6cb343a 새 장면 통합`(2026-10-17)에서 장면 코드에서 빠졌다.
-> 아래 내용은 그 직전 커밋(`6cb343a^`)을 기준으로 정리했다.
-> 마크업 엔진은 별도 레포지토리로 분리하려고 `markup/`에 보관 중이며, `public/`에서는 참조하지 않는다.
+> **현재 상태:** `6cb343a 새 장면 통합` · `62f1e68 mount 새 장면 통합`(2026-10-17)에서 `tsukuyomi.html`에서 빠졌다
+> (앞 커밋: focus.js·카드 원문 삭제, 마크업 이동 / 뒤 커밋: CSS·HTML·디버그 미리보기·감상 모드 토글 삭제).
+> 2~6장은 그 직전 커밋(`6cb343a^` = `f713cb7`)을 기준으로 정리했다.
+> **허브 페이지 `/hub`(`public/hub.html`)로 다시 살렸다.** 바뀐 점은 7장을 본다.
 
 ---
 
@@ -487,3 +488,55 @@ window.TsukuyomiMarkup.extractMeta(src)                // 렌더 없이 :::meta 
    - `git show 6cb343a^:public/cards/{kind}.wiki`로 꺼낼 수 있다.
 6. **회피 영역**
    - 랜턴 회피 영역(`LANTERN_CARD_AVOID`, `measureCardZone`)은 하단 조절 패널용이다. 이 설명카드와는 관계없다.
+
+---
+
+## 7. 허브 페이지 (`/hub`)
+
+`tsukuyomi.html`과 같은 세계들(月·海·山·地·八·犬, `tsukuyomi.worlds.js`)을 그대로 띄우고, 그 위에 인디케이터·확대·설명카드를 얹은 별도 페이지다.
+
+### 7.1 파일
+
+| 파일 | 역할 |
+| --- | --- |
+| `public/hub.html` | `tsukuyomi.html` + `#focusUi`(뒤로가기·카드). 핀은 JS가 만든다 |
+| `public/tsukuyomi.hub.js` | 예전 `tsukuyomi.focus.js`를 세계별 등록 방식으로 바꾼 것 |
+| `public/tsukuyomi.hub.css` | 예전 `tsukuyomi.css`의 포커스 UI 블록 |
+| `public/components/tsukuyomi.markup.js` / `.css` | `markup/`의 복사본 |
+| `public/cards/{torii,moon,mirror,takenoko}.wiki` | 카드 원문 (지금은 임시 문구) |
+| `preview-worker.js` | `/hub` → `hub.html`, `/hub/` → `/hub` 리디렉션 |
+
+### 7.2 세계별 등록
+
+```js
+TsukuyomiHub.register(worldId, {
+  camera: () => 어댑터 | null,   // { get(), set(f, m, s, info), clear(), cover, prof? }
+  landmarks: [{ id, name, scale, follow, get() }],   // get() → { x, y, ext: {l, r, t, b}, visible } (css px, 카메라 적용 전)
+});
+```
+
+- 핀은 지금 세계(`__TSUKUYOMI_WORLDS__.world`)의 랜드마크만 보인다. 세계 전환 중에도 숨긴다.
+- 확대 중에 해시 변경·뒤로 가기로 세계가 바뀌면 애니메이션 없이 바로 카메라를 걷는다.
+- 핀 위치는 랜드마크 왼쪽 가장자리(`x − ext.l − 22`), 세로 중심. 예전과 같은 식이다.
+- `cover: true`인 카메라만 화면 밖이 보이지 않게 배율 하한(`coverScale`)을 둔다.
+- `follow: true`인 랜드마크는 카메라가 매 프레임 랜드마크를 따라간다. 복귀할 때는 따라가기를 멈춘다.
+
+| 세계 | 랜드마크 | 카메라 |
+| --- | --- | --- |
+| 月 `moon` | `torii`(1.8) · `moon`(2.4) · `mirror`(2.4) | 엔진 인-캔버스 카메라 (예전과 같음) |
+| 地 `earth` | `takenoko`(5, follow) | 지구 셰이더 카메라 (`TsukuyomiEarth.setCamView`) |
+| 海 `sea` | 없음 | 엔진 카메라 |
+| 山 `mount` · 八 `room` · 犬 `news` | 없음 | `cssCamera`: `.world-view`에 CSS 변환 (비트맵 확대) |
+
+새 랜드마크를 붙이려면 `tsukuyomi.hub.js` 맨 아래 등록부의 `landmarks` 배열에 항목을 넣고 `cards/{id}.wiki`를 만든다.
+
+### 7.3 예전과 달라진 점
+
+- **엔진**: 카메라 API와 랜드마크 getter는 그대로 남아 있었다. `overUI` 선택자에 `.focus-ui`만 다시 넣었다.
+- **배경화면 감상 모드 토글**(`btnWallpaper`, `data-wallpaper`)은 없어졌다. 허브에서는 핀이 항상 보인다.
+- **지구 셰이더 카메라**:
+  - 화면 좌표를 `ps = F + (ps0 − M) / S`로 되돌린다.
+  - 픽셀 크기에 기대는 값(구름 AA `fp`, 태양 테두리 `aa`, 죽순 림 `px`)은 `S`로 나눈다.
+- **죽순 핀**: 인트로가 85% 지나 죽순이 자리를 잡은 뒤에 보인다. 범위는 텍스처 안 실제 윤곽 비율로 줄인 회전 사각형의 AABB다.
+- **디버그 패널 "카드 미리보기"**: `__TSUKUYOMI_CARD__`가 있을 때(허브)만 보이고, 다른 페이지에서는 섹션째 뺀다.
+

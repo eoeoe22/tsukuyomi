@@ -1,6 +1,8 @@
 # 경량 마크업 엔진 (tsukuyomi.markup.js)
 
-> 별도 레포지토리로 분리하기 위해 보관 중인 폴더다. `public/`(tsukuyomi 페이지)에서는 더 이상 참조하지 않는다.
+> 별도 레포지토리로 분리하기 위해 보관 중인 폴더다. `public/`에서는 이 폴더를 직접 참조하지 않는다.
+> 허브 페이지(`public/hub.html`)는 복사본 `public/components/tsukuyomi.markup.js` / `.css`를 쓴다. 고치면 둘 다 갱신한다.
+> 카드 원문은 `public/cards/{id}.wiki`(id: `torii` `moon` `mirror` `takenoko`).
 > 아래 문법 설명 중 "카드"는 예전 랜드마크 카드(`#focusCard`, 폭 340px)를 기준으로 쓴 것이다.
 
 렌더러는 `tsukuyomi.markup.js`(+ `tsukuyomi.markup.css`)이고, Cloudwiki 문법에서 위키 전용 기능을 뺀 포크다.

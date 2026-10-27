@@ -5,6 +5,8 @@
  * - 죽순: 회전하는 죽순.html 로직을 오프스크린 캔버스로 그려 텍스처로 합성 (역광 실루엣 + 림라이트)
  * - 조절값은 초안 조절 패널의 기본값(CFG). 콘솔: __EARTH__.cfg, ?earthT=초 로 시간 고정(캡처용)
  * WebGL2가 없으면 TsukuyomiEarth를 만들지 않는다(전환이 실패하고 지금 세계에 남는다).
+ * 허브 페이지(hub.html, tsukuyomi.hub.js)용으로 죽순 좌표(takenoko)와 카메라(setCamView/clearCam/getCamView)를 내보낸다.
+ *   카메라는 셰이더가 화면 좌표를 되돌려 픽셀마다 다시 계산하므로 확대해도 네이티브 해상도다.
  */
 (() => {
   'use strict';
@@ -192,6 +194,8 @@
   uniform float uSpin;      // 지구 자전각
   uniform sampler2D uTk;
   uniform vec2 uTkC; uniform float uTkH, uTkA, uTkAsp;
+  uniform vec2 uCamF, uCamM; // 카메라 (화면 좌표): 화면 = M + S·(장면 − F). 기본 F = M = 0, S = 1
+  uniform float uCamS;
   out vec4 o;
 
   const float PI = 3.14159265;
@@ -298,7 +302,7 @@
     vec2 sunS = uSunP - uDrift;
     vec2 toSun = normalize(sunS - uTkC);
     // 안쪽 픽셀(불투명)에서 태양 쪽으로 몇 px 나가면 바깥 → 태양 쪽 가장자리. 반투명 외곽 픽셀은 제외해 반대쪽에 테두리가 생기지 않게
-    float px = 2. / uRes.y;
+    float px = 2. / uRes.y / uCamS;
     float a2 = tkSample(tkUV(ps + toSun * max(uTkH * .03, 1.5 * px))).a;
     float a3 = tkSample(tkUV(ps + toSun * max(uTkH * .07, 3.5 * px))).a;
     float inner = smoothstep(.6, .95, tk.a);
@@ -311,7 +315,8 @@
   }
 
   void main(){
-    vec2 ps = (2. * gl_FragCoord.xy - uRes) / uRes.y;   // 화면 좌표 (세로 -1..1)
+    vec2 ps0 = (2. * gl_FragCoord.xy - uRes) / uRes.y;  // 화면 좌표 (세로 -1..1)
+    vec2 ps = uCamF + (ps0 - uCamM) / uCamS;             // 카메라 확대를 되돌린 화면 좌표 (확대가 없으면 ps0)
     vec2 p = ps + uDrift;                                // 장면 좌표
     vec3 rd = normalize(vec3(p * uTanH, -1.));
     vec3 ro = vec3(0.);
@@ -337,7 +342,7 @@
       vec3 Nr = vec3(cs * N.x + sn * N.z, N.y, -sn * N.x + cs * N.z);
       // 태양이 떠오르는 지점 주변은 구름을 성기게 (장면 고정 좌표라 태양이 움직여도 구름은 그대로)
       // 픽셀 하나가 덮는 표면 길이: 시야각/픽셀 × 거리, 테두리 쪽은 비스듬해 늘어남 (압축 방향 과보정 완화로 지수 .7)
-      float fp = 2. * uTanH / uRes.y * ip.x / pow(max(dot(N, -rd), .02), .7);
+      float fp = 2. * uTanH / uRes.y / uCamS * ip.x / pow(max(dot(N, -rd), .02), .7);
       float cl = clouds(Nr, fp, dot(N, -rd), .75 * exp(-length(p - uSunEndP) / .35));
       float land = smoothstep(.52, .56, fbm(Nr * 1.4 + 11., 5));
       vec3 alb = mix(vec3(.004, .011, .026), vec3(.035, .036, .030), land);
@@ -402,7 +407,7 @@
     vec2 dS = p - uSunP; float r = length(dS);
     vec3 warm = vec3(1., .78, .52);
     // 태양 본체는 항상 지구 뒤: 시선이 지구 중심을 스치는 거리로 테두리 마스크 (1px 안티에일리어싱)
-    float aa = 1.5 * uTanH * 2. / uRes.y * length(uE);
+    float aa = 1.5 * uTanH * 2. / uRes.y / uCamS * length(uE);
     float behind = smoothstep(uR - aa, uR + aa, ca);
     float disc = smoothstep(.07, .0476, r) * behind;   // 원판 반지름 1.4배
     col += uVis * disc * 7. * mix(warm, vec3(1., .97, .92), .7);
@@ -504,7 +509,7 @@
   gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
   const U = {};
   for (const n of ['uRes', 'uTime', 'uTanH', 'uE', 'uR', 'uRa', 'uSun', 'uSunP', 'uSunEndP', 'uVis', 'uRevealed', 'uSpread', 'uRim', 'uGlow', 'uDrift', 'uExpo', 'uSpin',
-                   'uTk', 'uTkC', 'uTkH', 'uTkA', 'uTkAsp']) U[n] = gl.getUniformLocation(prog, n);
+                   'uTk', 'uTkC', 'uTkH', 'uTkA', 'uTkAsp', 'uCamF', 'uCamM', 'uCamS']) U[n] = gl.getUniformLocation(prog, n);
 
   const tk = createTakenoko(2);
   const tkTex = gl.createTexture();
@@ -521,6 +526,39 @@
 
   let introStart = 0, tkRot = 0, lastT = null, revealed = 0;
   let running = false, raf = 0;
+
+  // ── 카메라 (허브 페이지 hub.html의 랜드마크 확대, tsukuyomi.hub.js가 구동) ──
+  // css px 기준 screen = m + s·(world − f). 셰이더가 픽셀마다 다시 계산하므로 확대해도 네이티브 해상도다.
+  // follow: f를 매 프레임 죽순 중심으로 맞춘다(죽순이 부유해도 화면의 같은 자리에 머문다).
+  let cam = null;            // null | { fx, fy, mx, my, s, follow }
+  let lastTk = null;         // 마지막 프레임의 죽순 { c: [x, y] 화면 좌표, h, a, t }
+  const cssToPs = (x, y) => [(2 * x - innerWidth) / innerHeight, (innerHeight - 2 * y) / innerHeight];
+  const psToCss = (x, y) => ({ x: (x * innerHeight + innerWidth) / 2, y: (innerHeight - y * innerHeight) / 2 });
+  function setCamView(f, m, s, o) {
+    s = Math.max(1, +s || 1);
+    cam = { fx: f.x, fy: f.y, mx: m.x, my: m.y, s, follow: !!(o && o.follow) };
+  }
+  function clearCam() { cam = null; }
+  function camFocus() {
+    if (!cam) return null;
+    if (cam.follow && lastTk) return psToCss(lastTk.c[0], lastTk.c[1]);
+    return { x: cam.fx, y: cam.fy };
+  }
+  function getCamView() { return cam ? { f: camFocus(), m: { x: cam.mx, y: cam.my }, s: cam.s } : null; }
+  // 죽순 화면 좌표 (css px, 카메라 적용 전). 인트로가 거의 끝나 자리를 잡은 뒤에만 visible
+  const TK_FILL_H = 400 / 440, TK_FILL_W = 228 / 300;   // 텍스처 안 실제 죽순이 차지하는 비율 (createTakenoko의 윤곽)
+  function takenoko() {
+    if (!lastTk) return { x: 0, y: 0, ext: { l: 0, r: 0, t: 0, b: 0 }, visible: false };
+    const c = psToCss(lastTk.c[0], lastTk.c[1]);
+    const u = innerHeight / 2;
+    const hh = lastTk.h * u * TK_FILL_H, hw = lastTk.h * tk.aspect * u * TK_FILL_W;
+    const ca = Math.abs(Math.cos(lastTk.a)), sa = Math.abs(Math.sin(lastTk.a));
+    const ex = ca * hw + sa * hh, ey = sa * hw + ca * hh;
+    return {
+      x: c.x, y: c.y, ext: { l: ex, r: ex, t: ey, b: ey },
+      visible: running && lastTk.t >= INTRO_LEN * 0.85,
+    };
+  }
 
   function resize() {
     const dpr = window.devicePixelRatio || 1;
@@ -599,6 +637,17 @@
     gl.uniform1f(U.uTkH, tkH);
     gl.uniform1f(U.uTkA, tkA);
     gl.uniform1f(U.uTkAsp, tk.aspect);
+    lastTk = { c: tkC, h: tkH, a: tkA, t };
+    if (cam) {
+      const cf = cam.follow ? tkC : cssToPs(cam.fx, cam.fy);
+      gl.uniform2fv(U.uCamF, cf);
+      gl.uniform2fv(U.uCamM, cssToPs(cam.mx, cam.my));
+      gl.uniform1f(U.uCamS, cam.s);
+    } else {
+      gl.uniform2f(U.uCamF, 0, 0);
+      gl.uniform2f(U.uCamM, 0, 0);
+      gl.uniform1f(U.uCamS, 1);
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -623,12 +672,16 @@
   }
   function stop() {
     running = false;
+    cam = null; lastTk = null;
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
   }
 
   window.TsukuyomiEarth = {
     start, stop,
     get running() { return running; },
+    // 허브 페이지(tsukuyomi.hub.js)용: 랜드마크 좌표와 카메라
+    get takenoko() { return takenoko(); },
+    setCamView, clearCam, getCamView,
   };
   window.__EARTH__ = {
     cfg: CFG, replay,

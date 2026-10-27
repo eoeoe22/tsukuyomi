@@ -20,5 +20,6 @@
   - 예: 야치요의 방 랜턴이 `examples/` 정리 후 404로 로드되지 않았던 문제.
 - 장면이 실제로 쓰는 외부 파일(iframe 컴포넌트, 라이브러리 등)은 `public/components/`에 **복사본**을 두고 그 경로를 참조.
   - 현재 목록: `lantern-frustum.html`(사각뿔대 랜턴), `lantern-cylinder.html`(원통 스탠딩 랜턴 수평투영), `yachiroom.umd.js` — 모두 `tsukuyomi.room.js`가 사용.
+  - `tsukuyomi.markup.js` / `.css`(설명카드 렌더러) — `hub.html`이 사용. 원본은 `markup/`(별도 레포 분리용 보관), 고치면 둘 다 갱신.
   - 초안을 고친 뒤 장면에 반영하려면 `components/`의 복사본도 함께 갱신.
 - 경로를 추가·이동했으면 `node scripts/check-public-paths.mjs`로 점검(임시 폴더 참조·없는 파일 참조를 잡아냄, 의존성 없음).
