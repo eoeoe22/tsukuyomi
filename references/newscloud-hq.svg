@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="320" height="320">
+  <rect width="160" height="160" fill="#2c6a7b"/>
+  <g fill="#eef4f3">
+    <!-- 위쪽 짧은 막대 -->
+    <rect x="58" y="52" width="64" height="12" rx="6"/>
+    <!-- 위쪽 기둥 (중심 x=100, 양쪽 반원 홈) -->
+    <path d="M90 63.5 V64 A5 5 0 0 1 90 74 V74.5 H110 V74 A5 5 0 0 1 110 64 V63.5 Z"/>
+    <!-- 가운데 긴 막대 -->
+    <rect x="18" y="74" width="124" height="12" rx="6"/>
+    <!-- 아래쪽 기둥 (중심 x=46, 양쪽 반원 홈) -->
+    <path d="M36 85.5 V86 A5 5 0 0 1 36 96 V96.5 H56 V96 A5 5 0 0 1 56 86 V85.5 Z"/>
+    <!-- 아래쪽 막대 -->
+    <rect x="22" y="96" width="66" height="12" rx="6"/>
+  </g>
+</svg>
