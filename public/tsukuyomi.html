@@ -37,7 +37,7 @@
             <canvas id="earthScene" aria-hidden="true"></canvas>
         </div>
     </div>
-    <!-- 八: 야치요의 방 장면 (tsukuyomi.room.js, 처음 필요할 때 로드). 경로는 #room. 단일 장면이라 조절 버튼 없음 -->
+    <!-- 八: 야치요의 방 장면 (tsukuyomi.room.js, 처음 필요할 때 로드). 경로는 #room. 조절 버튼은 병풍 정면 뷰 토글 하나 -->
     <div class="world" id="worldRoom" hidden>
         <div class="world-view">
             <canvas id="roomScene" aria-hidden="true"></canvas>
@@ -104,7 +104,10 @@
         <section class="panel is-night" id="earthPanel" aria-label="지구 장면"></section>
     </div>
     <div class="dock" id="roomDock" hidden>
-        <section class="panel is-night" id="roomPanel" aria-label="야치요의 방"></section>
+        <section class="panel is-night" id="roomPanel" aria-label="야치요의 방">
+            <button type="button" id="btnRoomFront" class="wallpaper-toggle" aria-label="병풍 정면 뷰"
+                aria-pressed="false"><i class="bi bi-layout-three-columns" aria-hidden="true"></i></button>
+        </section>
     </div>
     <div class="dock" id="newsDock" hidden>
         <section class="panel is-night" id="newsPanel" aria-label="뉴스 츠쿠요미"></section>

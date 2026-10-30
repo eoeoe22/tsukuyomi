@@ -25,7 +25,9 @@ const ZW = -14.5;
 // 우측 단 (상단): x DX0 ~ 오른쪽 벽, 높이 DH, 뒷벽부터 화면 앞(DZ1)까지
 const DX0 = 3.9, DH = 0.3, DZ1 = -5;
 const baseY = x => x > DX0 ? DH : 0;
-const proj = (x, y, z) => [CX + F * x / -z, CY - F * (y - EYE) / -z];
+const projMain = (x, y, z) => [CX + F * x / -z, CY - F * (y - EYE) / -z];
+// 지금 그리는 시점의 투영. 병풍 정면 뷰를 구울 때만 잠시 projFront로 바꾼다(buildFront)
+let proj = projMain;
 const kAt = z => F / -z;
 const deg = r => r * 180 / Math.PI;
 let D = null;
@@ -305,11 +307,13 @@ function byoAffine(g, P) {
 }
 // 청해파 타일: 붙여주신 SVG와 같은 원 9겹·색. 가로 170·세로 85 단위가 한 주기 → 이음매 없이 반복.
 // 아래 줄이 위 줄을 덮도록 y 순서대로 그린다. 화면에 맺힐 크기로 바로 래스터화해 축소 무아레를 피한다
-let byoTile = null;
-function byoPattern(g) {
-  const kM = kAt(-14), Wt = Math.max(8, 2 * Math.round(BYO.wave * kM * dpr / 2)), Ht = Wt / 2;
-  if (!byoTile || byoTile.width !== Wt) {
-    byoTile = document.createElement('canvas'); byoTile.width = Wt; byoTile.height = Ht;
+// kM: 병풍 자리의 화면 px/m (시점마다 다르다. 정면 뷰는 buildFront에서 넘긴다)
+const byoTiles = new Map();
+function byoPattern(g, kM = kAt(-14)) {
+  const Wt = Math.max(8, 2 * Math.round(BYO.wave * kM * dpr / 2)), Ht = Wt / 2;
+  let byoTile = byoTiles.get(Wt);
+  if (!byoTile) {
+    byoTile = document.createElement('canvas'); byoTile.width = Wt; byoTile.height = Ht; byoTiles.set(Wt, byoTile);
     const t = byoTile.getContext('2d'), s = Wt / 170;
     t.scale(s, s);
     const R = [85, 75.6, 66.1, 56.7, 47.2, 37.8, 28.3, 18.9, 9.4];
@@ -325,8 +329,8 @@ function byoPattern(g) {
   pat.setTransform(new DOMMatrix([m, 0, 0, -m, 0, BYO.h]));
   return pat;
 }
-function byobu(g) {
-  const { edge: e, frame: f, w, h } = BYO, pat = byoPattern(g);
+function byobu(g, kM) {
+  const { edge: e, frame: f, w, h } = BYO, pat = byoPattern(g, kM);
   for (const P of BYO_P) {
     // 바닥 닿는 그늘 (앞면 쪽 얇은 띠)
     const s = P.front ? 1 : -1, sh = [[0, 0], [w, 0], [w, 0.14], [0, 0.14]].map(([u, k]) => proj(P.p[0] + P.dir[0] * u + s * P.n[0] * k, P.y0 + 0.012, P.p[1] + P.dir[1] * u + s * P.n[1] * k));
@@ -364,6 +368,57 @@ for (const sd of [-1, 1]) LANTERNS.push({ type: 'cy', x: sd * 5.5, z: -15.9, h: 
 const SQX = [-3.5, -1.75, 0, 1.75, 3.5];
 for (const z of [-15.4, -7.9]) for (const x of SQX) LANTERNS.push({ type: 'sq', x, z, h: 0.5 });
 LANTERNS.forEach(L => { L.d = -L.z; L.k = kAt(L.z); L.y0 = baseY(L.x); });
+
+// ===== 병풍 정면 뷰 (참고 이미지 yachiyoroom3) =====
+// 단 앞 바닥에 서서 +x(병풍)를 똑바로 본다. 화면 오른쪽 = +z(방 앞쪽). 세로선이 서도록 고개는 숙이지 않고 화면 중심만 위로 옮긴다(렌즈 시프트).
+// 병풍이 화면 폭을 거의 채우고, 아랫단에 단 앞 귀틀이 걸리게 눈높이·거리를 잡았다. 원통 등(5.5, −15.9)은 왼쪽 앞에 그대로 보이고,
+// 오른쪽 거울상 자리에 이 뷰에만 있는 등을 하나 더 둔다(FRONT_EXTRA)
+const FV = (() => {
+  const zs = BYO_P.flatMap(P => [P.p[1], P.q[1]]);
+  return { x: 1.4, y: 1.3, z: (Math.min(...zs) + Math.max(...zs)) / 2, F: 1380, CX: 800, CY: 322 };
+})();
+const projFront = (x, y, z) => { const d = Math.max(0.05, x - FV.x); return [FV.CX + FV.F * (z - FV.z) / d, FV.CY - FV.F * (y - FV.y) / d]; };
+const kFront = x => FV.F / (x - FV.x);
+// 병풍 뒤로 보이는 오른쪽 옆벽(x = HX): 먼 칸 회벽, ZW부터 앞은 밖으로 트인 개구(밤하늘), 가모이 위는 란마 띠
+function frontWall(g) {
+  const x = HX, Z1 = DZ1;
+  g.fillStyle = '#120d09'; g.fillRect(0, 0, W, H);
+  poly(g, [proj(x, DH, ZB), proj(x, DH, ZW), proj(x, YK, ZW), proj(x, YK, ZB)], '#4c3f31');
+  poly(g, [proj(x, DH, ZB), proj(x, DH, ZW), proj(x, 0.9, ZW), proj(x, 0.9, ZB)], '#3a2f24');
+  const sk = g.createLinearGradient(0, proj(x, YK, ZW)[1], 0, proj(x, DH, ZW)[1]);
+  sk.addColorStop(0, '#113154'); sk.addColorStop(1, '#0d2441');
+  const op = [proj(x, DH, ZW), proj(x, DH, Z1), proj(x, YK, Z1), proj(x, YK, ZW)];
+  poly(g, op, sk);
+  g.save(); pathPts(g, op); g.clip();
+  const r = mulberry32(17);
+  for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(220,230,255,${0.2 + r() * 0.5})`; g.fillRect(r() * W, r() * H * 0.5, 1.2, 1.2); }
+  g.restore();
+  poly(g, [proj(x, YK, ZB), proj(x, YK, Z1), proj(x, YC, Z1), proj(x, YC, ZB)], '#1a1510');
+  for (const z of [ZW, -11.5]) poly(g, [proj(x - 0.36, 0, z - 0.18), proj(x - 0.36, 0, z + 0.18), proj(x - 0.36, YC, z + 0.18), proj(x - 0.36, YC, z - 0.18)], '#3d2a1b', 'rgba(0,0,0,0.35)', 0.8);
+  poly(g, [proj(x - 0.18, YK - 0.12, ZB), proj(x - 0.18, YK - 0.12, Z1), proj(x - 0.18, YK + 0.12, Z1), proj(x - 0.18, YK + 0.12, ZB)], '#4a3421');
+}
+// 정면 뷰 정적 레이어(어둡게 하기 전 표면색 → 빛 반사용, 어둡게 한 것 → 바탕). 처음 필요할 때 한 번 굽는다
+let front = null;
+function buildFront() {
+  const [bc, bg] = mkLayer();
+  const nTags = TAGS.length;
+  proj = projFront;
+  try { frontWall(bg); dais(bg); byobu(bg, kFront(BYO.x0)); } finally { proj = projMain; TAGS.length = nTags; }
+  const [ac, ag] = mkLayer();
+  ag.drawImage(bc, 0, 0, W, H);
+  ag.globalCompositeOperation = 'screen'; ag.fillStyle = 'rgb(110,100,90)'; ag.fillRect(0, 0, W, H);
+  darken(bg);
+  // 보이는 원통 등 (몸통이 원통이라 정면 그림을 그대로 크게 쓴다. 이미지가 SVG라 키워도 선명하다)
+  const lamps = [];
+  for (const L of LANTERNS.concat(FRONT_EXTRA)) {
+    if (L.type !== 'cy' || !L.img || L.x - FV.x < 0.5) continue;
+    const [sx, sy] = projFront(L.x, L.y0, L.z), k = kFront(L.x), c = L.cyg, m = (k * L.h / c.units) / c.S;
+    const P = { ...L, sx, sy, k, m, d: L.x - FV.x, eye: FV.y - L.y0, dx: sx - c.ax * m, dy: sy - c.ay * m, dw: c.W * m, dh: c.H * m };
+    if (P.dx > W || P.dx + P.dw < 0) continue;
+    lamps.push(P);
+  }
+  front = { base: bc, alb: ac, lamps };
+}
 
 // 장면이 쓰는 외부 파일은 components/에만 둔다(examples/·reference-images/는 수시로 바뀌는 임시 폴더).
 // iframe은 404여도 onload가 불리므로 __api 존재로 성공을 판정해 원인 메시지를 남긴다.
@@ -465,7 +520,7 @@ async function buildLanterns() {
 // 방 안쪽은 볼록 상자라 평면마다 화면 영역으로 잘라 그리면 모서리 경계도 맞는다.
 let CYD = null, albedo = null, litLayer = null;
 // 도는 종이창 무늬: 등 표면용(LMOT, 랜턴 예제 그대로)·벽 투영용(WALL_MOTIFS, 재배치본), 1회전 초
-let LMOT = [], MCOL = null, SPIN_PERIOD = 16, WALL_MOTIFS = [], paperLayer = null, paperSp = null, ALB = null, PBUF = null;
+let FRONT_EXTRA = [], LMOT = [], MCOL = null, SPIN_PERIOD = 16, WALL_MOTIFS = [], paperLayer = null, paperSp = null, ALB = null, PBUF = null, GLP = null;
 const PAT = {
   col: '255,170,95',
   star: 0.2, starFall: 0.7, starLift: 0.75,   // 위 띠 육각별: 천장·윗벽 넓게, 흐리게. starLift: 종이창 띠 위로 밀어 올림
@@ -489,6 +544,8 @@ const PAT = {
   // byoTMAX: 무늬가 닿는 거리(끝 30%에서 서서히 사라짐), byoDepth: 투영할 때 쓰는 최소 깊이(m). 실제보다 깊게 잡아 스치는 각을 완만하게
   byoTMAX: 4.2, byoDepth: 2.4,
   D0: 1.6, TMAX: 30,
+  // WebGL 종이창 빛: 해상도(장면 기기 px 대비, 원래 2.5px 블러를 거치던 층이라 낮춰도 티가 덜 난다) / 소프트웨어 WebGL도 쓸지(시험용)
+  glScale: 0.5, glSoftware: false,
 };
 const SURF_ALL = (() => {
   const B = ZB, Z1 = -9;
@@ -716,11 +773,24 @@ function buildPatterns() {
     lg.drawImage(oc, 0, 0, W, H); lg.filter = 'none';
     lg.globalCompositeOperation = 'source-over';
   }
+  // 병풍 정면 뷰에만 있는 등: 보이는 원통 등을 병풍 가운데(z = FV.z) 기준으로 거울상 자리에 하나 더 둬 좌우대칭으로 만든다
+  FRONT_EXTRA = LANTERNS.filter(L => L.type === 'cy' && L.x - FV.x > 0.5).map(L => {
+    const V = { ...L, z: 2 * FV.z - L.z, extra: true };
+    V.d = -V.z; V.k = kAt(V.z);
+    const Lp = cylPt(V, 0, LY); Lp[0] = V.x; Lp[2] = V.z;
+    V.Lp = Lp; V.SURF = SURF_ALL.filter(s => !s.face || Math.sign(dotN(s, Lp) - s.v) === s.face);
+    return V;
+  });
   litSrc = lc;
   refreshAlbedo();
-  PBUF ={ l: mkLayer(), p: mkLayer(), r: mkLayer(), m: mkLayer(), d: mkLayer() };
-  for (const L of LANTERNS) if (L.type === 'cy') { L.maskLit = reachMask(L, true); L.maskDark = reachMask(L, false); }
+  // 도는 종이창 무늬는 WebGL로 그린다. 안 되면 2D 경로(paperLight)가 쓸 버퍼·밝기 지도는 그때 만든다
+  try { GLP = glInit(); } catch (e) { console.warn('[room] WebGL 빛무늬 초기화 실패, 2D로 그린다:', e); GLP = null; }
   paperSp = null;
+}
+// 2D 경로 준비: 버퍼 5장 + 등마다 밝기 지도 2장. WebGL이 안 될 때(또는 컨텍스트를 잃었을 때)만 만든다
+function ensure2D() {
+  if (!PBUF) PBUF = { l: mkLayer(), p: mkLayer(), r: mkLayer(), m: mkLayer(), d: mkLayer() };
+  for (const L of LANTERNS) if (L.type === 'cy' && !L.maskLit) { L.maskLit = reachMask(L, true); L.maskDark = reachMask(L, false); }
 }
 const ptmOf = s => s.byo ? PAT.byoTMAX : s.floor ? PAT.paperFloorTMAX : PAT.paperTMAX;
 // 벽(수직면)은 광원 높이를 지나도 투영이 이어지므로 나누지 않는다. 천장·바닥만 광원 위·아래로 나눈다
@@ -733,6 +803,7 @@ function refreshAlbedo() {
   ag.drawImage(albedo, 0, 0, W, H);
   ag.globalCompositeOperation = 'screen'; ag.fillStyle = 'rgb(110,100,90)'; ag.fillRect(0, 0, W, H);
   ALB = ac;
+  if (GLP) GLP.albDirty = true;
   if (litSrc) litLayer = reflect(litSrc, mkLayer());
 }
 function reflect(src, [rc, rg]) {
@@ -770,6 +841,7 @@ function reachMask(L, lit) {
 // 종이창 무늬 투영 (도는 부분): 바탕빛 위에 어두운 윤곽을 파내고 밝은 무늬를 얹는다. sp = 무늬 회전각
 // 회전 방향: 모든 등이 위에서 볼 때 반시계(앞면이 오른쪽으로). 왼쪽 등은 cylPt에서 거울상(sd = −1)이라 θ를 반대로 돌려야 실제로 반시계가 된다
 function paperLight(sp) {
+  ensure2D();
   const [lc, lg] = PBUF.l, [pc, pg] = PBUF.p, [mc, mg] = PBUF.m, [dc, dg] = PBUF.d;
   lg.clearRect(0, 0, W, H);
   for (const L of LANTERNS) {
@@ -805,8 +877,267 @@ function paperLight(sp) {
     lg.globalCompositeOperation = 'source-over';
   }
   paperLayer = reflect(lc, PBUF.r);
-  paperSp = sp;
+  paperSp = sp; paperView = 'main';
 }
+// ===== 종이창 무늬 투영: WebGL =====
+// paperLight()(2D)는 매 프레임 무늬 다각형 수천 개를 면마다 투영하고 전체 화면 합성·블러를 스무 번 넘게 했다.
+// 여기서는 반대로 화면 픽셀마다 계산한다: 픽셀 → 보이는 면 위 점 → 등 원통의 (θ, y) → 무늬 텍스처.
+// 무늬는 (θ, y) 펼친 그림으로 한 번만 굽고, 회전은 θ 오프셋(uniform) 하나다.
+// 계산은 projWall·projPoly·reachMask의 역변환이라 같은 그림이 나온다(다각형 꼭짓점 사이를 직선으로 잇지 않는 점만 다르다).
+const gf = n => { const v = +n; if (!isFinite(v)) throw new Error('GLSL 상수 아님: ' + n); const t = v.toFixed(6); return t === '-0.000000' ? '0.0' : t; };
+const gv3 = a => `vec3(${gf(a[0])},${gf(a[1])},${gf(a[2])})`;
+const AXC = ['x', 'y', 'z'];
+// 무늬를 (θ, y) 평면에 굽는다: lit = 밝은 무늬 겹침(lighter, 한 겹 PAT.lit) / dark = 어두운 윤곽(source-over, 한 겹 PAT.dark)
+function motifAtlas() {
+  let ylo = Infinity, yhi = -Infinity;
+  for (const m of WALL_MOTIFS) for (const l of m.layers) for (const p of l.polys) for (const [, y] of p) { ylo = Math.min(ylo, y); yhi = Math.max(yhi, y); }
+  ylo -= 2; yhi += 2;
+  const TAU = Math.PI * 2, TW = 4096, ppu = TW / (TAU * CYD.R);   // 텍스처 px / 원통 둘레 단위
+  const TH = Math.min(4096, Math.ceil((yhi - ylo) * ppu));
+  const sx = TW / TAU, sy = TH / (yhi - ylo);
+  // willReadFrequently: 다 그린 뒤 getImageData로 읽어 가므로 CPU 캔버스로 (GPU 캔버스는 읽기가 아주 느릴 수 있다)
+  const mk = () => { const c = document.createElement('canvas'); c.width = TW; c.height = TH; const g = c.getContext('2d', { willReadFrequently: true }); g.fillStyle = '#000'; g.fillRect(0, 0, TW, TH); return [c, g]; };
+  const [lc, lg] = mk(), [dc, dg] = mk();
+  lg.globalCompositeOperation = 'lighter';
+  lg.fillStyle = `rgb(${Math.round(PAT.lit * 255)},0,0)`;
+  dg.fillStyle = `rgba(255,255,255,${PAT.dark})`;
+  for (const m of WALL_MOTIFS) for (const layer of m.layers) {
+    const g = layer.lit ? lg : dg;
+    for (const P of layer.polys) {
+      const base = Math.floor(Math.min(...P.map(q => q[0])) / TAU) * TAU;
+      g.beginPath();
+      for (const k of [-1, 0, 1]) P.forEach(([th, y], i) => { const x = (th - base + k * TAU) * sx, yy = (y - ylo) * sy; i ? g.lineTo(x, yy) : g.moveTo(x, yy); }), g.closePath();
+      g.fill();
+    }
+  }
+  const a = lg.getImageData(0, 0, TW, TH).data, b = dg.getImageData(0, 0, TW, TH).data, out = new Uint8Array(TW * TH * 2);
+  for (let i = 0, j = 0; j < out.length; i += 4, j += 2) { out[j] = a[i]; out[j + 1] = b[i]; }
+  return { data: out, w: TW, h: TH, ylo, yhi };
+}
+// extra: 정면 뷰에만 있는 등(FRONT_EXTRA). 바탕빛은 셰이더에서 계산하고 uView == 1일 때만 더한다
+function glShader(cyl, A, extra = []) {
+  const LY = CYD.LIGHT_Y, [RA, RB] = CYD.RAILS, MID = (RA + RB) / 2;
+  const iByo = SURF_ALL.findIndex(s => s.byo), SB = SURF_ALL[iByo];
+  // 면 정보: kind 0 벽 / 1 바닥(단 윗면 포함) / 2 천장(종이창 빛 없음) / 3 병풍(벽 + 깊이 하한)
+  const kindOf = s => s.byo ? 3 : s.ax !== 1 ? 0 : s.floor ? 1 : 2;
+  const surf = SURF_ALL.map((s, i) => `  if (i == ${i}) { N = ${gv3(s.N)}; v = ${gf(s.v)}; kind = ${kindOf(s)}; tm = ${gf(ptmOf(s))}; }`).join('\n');
+  // 레이캐스트: 방 면(축 정렬 사각형) + 병풍 6폭(뒷면이 보이면 아무 면도 아님 = −1)
+  const quads = [];
+  SURF_ALL.forEach((s, si) => { if (s.byo) return; for (const q of s.quads) {
+    const lo = [0, 1, 2].map(a => a === s.ax ? -1e6 : Math.min(...q.map(p => p[a])) - 1e-3), hi = [0, 1, 2].map(a => a === s.ax ? 1e6 : Math.max(...q.map(p => p[a])) + 1e-3);
+    const c = AXC[s.ax];
+    quads.push(`  { float t = (${gf(s.v)} - O.${c}) / dv.${c}; if (t > 0.0 && t < best) { vec3 p = O + dv * t; if (all(greaterThanEqual(p, ${gv3(lo)})) && all(lessThanEqual(p, ${gv3(hi)}))) { best = t; sid = ${si}; } } }`);
+  } });
+  for (const P of BYO_P) quads.push(`  { vec2 n = vec2(${gf(P.n[0])}, ${gf(P.n[1])}); float den = dot(n, dv.xz); float t = dot(n, vec2(${gf(P.p[0])}, ${gf(P.p[1])}) - O.xz) / den;
+    if (t > 0.0 && t < best) { vec3 p = O + dv * t; float u = dot(p.xz - vec2(${gf(P.p[0])}, ${gf(P.p[1])}), vec2(${gf(P.dir[0])}, ${gf(P.dir[1])}));
+      if (u >= 0.0 && u <= ${gf(BYO.w)} && p.y >= ${gf(P.y0)} && p.y <= ${gf(P.y0 + BYO.h)}) { best = t; sid = ${P.front ? iByo : -1}; } } }`);
+  const col = PAT.col.split(',').map(n => +n / 255);
+  const lamps = cyl.concat(extra).map((L, i) => {
+    const en = SURF_ALL.reduce((m, s, si) => L.SURF.includes(s) ? m | (1 << si) : m, 0);
+    const y0w = cylPt(L, 0, MID)[1], kw = PAT.wallSpan * L.h / (RB - RA);
+    const call = `vec3 r = lamp(sid, P, ${gv3(L.Lp)}, ${gf(L.sd)}, uDth[${i}], ${en}, ${gf(y0w)}, ${gf(kw)});`;
+    if (L.extra) return `  if (uView == 1) { ${call}
+    lg = min(lg + min(COL * (r.z * (1.0 - r.y) + r.x), 1.0), 1.0); }`;
+    return `  { ${call}
+    vec3 b = uView == 0 ? texture(uBase[${i}], uv).rgb : COL * r.z; lg = min(lg + min(b * (1.0 - r.y) + COL * r.x, 1.0), 1.0); }`;
+  }).join('\n');
+  return `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uMotif, uBase[${cyl.length}];
+uniform float uDth[${cyl.length + extra.length}];
+uniform vec2 uSize;
+// 시점: 눈 위치, 오른쪽·위·앞 방향, (화면 중심 x, y, 초점거리 px). uView 0 = 본 장면(바탕빛은 구운 텍스처) / 1 = 정면 뷰(바탕빛을 여기서 계산)
+uniform vec3 uO, uRt, uUp, uFw, uCam;
+uniform int uView;
+out vec4 o;
+const float PI = 3.14159265359, TAU = 6.28318530718;
+const vec3 COL = ${gv3(col)};
+void surf(int i, out vec3 N, out float v, out int kind, out float tm) {
+  N = vec3(0.0); v = 0.0; kind = 2; tm = 1.0;
+${surf}
+}
+// 종이창 바탕빛 세기 (buildPatterns의 paperSegs: 가로대 쪽 가장자리일수록 옅게)
+float taper(float y) {
+  float u = (y - ${gf(RA)}) / ${gf(RB - RA)};
+  if (u <= 0.0 || u >= 1.0) return 0.0;
+  float e = min(1.0, min(u, 1.0 - u) / ${gf(PAT.paperEdge)});
+  return e * e * (3.0 - 2.0 * e);
+}
+// 무늬 (lit, dark) + 바탕빛(정면 뷰용). 밝기 지도(reachMask)와 같은 감쇠·끝 30% 페이드를 곱해 돌려준다
+vec3 lamp(int sid, vec3 P, vec3 Lp, float sd, float dth, int en, float y0w, float kw) {
+  if (sid < 0 || ((en >> sid) & 1) == 0) return vec3(0.0);
+  vec3 N; float v; int kind; float tm;
+  surf(sid, N, v, kind, tm);
+  if (kind == 2) return vec3(0.0);
+  float dh = length(P.xz - Lp.xz), d3 = length(vec2(dh, P.y - Lp.y));
+  float fade = clamp((tm - (kind == 1 ? d3 : dh)) / (0.3 * tm), 0.0, 1.0);
+  if (fade <= 0.0) return vec3(0.0);
+  float fl = min(1.0, pow(${gf(PAT.D0)} / d3, ${gf(PAT.paperFall)}));
+  float th, y, base;
+  if (kind == 1) {   // 바닥: projPoly 역변환 (세로 성분 배율 VS, 위로 꺾기 LIFT)
+    vec3 Q = P - Lp; float hd = length(Q.xz);
+    if (Q.y >= 0.0 || hd <= 0.0) return vec3(0.0);
+    th = atan(sd * Q.x, Q.z) - PI / 4.0;
+    float s = Q.y / hd - ${gf(PAT.paperLift)};
+    float yb = ${gf(LY)} - s * ${gf(CYD.R)} / ${gf(PAT.paperVS)};
+    base = taper(yb) * smoothstep(${gf(LY + 0.5)}, ${gf(LY + 8)}, yb);   // 수평에 가까운 빛이 끊기는 자리(본 장면은 블러가 덮는다)
+    y = ${gf(LY)} - s * ${gf(CYD.R)} / ${gf(PAT.motifVS)};
+  } else {           // 벽·병풍: projWall 역변환. 병풍은 깊이를 byoDepth 이상으로 잡은 가상 면에서 방향을 구한다
+    float h = v - dot(N, Lp), sg = sign(h), hv = kind == 3 ? sg * max(abs(h), ${gf(PAT.byoDepth)}) : h;
+    vec2 q = (P - N * (h - hv) - Lp).xz;
+    if (length(q) > tm) return vec3(0.0);
+    th = atan(sd * q.x, q.y) - PI / 4.0;
+    y = ${gf(MID)} - (P.y - y0w) / kw;
+    base = taper(y);
+  }
+  base *= ${gf(PAT.paper)} * fade * fade * (3.0 - 2.0 * fade) * fl;   // 정면 뷰는 가까워 끝이 선으로 보이므로 부드럽게
+  if (kind == 1 && y < ${gf(LY + 0.5)}) return vec3(0.0, 0.0, base);   // splitLY: 광원 높이 ±0.5 띠는 비우고 아래쪽만 바닥에 닿는다
+  float tv = (y - ${gf(A.ylo)}) / ${gf(A.yhi - A.ylo)};
+  if (tv < 0.0 || tv > 1.0) return vec3(0.0, 0.0, base);
+  vec2 m = texture(uMotif, vec2((th - dth) / TAU, tv)).rg;
+  return vec3(m.x * fade * fl, m.y * fade, base);
+}
+void main() {
+  vec2 c = vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y) * vec2(${gf(W)}, ${gf(H)}) / uSize;   // 장면 좌표(css px)
+  vec3 O = uO, dv = uRt * ((c.x - uCam.x) / uCam.z) - uUp * ((c.y - uCam.y) / uCam.z) + uFw;
+  float best = 1e9; int sid = -1;
+${quads.join('\n')}
+  // 병풍은 폭들의 평균 평면 위 점으로 투영한다 (2D와 같음)
+  vec3 P = sid == ${iByo} ? O + dv * ((${gf(SB.v)} - dot(${gv3(SB.N)}, O)) / dot(${gv3(SB.N)}, dv)) : O + dv * best;
+  vec2 uv = c / vec2(${gf(W)}, ${gf(H)});
+  vec3 lg = vec3(0.0);
+${lamps}
+  o = vec4(lg, 1.0);
+}`;
+}
+// 2D의 blur(paperBlur) → reflect()를 가로·세로 가우스 두 번으로. 마지막 번에 두 번 더하고 표면색을 곱한다
+const GL_BLUR = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc, uAlb;
+uniform vec2 uDir, uSize;
+uniform int uN, uFinal;
+uniform float uW[33];
+out vec4 o;
+void main() {
+  vec2 uv = gl_FragCoord.xy / uSize;
+  vec3 s = texture(uSrc, uv).rgb * uW[0];
+  for (int i = 1; i <= uN; i++) { vec2 d = uDir * float(i) / uSize; s += (texture(uSrc, uv + d).rgb + texture(uSrc, uv - d).rgb) * uW[i]; }
+  o = uFinal == 1 ? vec4(min(2.0 * s, 1.0) * texture(uAlb, vec2(uv.x, 1.0 - uv.y)).rgb, 1.0) : vec4(s, 1.0);
+}`;
+function glInit() {
+  const cyl = LANTERNS.filter(L => L.type === 'cy');
+  if (!cyl.length) return null;
+  // ?roomgl=0 이면 2D 경로로 그린다 (비교용)
+  if (/[?&]roomgl=0(&|$)/.test(location.search)) return null;
+  const c = document.createElement('canvas');
+  // GPU가 없어 소프트웨어로 돌아가는 WebGL(SwiftShader 등)은 2D보다 훨씬 느리다 → 그런 환경이면 컨텍스트를 받지 않고 2D로 그린다
+  const gl = c.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: true, preserveDrawingBuffer: true,
+    failIfMajorPerformanceCaveat: !PAT.glSoftware });
+  if (!gl) return null;
+  if (!PAT.glSoftware) {   // failIfMajorPerformanceCaveat가 소프트웨어 렌더러를 못 거르는 경우가 있어 이름으로도 본다
+    const ri = gl.getExtension('WEBGL_debug_renderer_info'), rn = String(gl.getParameter(ri ? ri.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+    if (/swiftshader|llvmpipe|softpipe|software|basic render/i.test(rn)) { const lc = gl.getExtension('WEBGL_lose_context'); if (lc) lc.loseContext(); return null; }
+  }
+  const A = motifAtlas();
+  const sh = (type, src) => {
+    const o = gl.createShader(type); gl.shaderSource(o, src); gl.compileShader(o);
+    if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o));
+    return o;
+  };
+  const vs = sh(gl.VERTEX_SHADER, '#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.0,1.0);}');
+  const prog = fs => {
+    const pr = gl.createProgram(); gl.attachShader(pr, vs); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
+    return pr;
+  };
+  const pr = prog(glShader(cyl, A, FRONT_EXTRA)), pb = prog(GL_BLUR);
+  gl.useProgram(pr);
+  const tex = (unit, wrapS) => {
+    const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapS); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return t;
+  };
+  // 0: 무늬 (θ 방향 반복) / 1: 표면색 / 2…: 등마다 바탕빛(이미 구운 것)
+  tex(0, gl.REPEAT);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, A.w, A.h, 0, gl.RG, gl.UNSIGNED_BYTE, A.data);
+  // 표면색은 시점마다 다르다(본 장면 ALB / 정면 뷰 front.alb). 지금 올라가 있는 쪽을 기억해 바뀔 때만 다시 올린다
+  let albOn = null;
+  const upAlb = src => { gl.activeTexture(gl.TEXTURE1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src); albOn = src; };
+  tex(1, gl.CLAMP_TO_EDGE); upAlb(ALB);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);   // 2D 캔버스 합성과 같은 곱해진 알파로 받는다
+  cyl.forEach((L, i) => { tex(2 + i, gl.CLAMP_TO_EDGE); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, L.paperBase); });
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  gl.uniform1i(gl.getUniformLocation(pr, 'uMotif'), 0);
+  gl.uniform1iv(gl.getUniformLocation(pr, 'uBase'), cyl.map((_, i) => 2 + i));
+  const uDth = gl.getUniformLocation(pr, 'uDth'), uSize = gl.getUniformLocation(pr, 'uSize');
+  const U = Object.fromEntries(['uO', 'uRt', 'uUp', 'uFw', 'uCam', 'uView'].map(n => [n, gl.getUniformLocation(pr, n)]));
+  const CAMS = {
+    main: { O: [0, EYE, 0], Rt: [1, 0, 0], Up: [0, 1, 0], Fw: [0, 0, -1], Cam: [CX, CY, F], view: 0 },
+    front: { O: [FV.x, FV.y, FV.z], Rt: [0, 0, 1], Up: [0, 1, 0], Fw: [1, 0, 0], Cam: [FV.CX, FV.CY, FV.F], view: 1 },
+  };
+  // 중간 버퍼 2장 (빛 합 → 가로 블러). 단위 2+등 수부터
+  const fbu = 2 + cyl.length, fb = [0, 1].map(i => {
+    const t = tex(fbu + i, gl.CLAMP_TO_EDGE), f = gl.createFramebuffer();
+    return { t, f, u: fbu + i };
+  });
+  gl.useProgram(pb);
+  gl.uniform1i(gl.getUniformLocation(pb, 'uAlb'), 1);
+  const B = { src: gl.getUniformLocation(pb, 'uSrc'), dir: gl.getUniformLocation(pb, 'uDir'), size: gl.getUniformLocation(pb, 'uSize'),
+    n: gl.getUniformLocation(pb, 'uN'), fin: gl.getUniformLocation(pb, 'uFinal'), w: gl.getUniformLocation(pb, 'uW') };
+  let kSig = -1;
+  const G = { c, gl, albDirty: false, lost: false };
+  c.addEventListener('webglcontextlost', e => { e.preventDefault(); G.lost = true; if (GLP === G) { GLP = null; paperSp = null; } });
+  G.draw = (sp, view = 'main') => {
+    if (G.lost) return false;
+    const w = Math.max(1, Math.round(W * dpr * PAT.glScale)), h = Math.max(1, Math.round(H * dpr * PAT.glScale));
+    if (c.width !== w || c.height !== h) {
+      c.width = w; c.height = h;
+      for (const b of fb) {
+        gl.activeTexture(gl.TEXTURE0 + b.u); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, b.f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, b.t, 0);
+      }
+    }
+    gl.viewport(0, 0, w, h);
+    const alb = view === 'front' ? front.alb : ALB;
+    if (G.albDirty || albOn !== alb) { upAlb(alb); G.albDirty = false; }
+    // 1) 등마다 바탕빛 − 윤곽 + 무늬를 더한 빛 (2D의 lg, 블러 전)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb[0].f);
+    gl.useProgram(pr);
+    gl.uniform2f(uSize, w, h);
+    gl.uniform1fv(uDth, cyl.concat(FRONT_EXTRA).map(L => L.sd * sp));
+    const V = CAMS[view];
+    for (const k of ['O', 'Rt', 'Up', 'Fw', 'Cam']) gl.uniform3fv(U['u' + k], V[k]);
+    gl.uniform1i(U.uView, V.view);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    // 2) 가우스 블러 σ = paperBlur 장면 px (GL px로 환산) → 가로, 세로 + reflect
+    gl.useProgram(pb);
+    const sig = PAT.paperBlur * w / W;
+    if (sig !== kSig) {
+      kSig = sig;
+      const n = Math.min(32, Math.ceil(sig * 3)), ws = Array.from({ length: n + 1 }, (_, i) => Math.exp(-i * i / (2 * sig * sig)));
+      const tot = ws.reduce((a, v, i) => a + (i ? 2 * v : v), 0);
+      gl.uniform1i(B.n, n); gl.uniform1fv(B.w, ws.map(v => v / tot));
+    }
+    gl.uniform2f(B.size, w, h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb[1].f);
+    gl.uniform1i(B.src, fb[0].u); gl.uniform2f(B.dir, 1, 0); gl.uniform1i(B.fin, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.uniform1i(B.src, fb[1].u); gl.uniform2f(B.dir, 0, 1); gl.uniform1i(B.fin, 1);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    return true;
+  };
+  return G;
+}
+function glPaper(sp) {
+  if (!GLP.draw(sp)) return paperLight(sp);
+  paperLayer = GLP.c;
+  paperSp = sp; paperView = 'main';
+}
+
 // 등 표면의 종이창 무늬 (랜턴 예제 projSurf·draw와 같은 계산, 이미지 px → 화면)
 function lanternMotifs(g, L, sp) {
   const c = L.cyg, off = sp;   // 등 이미지는 거울상이 아니므로 +sp = 위에서 볼 때 반시계 (랜턴 예제와 같음)
@@ -843,7 +1174,10 @@ function buildBase() {
     if (albedoDirty && ALB) refreshAlbedo();
     albedoDirty = false;
   }
-  // 밤 실내: 곱하기로 전체를 어둡게 (푸른 기)
+  darken(g);
+}
+// 밤 실내: 곱하기로 전체를 어둡게 (푸른 기)
+function darken(g) {
   const a = S.dark / 100;
   const c = [255 - 190 * a, 255 - 192 * a, 255 - 180 * a].map(n => n | 0);
   g.globalCompositeOperation = 'multiply'; g.fillStyle = `rgb(${c})`; g.fillRect(0, 0, W, H);
@@ -860,7 +1194,19 @@ function radial(g, x, y, rx, ry, stops) {
   g.fillStyle = gr; g.beginPath(); g.arc(0, 0, rx, 0, Math.PI * 2); g.fill(); g.restore();
 }
 let clock = 0, spinClock = 0;   // spinClock: 원통 랜턴 종이창 무늬 회전 시간 (멈추면 그 자리에서 정지)
+const spinAngle = () => (spinClock * Math.PI * 2 / SPIN_PERIOD) % (Math.PI * 2);
+// 시점: 'main' = 본 장면 / 'front' = 병풍 정면 뷰. 바꿀 때는 직전 화면을 떠 두고 그 위로 새 시점을 서서히 드러낸다(setView)
+let viewMode = 'main', paperView = 'main', fadeFrom = null, fadeBuf = null, fadeT0 = 0;
+const FADE_MS = 700;
 function draw() {
+  if (viewMode === 'front' && front) drawFront(); else drawMain();
+  if (fadeFrom) {
+    const u = (performance.now() - fadeT0) / FADE_MS;
+    if (u >= 1) fadeFrom = null;
+    else { ctx.globalAlpha = 1 - u * u * (3 - 2 * u); ctx.drawImage(fadeFrom, 0, 0, W, H); ctx.globalAlpha = 1; }
+  }
+}
+function drawMain() {
   ctx.clearRect(0, 0, W, H);
   ctx.drawImage(base, 0, 0, W, H);
   // 종류별 불빛 세기 (사각뿔대 바닥등 / 원통 스탠딩)
@@ -880,9 +1226,9 @@ function draw() {
     radial(ctx, L.sx, cy, rr, rr, glow('255,145,60', (big ? 0.32 : 0.16) * G * fl));
   }
   // 원통 랜턴 빛무늬 (벽·천장·바닥): 육각별·바탕빛은 고정(litLayer), 종이창 무늬만 회전(paperLayer)
-  const sp = (spinClock * Math.PI * 2 / SPIN_PERIOD) % (Math.PI * 2);
+  const sp = spinAngle();
   if (litLayer) {
-    if (paperSp !== sp) paperLight(sp);
+    if (paperSp !== sp || paperView !== 'main') { if (GLP) glPaper(sp); else paperLight(sp); }
     ctx.globalCompositeOperation = 'lighter';
     const pa = S.pat / 100 * GC * fl;   // 빛무늬는 원통 랜턴에서만 나옴
     for (const layer of [litLayer, paperLayer]) {
@@ -907,6 +1253,59 @@ function draw() {
   ctx.globalCompositeOperation = 'source-over';
   vignette();
   if (S.tags) drawTags();
+}
+// 병풍 정면 뷰: 정적 바탕 → 등 둘레 빛 → (WebGL이 되면) 도는 종이창 빛 → 원통 등 → 블룸
+function drawFront() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(front.base, 0, 0, W, H);
+  const GC = S.glowCy / 100;
+  ctx.globalCompositeOperation = 'screen';
+  for (const L of front.lamps) {
+    const r = 3.4 * L.k, ry = r * Math.sin(Math.atan(L.eye / L.d)) * 1.15;
+    radial(ctx, L.sx, L.sy, r, ry, glow('255,150,70', 0.55 * GC));
+    const rr = 4.2 * L.k;
+    radial(ctx, L.sx, L.sy - L.h * 0.55 * L.k, rr, rr, glow('255,145,60', 0.32 * GC));
+  }
+  const sp = spinAngle();
+  if (GLP && (paperSp !== sp || paperView !== 'front') && GLP.draw(sp, 'front')) { paperLayer = GLP.c; paperSp = sp; paperView = 'front'; }
+  if (GLP && paperView === 'front') {
+    ctx.globalCompositeOperation = 'lighter';
+    const pa = S.pat / 100 * GC;
+    ctx.globalAlpha = Math.min(1, pa); ctx.drawImage(paperLayer, 0, 0, W, H);
+    if (pa > 1) { ctx.globalAlpha = Math.min(1, pa - 1); ctx.drawImage(paperLayer, 0, 0, W, H); }
+    ctx.globalAlpha = 1;
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  for (const L of front.lamps) {
+    ctx.drawImage(L.img, L.dx, L.dy, L.dw, L.dh);
+    lanternMotifs(ctx, L, sp); ctx.drawImage(L.imgOver, L.dx, L.dy, L.dw, L.dh);
+  }
+  ctx.globalCompositeOperation = 'screen';
+  for (const L of front.lamps) {
+    const r = L.h * 0.9 * L.k;
+    radial(ctx, L.sx, L.sy - L.h * 0.62 * L.k, r, r, glow('255,190,110', 0.3 * GC));
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  vignette();
+}
+// 시점 바꾸기. instant: 세계 전환 등으로 바로 돌아갈 때. 정면 뷰는 장면 준비가 끝나야 열 수 있다(false)
+function setView(v, instant) {
+  v = v === 'front' ? 'front' : 'main';
+  if (v === viewMode) return true;
+  if (v === 'front') {
+    if (!ready) return false;
+    if (!front) { try { buildFront(); } catch (e) { console.warn('[room] 정면 뷰 생성 실패:', e); return false; } }
+  }
+  fadeFrom = null;
+  if (!instant && !reduce && built) {
+    if (!fadeBuf) fadeBuf = mkLayer();
+    const [fc, fg] = fadeBuf;
+    fg.clearRect(0, 0, W, H); fg.drawImage(cv, 0, 0, W, H);
+    fadeFrom = fc; fadeT0 = performance.now();
+  }
+  viewMode = v;
+  draw();
+  return true;
 }
 function vignette() {
   const v = ctx.createRadialGradient(W / 2, H * 0.55, H * 0.35, W / 2, H * 0.55, W * 0.62);
@@ -993,7 +1392,7 @@ function frame(now) {
   if (!running) { raf = 0; return; }
   const dt = Math.min(0.1, Math.max(0, now - last) / 1000); last = now;
   clock += dt; if (S.spin) spinClock += dt;
-  if (S.flicker || S.spin) draw();
+  if (S.flicker || S.spin || fadeFrom) draw();
   raf = requestAnimationFrame(frame);
 }
 function start() {
@@ -1009,12 +1408,41 @@ function start() {
 }
 function stop() { running = false; if (raf) { cancelAnimationFrame(raf); raf = 0; } }
 function setScene() {}
+// 허브 핀용 우측 병풍 기하 (css px, 카메라 적용 전). 6폭 전체 AABB의 중심+반폭.
+function byobuGeom() {
+  const none = { x: 0, y: 0, ext: { l: 0, r: 0, t: 0, b: 0 }, visible: false };
+  try {
+    if (!running || !built || viewMode !== 'main' || vw <= 0 || vh <= 0) return none;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const P of BYO_P) {
+      const pts = byoRect(P, 0, BYO.w, 0, BYO.h);
+      for (const q of pts) {
+        if (q[0] < minX) minX = q[0];
+        if (q[0] > maxX) maxX = q[0];
+        if (q[1] < minY) minY = q[1];
+        if (q[1] > maxY) maxY = q[1];
+      }
+    }
+    if (!(maxX > minX && maxY > minY)) return none;
+    const s = Math.max(vw / W, vh / H), dw = W * s, dh = H * s;
+    const ox = (vw - dw) / 2, oy = (vh - dh) / 2;
+    // 화면과 겹치지 않으면(세로 화면 크롭 등) 핀을 숨긴다
+    if (ox + maxX * s < 0 || ox + minX * s > vw || oy + maxY * s < 0 || oy + minY * s > vh) return none;
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    const ex = (maxX - minX) / 2, ey = (maxY - minY) / 2;
+    return { x: ox + cx * s, y: oy + cy * s,
+      ext: { l: ex * s, r: ex * s, t: ey * s, b: ey * s }, visible: true };
+  } catch (e) { return none; }
+}
 resize();
 window.TsukuyomiRoom = { start, stop, setScene,
   get running() { return running; },
   get scene() { return 'room'; },
   get bg() { return '#05070d'; },
+  get byobu() { return byobuGeom(); },
+  // 병풍 정면 뷰: setView('front') / setView('main', instant). 허브 병풍 랜드마크가 확대 대신 쓴다
+  setView, get view() { return viewMode; },
 };
-window.__ROOM__ = { get ready() { return ready; }, start, stop };
+window.__ROOM__ = { get ready() { return ready; }, start, stop, setView, get view() { return viewMode; }, get byobu() { try { return byobuGeom(); } catch (e) { return null; } } };
 
 })();
