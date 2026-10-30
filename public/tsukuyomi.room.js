@@ -371,12 +371,14 @@ LANTERNS.forEach(L => { L.d = -L.z; L.k = kAt(L.z); L.y0 = baseY(L.x); });
 
 // ===== 병풍 정면 뷰 (참고 이미지 yachiyoroom3) =====
 // 단 앞 바닥에 서서 +x(병풍)를 똑바로 본다. 화면 오른쪽 = +z(방 앞쪽). 세로선이 서도록 고개는 숙이지 않고 화면 중심만 위로 옮긴다(렌즈 시프트).
-// 병풍이 화면 폭을 거의 채우고, 아랫단에 단 앞 귀틀이 걸리게 눈높이·거리를 잡았다. 원통 등(5.5, −15.9)은 왼쪽 앞에 그대로 보이고,
-// 오른쪽 거울상 자리에 이 뷰에만 있는 등을 하나 더 둔다(FRONT_EXTRA)
+// 병풍이 화면 폭을 거의 채우고, 아랫단에 단 앞 귀틀이 걸리게 눈높이·거리를 잡았다.
+// 원통 등은 이 뷰에만 있는 두 개(FRONT_EXTRA)를 병풍 가운데(z = FV.z) 기준 좌우대칭으로 둔다. 본 장면의 등은 이 뷰에 나오지 않는다
 const FV = (() => {
   const zs = BYO_P.flatMap(P => [P.p[1], P.q[1]]);
   return { x: 1.4, y: 1.3, z: (Math.min(...zs) + Math.max(...zs)) / 2, F: 1380, CX: 800, CY: 322 };
 })();
+// 정면 뷰 등 자리: x(깊이, 클수록 작게 보인다), dz(가운데에서 좌우로 떨어진 거리, 클수록 벌어진다)
+const FL = { x: 6.5, dz: 2.6 };
 const projFront = (x, y, z) => { const d = Math.max(0.05, x - FV.x); return [FV.CX + FV.F * (z - FV.z) / d, FV.CY - FV.F * (y - FV.y) / d]; };
 const kFront = x => FV.F / (x - FV.x);
 // 병풍 뒤로 보이는 오른쪽 옆벽(x = HX): 먼 칸 회벽, ZW부터 앞은 밖으로 트인 개구(밤하늘), 가모이 위는 란마 띠
@@ -410,8 +412,8 @@ function buildFront() {
   darken(bg);
   // 보이는 원통 등 (몸통이 원통이라 정면 그림을 그대로 크게 쓴다. 이미지가 SVG라 키워도 선명하다)
   const lamps = [];
-  for (const L of LANTERNS.concat(FRONT_EXTRA)) {
-    if (L.type !== 'cy' || !L.img || L.x - FV.x < 0.5) continue;
+  for (const L of FRONT_EXTRA) {
+    if (!L.img || L.x - FV.x < 0.5) continue;
     const [sx, sy] = projFront(L.x, L.y0, L.z), k = kFront(L.x), c = L.cyg, m = (k * L.h / c.units) / c.S;
     const P = { ...L, sx, sy, k, m, d: L.x - FV.x, eye: FV.y - L.y0, dx: sx - c.ax * m, dy: sy - c.ay * m, dw: c.W * m, dh: c.H * m };
     if (P.dx > W || P.dx + P.dw < 0) continue;
@@ -773,14 +775,15 @@ function buildPatterns() {
     lg.drawImage(oc, 0, 0, W, H); lg.filter = 'none';
     lg.globalCompositeOperation = 'source-over';
   }
-  // 병풍 정면 뷰에만 있는 등: 보이는 원통 등을 병풍 가운데(z = FV.z) 기준으로 거울상 자리에 하나 더 둬 좌우대칭으로 만든다
-  FRONT_EXTRA = LANTERNS.filter(L => L.type === 'cy' && L.x - FV.x > 0.5).map(L => {
-    const V = { ...L, z: 2 * FV.z - L.z, extra: true };
+  // 병풍 정면 뷰에만 있는 등 두 개: 정면 뷰에서 보이는 원통 등을 본떠 FL 자리에 좌우대칭으로 둔다
+  const FT = LANTERNS.find(L => L.type === 'cy' && L.x - FV.x > 0.5);
+  FRONT_EXTRA = FT ? [-1, 1].map(s => {
+    const V = { ...FT, x: FL.x, y0: baseY(FL.x), z: FV.z + s * FL.dz, extra: true };
     V.d = -V.z; V.k = kAt(V.z);
     const Lp = cylPt(V, 0, LY); Lp[0] = V.x; Lp[2] = V.z;
-    V.Lp = Lp; V.SURF = SURF_ALL.filter(s => !s.face || Math.sign(dotN(s, Lp) - s.v) === s.face);
+    V.Lp = Lp; V.SURF = SURF_ALL.filter(f => !f.face || Math.sign(dotN(f, Lp) - f.v) === f.face);
     return V;
-  });
+  }) : [];
   litSrc = lc;
   refreshAlbedo();
   // 도는 종이창 무늬는 WebGL로 그린다. 안 되면 2D 경로(paperLight)가 쓸 버퍼·밝기 지도는 그때 만든다
@@ -914,7 +917,7 @@ function motifAtlas() {
   for (let i = 0, j = 0; j < out.length; i += 4, j += 2) { out[j] = a[i]; out[j + 1] = b[i]; }
   return { data: out, w: TW, h: TH, ylo, yhi };
 }
-// extra: 정면 뷰에만 있는 등(FRONT_EXTRA). 바탕빛은 셰이더에서 계산하고 uView == 1일 때만 더한다
+// extra: 정면 뷰에만 있는 등(FRONT_EXTRA). 바탕빛은 셰이더에서 계산하고 uView == 1일 때만 더한다. 본 장면 등은 uView == 0일 때만
 function glShader(cyl, A, extra = []) {
   const LY = CYD.LIGHT_Y, [RA, RB] = CYD.RAILS, MID = (RA + RB) / 2;
   const iByo = SURF_ALL.findIndex(s => s.byo), SB = SURF_ALL[iByo];
@@ -938,8 +941,8 @@ function glShader(cyl, A, extra = []) {
     const call = `vec3 r = lamp(sid, P, ${gv3(L.Lp)}, ${gf(L.sd)}, uDth[${i}], ${en}, ${gf(y0w)}, ${gf(kw)});`;
     if (L.extra) return `  if (uView == 1) { ${call}
     lg = min(lg + min(COL * (r.z * (1.0 - r.y) + r.x), 1.0), 1.0); }`;
-    return `  { ${call}
-    vec3 b = uView == 0 ? texture(uBase[${i}], uv).rgb : COL * r.z; lg = min(lg + min(b * (1.0 - r.y) + COL * r.x, 1.0), 1.0); }`;
+    return `  if (uView == 0) { ${call}
+    vec3 b = texture(uBase[${i}], uv).rgb; lg = min(lg + min(b * (1.0 - r.y) + COL * r.x, 1.0), 1.0); }`;
   }).join('\n');
   return `#version 300 es
 precision highp float;
