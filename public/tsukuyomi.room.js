@@ -377,8 +377,9 @@ const FV = (() => {
   const zs = BYO_P.flatMap(P => [P.p[1], P.q[1]]);
   return { x: 1.4, y: 1.3, z: (Math.min(...zs) + Math.max(...zs)) / 2, F: 1380, CX: 800, CY: 322 };
 })();
-// 정면 뷰 등 자리: x(깊이, 클수록 작게 보인다), dz(가운데에서 좌우로 떨어진 거리, 클수록 벌어진다)
-const FL = { x: 6.5, dz: 2.6 };
+// 정면 뷰 등: x(깊이), dz(가운데에서 좌우로 떨어진 거리, 클수록 벌어진다),
+// size(본 장면 등이 이 뷰에 보이던 크기 대비 화면 크기). 병풍 앞이라 더 물릴 수 없어 등 자체를 줄인다(높이 h)
+const FL = { x: 6.5, dz: 2.7, size: 0.5 };
 const projFront = (x, y, z) => { const d = Math.max(0.05, x - FV.x); return [FV.CX + FV.F * (z - FV.z) / d, FV.CY - FV.F * (y - FV.y) / d]; };
 const kFront = x => FV.F / (x - FV.x);
 // 병풍 뒤로 보이는 오른쪽 옆벽(x = HX): 먼 칸 회벽, ZW부터 앞은 밖으로 트인 개구(밤하늘), 가모이 위는 란마 띠
@@ -778,7 +779,8 @@ function buildPatterns() {
   // 병풍 정면 뷰에만 있는 등 두 개: 정면 뷰에서 보이는 원통 등을 본떠 FL 자리에 좌우대칭으로 둔다
   const FT = LANTERNS.find(L => L.type === 'cy' && L.x - FV.x > 0.5);
   FRONT_EXTRA = FT ? [-1, 1].map(s => {
-    const V = { ...FT, x: FL.x, y0: baseY(FL.x), z: FV.z + s * FL.dz, extra: true };
+    const h = FT.h * FL.size * (FL.x - FV.x) / (FT.x - FV.x);
+    const V = { ...FT, x: FL.x, y0: baseY(FL.x), z: FV.z + s * FL.dz, h, gs: h / FT.h, extra: true };
     V.d = -V.z; V.k = kAt(V.z);
     const Lp = cylPt(V, 0, LY); Lp[0] = V.x; Lp[2] = V.z;
     V.Lp = Lp; V.SURF = SURF_ALL.filter(f => !f.face || Math.sign(dotN(f, Lp) - f.v) === f.face);
@@ -1264,9 +1266,10 @@ function drawFront() {
   const GC = S.glowCy / 100;
   ctx.globalCompositeOperation = 'screen';
   for (const L of front.lamps) {
-    const r = 3.4 * L.k, ry = r * Math.sin(Math.atan(L.eye / L.d)) * 1.15;
+    // 둘레 빛 반경은 등 크기를 따른다(gs: 본 장면 등 대비 높이 비)
+    const r = 3.4 * L.gs * L.k, ry = r * Math.sin(Math.atan(L.eye / L.d)) * 1.15;
     radial(ctx, L.sx, L.sy, r, ry, glow('255,150,70', 0.55 * GC));
-    const rr = 4.2 * L.k;
+    const rr = 4.2 * L.gs * L.k;
     radial(ctx, L.sx, L.sy - L.h * 0.55 * L.k, rr, rr, glow('255,145,60', 0.32 * GC));
   }
   const sp = spinAngle();
