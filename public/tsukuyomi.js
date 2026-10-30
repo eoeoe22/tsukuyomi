@@ -203,6 +203,14 @@
                 LANTERN_TX: 1, LANTERN_PAD: 2, LANTERN_DEPTH_K: 2,
                 // UI 회피: 1 = 하단 컨트롤 패널 실측 영역을 비움, 0 = 끔(회피 없음)
                 LANTERN_CARD_AVOID: 1,
+                // 앞쪽 본 랜턴 움직임(하단 btnLanternMove 토글, 기본 꺼짐). 단위: 지면 좌표, 랜턴 폭 ≈ 0.12
+                // FLOW = 흐르는 속도(/s, 0 = 정지), SWAY = 제자리 흔들림 배율,
+                // PUSH = 물결 링이 미는 힘, DRAG = 물의 저항(클수록 덜 밀리고 빨리 멈춤), RING_W = 미는 링 두께
+                LANTERN_FLOW: 0.02, LANTERN_SWAY: 1,
+                LANTERN_PUSH: 1.5, LANTERN_DRAG: 1.3, LANTERN_RING_W: 0.06,
+                // 충돌: COL_R = 랜턴끼리 부딪히는 반지름(몸통 폭 기준 배율, 0 = 충돌 끔),
+                // BOUNCE = 화면 경계·랜턴끼리 부딪힐 때 반발 계수(0 = 멈춤, 1 = 완전 탄성)
+                LANTERN_COL_R: 1, LANTERN_BOUNCE: 0.5,
                 // 수평선 근접 경량 랜턴: 본 랜턴(3px 이상) 위쪽 띠를 같은 밀도 곡선으로 이어서 채움.
                 // FAR_MUL: 곡선 대비 개수 배율, FAR_Y0: 수평선에서 시작하는 거리(px), FAR_MAX: 개수 상한
                 LANTERN_FAR_MUL: 1, LANTERN_FAR_Y0: 1.5, LANTERN_FAR_MAX: 4000,
@@ -3861,7 +3869,14 @@ void main() {
                     const dq = clamp((i + 0.5 + (rng() - 0.5) * 0.8) / n, 0, 1);
                     let fx = (fx0 + i * PHI + (rng() - 0.5) * jx) % 1;
                     if (fx < 0) fx += 1;
-                    lanterns.push({ dq, ux: -1 + 2 * fx, sn: 0, x: 0, y: 0, w: 0, h: 0, s: 0 });
+                    lanterns.push({
+                        dq, ux: -1 + 2 * fx, sn: 0, x: 0, y: 0, w: 0, h: 0, s: 0,
+                        // 흔들림 위상·속도(주기 수십 초), 흐르는 방향·속도 배율, 물결에 밀린 속도(지면 좌표)
+                        f1: 0.07 + rng() * 0.06, f2: 0.15 + rng() * 0.1, f3: 0.05 + rng() * 0.05, f4: 0.12 + rng() * 0.08,
+                        p1: rng() * 6.2832, p2: rng() * 6.2832, p3: rng() * 6.2832, p4: rng() * 6.2832,
+                        hd: rng() * 6.2832, sp: 0.6 + rng() * 0.8,
+                        vX: 0, vZ: 0,
+                    });
                 }
                 projectLanterns();
             }
@@ -3899,6 +3914,19 @@ void main() {
                 // 구분한다(drawLanterns의 pass, 기준은 torBase).
                 // card uses least-penetration with upward bias inside the resolver.
                 resolveLanternOverlaps(PAD, measureCardZone());
+                // 랜턴 움직임: 켜져 있으면 배치 결과를 처음 지면 위치로 삼는다. 이미 지면 좌표가 있는
+                // 랜턴(움직이던 중, 또는 움직이다 끈 뒤)은 창 크기 변경 등에도 그 자리를 이어 간다.
+                if (lanMove) {
+                    const foc = CFG.FOCAL * H;
+                    for (const L of lanterns) {
+                        if (L.gZ !== undefined) continue;
+                        const s0 = Math.max(1, L.y - HZ);
+                        L.gX = (L.x - W / 2) / s0;
+                        L.gZ = foc / s0;
+                        L.hk = L.h / s0;
+                    }
+                }
+                placeLanterns();
                 buildFarLanterns(reflH, sn0, K, halfW, TX, lh, lanterns.length / densInt(K, sn0, sn1));
             }
             // 하단 컨트롤 패널 회피 영역을 실측한다. LANTERN_CARD_AVOID=0이면
@@ -4185,6 +4213,151 @@ void main() {
                     if (ok) break;
                 }
                 lanterns.sort((a, b) => a.y - b.y);   // far-to-near painter order
+            }
+            // ---------- 앞쪽 본 랜턴의 흐름 + 물결 밀림 ----------
+            // 지면 좌표(X = 화면 가로/깊이, Z = 초점거리/깊이)에서 움직여 원근이 맞게
+            // 크기·위치가 바뀐다. 클릭 물결 셰이더와 같은 좌표계라 링이 지나갈 때 밀린다.
+            // 랜턴마다 랜덤한 방향으로 천천히 흐르고(방향은 조금씩 휜다), 화면 경계와
+            // 다른 랜턴에 부딪히면 튕긴다.
+            // 수평선 근처 경량 랜턴 띠(farBodyC)는 구운 이미지라 움직이지 않는다.
+            // lanMove(기본 꺼짐): 하단 btnLanternMove 토글. 끄면 그 자리에서 멈춘다(흔들림 위상도 정지).
+            let lanClock = 0, lanMove = false;
+            const LAN_SWAY_X = 0.05, LAN_SWAY_Z = 0.035;   // 흔들림 진폭(지면 단위)
+            const LAN_PUSH_K = 0.55;                        // PUSH=1일 때 링이 미는 힘
+            function placeLanterns() {
+                if (!lanterns.length || !W || !H) return;
+                const foc = CFG.FOCAL * H;
+                const amp = RM.matches ? 0 : Math.max(0, CFG.LANTERN_SWAY ?? 1);
+                const t = lanClock;
+                for (const L of lanterns) {
+                    if (L.gZ === undefined) continue;
+                    let dX = 0, dZ = 0;
+                    if (amp > 0) {
+                        dX = amp * LAN_SWAY_X * (0.7 * Math.sin(t * L.f1 + L.p1) + 0.3 * Math.sin(t * L.f2 + L.p2));
+                        dZ = amp * LAN_SWAY_Z * (0.7 * Math.sin(t * L.f3 + L.p3) + 0.3 * Math.sin(t * L.f4 + L.p4));
+                    }
+                    const s = Math.max(1, foc / Math.max(1e-3, L.gZ + dZ));
+                    L.x = W / 2 + (L.gX + dX) * s;
+                    L.y = HZ + s;
+                    L.h = Math.max(2, L.hk * s);
+                    L.w = L.h * LAN_WHR;
+                    L.sn = s / Math.max(1, H - HZ);
+                }
+                lanterns.sort((a, b) => a.y - b.y);   // 움직인 뒤에도 먼 것부터 그린다
+            }
+            function stepLanterns(dt) {
+                if (!lanMove || debugPaused || !lanterns.length || !W || !H) return;
+                if (RM.matches) return;
+                lanClock += dt;
+                const foc = CFG.FOCAL * H, reflH = Math.max(1, H - HZ);
+                const flow = Math.max(0, CFG.LANTERN_FLOW ?? 0.02);
+                const push = Math.max(0, CFG.LANTERN_PUSH ?? 1) * LAN_PUSH_K;
+                const drag = Math.max(0.05, CFG.LANTERN_DRAG ?? 1.3);
+                const ringW = Math.max(0.005, CFG.LANTERN_RING_W ?? 0.06);
+                const decay = Math.exp(-drag * dt);
+                const live = push > 0 && ripples.length > 0;
+                const colR = Math.max(0, CFG.LANTERN_COL_R ?? 1);
+                const bounce = clamp(CFG.LANTERN_BOUNCE ?? 0.5, 0, 1);
+                const sway = Math.max(0, CFG.LANTERN_SWAY ?? 1);
+                const swX = sway * LAN_SWAY_X, swZ = sway * LAN_SWAY_Z;
+                for (const L of lanterns) {
+                    if (L.gZ === undefined) continue;
+                    if (live) {
+                        const s = Math.max(1, L.y - HZ);
+                        const gx = (L.x - W / 2) / s, gz = foc / s;
+                        let fx = 0, fz = 0;
+                        for (const r of ripples) {
+                            const sr = Math.max(1, r.sn * reflH);
+                            const R = CFG.RIP_V * r.t;
+                            const a = ss(0, 0.06, r.t) * Math.exp(-0.8 * r.t) * (1 - ss(0.45 * CFG.RIP_MAX_R, CFG.RIP_MAX_R, R));
+                            if (a <= 0.002) continue;
+                            const ddx = gx - (r.xn * W - W / 2) / sr, ddz = gz - foc / sr;
+                            const d = Math.hypot(ddx, ddz);
+                            const e = (d - R) / ringW;
+                            if (e > 3 || e < -3) continue;
+                            const f = push * a * Math.exp(-e * e) / Math.max(d, 0.02);
+                            fx += f * ddx; fz += f * ddz;
+                        }
+                        L.vX += fx * dt; L.vZ += fz * dt;
+                    }
+                    L.vX *= decay; L.vZ *= decay;
+                    // 흐르는 방향은 아주 천천히 휜다
+                    L.hd += dt * 0.12 * Math.sin(lanClock * L.f3 * 0.7 + L.p4);
+                    const v = flow * L.sp;
+                    L.gX += (Math.cos(L.hd) * v + L.vX) * dt;
+                    L.gZ += (Math.sin(L.hd) * v + L.vZ) * dt;
+                    lanBounds(L, foc, reflH, swX, swZ, bounce);
+                }
+                if (colR > 0) {
+                    collideLanterns(colR, bounce);
+                    // 충돌로 떼어 놓은 랜턴이 경계 밖으로 밀렸으면 다시 안으로
+                    for (const L of lanterns) if (L.gZ !== undefined) lanBounds(L, foc, reflH, swX, swZ, bounce);
+                }
+                placeLanterns();
+            }
+            // 화면 경계: 부딪히면 그 축의 흐름 방향과 밀린 속도를 뒤집어 튕긴다.
+            // 흔들림 진폭만큼 안쪽에서 막아 흔들려도 화면을 벗어나지 않게 한다.
+            // 앞쪽 = 발이 화면 아래 끝, 먼 쪽 = 3px 아래로 작아져 안 보이는 깊이(수평선 띠)
+            function lanBounds(L, foc, reflH, swX, swZ, bounce) {
+                const sFar = Math.min(reflH * 0.5, Math.max(2, 3.2 / Math.max(1e-3, L.hk)));
+                const zNear = foc / reflH + swZ, zFar = Math.max(zNear + 0.01, foc / sFar - swZ);
+                if (L.gZ < zNear) { L.gZ = zNear; bounceZ(L, 1, bounce); }
+                else if (L.gZ > zFar) { L.gZ = zFar; bounceZ(L, -1, bounce); }
+                // 가로 한계는 흔들림으로 가장 가까워졌을 때(가장 크게 보일 때) 기준
+                const s = foc / Math.max(1e-3, L.gZ - swZ);
+                const xb = Math.max(0, W / (2 * s) - L.hk * LAN_WHR * 0.5 - swX);
+                if (L.gX > xb) { L.gX = xb; bounceX(L, -1, bounce); }
+                else if (L.gX < -xb) { L.gX = -xb; bounceX(L, 1, bounce); }
+            }
+            // 경계에 부딪힌 축: 흐름 방향을 안쪽(sign)으로 돌리고 밀린 속도는 반사·감쇠
+            function bounceX(L, sign, e) {
+                const c = Math.cos(L.hd);
+                if (c * sign < 0) L.hd = Math.atan2(Math.sin(L.hd), -c);
+                if (L.vX * sign < 0) L.vX = -L.vX * e;
+            }
+            function bounceZ(L, sign, e) {
+                const sn = Math.sin(L.hd);
+                if (sn * sign < 0) L.hd = Math.atan2(-sn, Math.cos(L.hd));
+                if (L.vZ * sign < 0) L.vZ = -L.vZ * e;
+            }
+            // 랜턴끼리 충돌: 지면 위 원(반지름 = 몸통 폭/2 × colR)으로 본다.
+            // 겹치면 반씩 떼어 놓고, 서로를 향하던 흐름 방향은 접선 쪽으로 반사,
+            // 밀린 속도는 같은 질량 충돌(반발 계수 e)로 주고받는다.
+            function collideLanterns(colR, e) {
+                const n = lanterns.length;
+                for (let i = 0; i < n; i++) {
+                    const A = lanterns[i];
+                    if (A.gZ === undefined) continue;
+                    const ra = A.hk * LAN_WHR * 0.5 * colR;
+                    for (let j = i + 1; j < n; j++) {
+                        const B = lanterns[j];
+                        if (B.gZ === undefined) continue;
+                        const rr = ra + B.hk * LAN_WHR * 0.5 * colR;
+                        const dz = B.gZ - A.gZ;
+                        if (dz > rr || dz < -rr) continue;
+                        const dx = B.gX - A.gX;
+                        if (dx > rr || dx < -rr) continue;
+                        const d2 = dx * dx + dz * dz;
+                        if (d2 >= rr * rr) continue;
+                        const d = Math.sqrt(d2) || 1e-6;
+                        const nx = d2 > 0 ? dx / d : 1, nz = d2 > 0 ? dz / d : 0;
+                        const o = (rr - d) * 0.5;
+                        A.gX -= nx * o; A.gZ -= nz * o;
+                        B.gX += nx * o; B.gZ += nz * o;
+                        // 흐름 방향: 상대를 향하는 성분을 뒤집는다
+                        let cx = Math.cos(A.hd), cz = Math.sin(A.hd), k = cx * nx + cz * nz;
+                        if (k > 0) A.hd = Math.atan2(cz - 2 * k * nz, cx - 2 * k * nx);
+                        cx = Math.cos(B.hd); cz = Math.sin(B.hd); k = cx * nx + cz * nz;
+                        if (k < 0) B.hd = Math.atan2(cz - 2 * k * nz, cx - 2 * k * nx);
+                        // 밀린 속도: 다가오는 중이면 법선 성분을 반발 계수로 교환
+                        const vn = (B.vX - A.vX) * nx + (B.vZ - A.vZ) * nz;
+                        if (vn < 0) {
+                            const jn = -(1 + e) * vn * 0.5;
+                            A.vX -= jn * nx; A.vZ -= jn * nz;
+                            B.vX += jn * nx; B.vZ += jn * nz;
+                        }
+                    }
+                }
             }
             function loadLanternSprite() {
                 try {
@@ -6531,6 +6704,37 @@ void main() {
             if (elCursorTrack) elCursorTrack.addEventListener('click', e => { e.stopPropagation(); cursorPick(1); });
             if (elCursorMoon) elCursorMoon.addEventListener('click', e => { e.stopPropagation(); cursorPick(2); });
 
+            // ---------- 랜턴 움직임 토글 (기본값 꺼짐) ----------
+            // 켜면 앞쪽 본 랜턴이 천천히 흐르고 흔들리며, 클릭 물결에 밀리고 서로·화면 경계에 부딪혀 튕긴다.
+            // 끄면 그 자리에서 멈춘다. 수평선 근처 경량 랜턴 띠는 구운 이미지라 움직이지 않는다.
+            const elLanMove = document.getElementById('btnLanternMove');
+            function setLanternMove(on) {
+                on = !!on;
+                if (on === lanMove) return;
+                lanMove = on;
+                if (on) projectLanterns();   // 현재 배치를 처음 지면 위치로 삼는다
+                if (elLanMove) {
+                    elLanMove.classList.toggle('on', on);
+                    elLanMove.setAttribute('aria-pressed', on ? 'true' : 'false');
+                }
+            }
+            if (elLanMove) elLanMove.addEventListener('click', e => {
+                e.stopPropagation();
+                const pn = elLanMove.closest('.panel') || elPanel;
+                if (TOUCH_UI && pn && !pn.classList.contains('expanded')) {
+                    pn.classList.add('expanded');
+                    moveThumb();
+                }
+                setLanternMove(!lanMove);
+                if (TOUCH_UI && pn) {
+                    clearTimeout(collapseTimer);
+                    collapseTimer = setTimeout(() => {
+                        pn.classList.remove('expanded');
+                        moveThumb();
+                    }, 900);
+                }
+            });
+
             // ---------- debug bridge (F12 패널용) ----------
             // tsukuyomi.debug.js가 이 객체를 통해 모든 파라미터를 수동 조절한다.
             // CFG(수치) + 팔레트(색) + 상태(p/phi/state) + 재빌드 액션을 노출.
@@ -6567,6 +6771,8 @@ void main() {
                 // 밤 물고기 군집 배치 옵션 (하단 btnCursorOff/Track/Moon과 동일)
                 get cursor() { return cursorMode !== 0; }, set cursor(v) { setCursorMode(v ? 1 : 0); },
                 get cursorMode() { return cursorMode; }, set cursorMode(v) { setCursorMode(v); },
+                // 랜턴 움직임 (하단 btnLanternMove와 동일)
+                get lanternMove() { return lanMove; }, set lanternMove(v) { setLanternMove(v); },
                 // 토리이 클릭과 같은 수면 상승 물고기 1회. 밤 계열 장면이 아니면(전환 초반 포함) false를 돌려준다
                 fishRise() { return fishFire(); },
                 get moonTarget() { return moonTarget; }, get mbMix() { return mbMix; }, get showT() { return showT; },
@@ -6765,6 +6971,7 @@ void main() {
                 // 절차적 구름 타임랩스 갱신(동작 줄이기 설정이면 첫 장 그대로)
                 if (cloudLive && CFG.CL_LIVE >= 0.5 && !RM.matches) cloudLive.tick(clock, now, CFG);
                 stepRipples(dt);
+                stepLanterns(dt);
                 zpAdd('live', zp);
                 const t0 = performance.now();
                 render();

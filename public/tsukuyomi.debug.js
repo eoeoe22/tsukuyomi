@@ -122,6 +122,12 @@
             ['LANTERN_DUSK_GLOW', 0, 1, 0.01], ['LANTERN_HALO', 0, 3, 0.05],
             ['LANTERN_FAR_BLOOM', 0, 3, 0.05],
         ]},
+        { title: '랜턴 움직임', keys: [
+            ['LANTERN_FLOW', 0, 0.15, 0.001], ['LANTERN_SWAY', 0, 3, 0.05],
+            ['LANTERN_PUSH', 0, 4, 0.05], ['LANTERN_DRAG', 0.1, 5, 0.05],
+            ['LANTERN_RING_W', 0.01, 0.3, 0.005],
+            ['LANTERN_COL_R', 0, 3, 0.05], ['LANTERN_BOUNCE', 0, 1, 0.01],
+        ]},
     ];
     const PALETTES = ['SKY', 'SKY_DAY', 'SKY_DAY2', 'MOUNT', 'MOUNT_DAY2', 'TORII', 'TORII_DAY2', 'CLOUD_TINT', 'DCLOUD_TINT', 'DAY2_TINT', 'REFL', 'REFL_DAY2', 'VIG', 'VIG_DAY2', 'LV', 'COLS'];
 
