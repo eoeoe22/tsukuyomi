@@ -17,6 +17,9 @@
  *    `a01_daydark` (공백 밤, 웹 btnDark와 동일).
  *    셋 다 공백 장면에서만 그려지고, 다른 장면에서는 값을 유지한 채 효과가 없다 (웹과 동일).
  *    색조·밤은 웹과 같이 둘 중 하나만 고른다 (둘 다 켜면 밤이 우선).
+ *  - 八 하위장면 1종은 일반 옵션으로 야치요의 방 선택 시 노출 (고급 표시와 무관):
+ *    `a01_roomfront` (병풍 정면 뷰, 웹 #btnRoomFront와 동일. 켜면 병풍 정면, 끄면 본 장면).
+ *    방 장면에서만 적용되고, 다른 장면에서는 값을 유지한 채 효과가 없다.
  *  - 밤 계열 2종은 일반 옵션으로 밤/미러볼 선택 시 노출 (고급 표시와 무관):
  *    `a01_intro` (초기 연출 켜고 끄기, 기본값 켜짐),
  *    `a01_fish` (물고기 군집 콤보: 끔 0 / 커서 따라가기 1 / 달에 배치 2, 기본값 끔,
@@ -48,6 +51,9 @@
         mountsunset: 'mountSunset', 'mount-sunset': 'mountSunset', sunset: 'mountSunset',
         earth: 'earth', room: 'room', yachiyo: 'room', news: 'news',
     };
+    // 八 하위장면 별칭: 장면 콤보는 1~9 그대로 두고, 이 문자열이 오면 방+병풍 정면으로 취급한다.
+    // (브라우저 미리보기 ?scene=room-front, 구 WE 속성값 호환용)
+    const ROOMFRONT_ALIAS = new Set(['room-front', 'roomfront', 'room_front', 'byobu', 'byoubu', 'byeongpung']);
     function sceneOf(v) {
         if (typeof v === 'number') return SCENE_BY_NUM[v] || null;
         if (typeof v === 'string') {
@@ -79,12 +85,13 @@
     const KEY_DAYSTARS = 'a01_daystars';
     const KEY_DAYTONE = 'a01_daytone';
     const KEY_DAYDARK = 'a01_daydark';
+    const KEY_ROOMFRONT = 'a01_roomfront';
     const KEY_SNAPSHOT = 'a03_snapshot_json';
     const MEMBER_RE = /^(?:[A-Za-z]\d\d_|\d\d_|cfg_)(.+)$/;
     // 물고기 (토리이 수면 상승) 그룹 멤버: a16_fish_<FISH키> -> __TSUKUYOMI__.fish[FISH키]
     const FISH_RE = /^[A-Za-z]\d\d_fish_(.+)$/;
-    const GENERAL_SKIP = new Set([KEY_FISH, KEY_DAYSTARS, KEY_DAYTONE, KEY_DAYDARK, 'fish', 'cursor', 'cursorMode', 'cursormode', 'daystars', 'daytone', 'daydark']);
-    const desired = { scene: 'night', intro: true, fish: 0, dayStars: false, dayTone: false, dayDark: false };
+    const GENERAL_SKIP = new Set([KEY_FISH, KEY_DAYSTARS, KEY_DAYTONE, KEY_DAYDARK, KEY_ROOMFRONT, 'fish', 'cursor', 'cursorMode', 'cursormode', 'daystars', 'daytone', 'daydark', 'roomfront', 'roomFront']);
+    const desired = { scene: 'night', intro: true, fish: 0, dayStars: false, dayTone: false, dayDark: false, roomFront: false };
     const pendingCfg = new Map(); // CFG키 -> 마지막 값 (브릿지 대기분)
     const pendingFish = new Map(); // FISH키 -> 마지막 값 (브릿지 대기분)
     let pendingSnapshot = null;   // snapshot_json 원문 (브릿지 대기분)
@@ -213,6 +220,27 @@
     const loadRoom = () => loadEngine('TsukuyomiRoom', 'vendor/tsukuyomi.room.js');
     const loadNews = () => loadEngine('TsukuyomiNews', 'vendor/tsukuyomi.news.js');
     const outerLoaders = { mount: loadMount, earth: loadEarth, room: loadRoom, news: loadNews };
+    // 八 하위장면(병풍 정면 뷰): R.setView('front'/'main', true).
+    // 정면 뷰는 등 로드(ready)가 끝나야 열리므로, 아직이면 짧게 재시도한다 (웹 #btnRoomFront와 동일 조건).
+    let roomViewTimer = 0;
+    function applyRoomView(E) {
+        clearTimeout(roomViewTimer);
+        roomViewTimer = 0;
+        const want = desired.roomFront ? 'front' : 'main';
+        let n = 0;
+        const tryOnce = () => {
+            roomViewTimer = 0;
+            if (desired.scene !== 'room') return;
+            if (worldTarget !== 'room' && world !== 'room') return;
+            let ok = false;
+            try {
+                const R = E || window.TsukuyomiRoom;
+                if (R && R.setView) ok = R.setView(want, true) !== false;
+            } catch (e) { ok = false; }
+            if (!ok && want === 'front' && n < 40) { n++; roomViewTimer = setTimeout(tryOnce, 250); }
+        };
+        tryOnce();
+    }
     function stopOuter(id) {
         const g = { mount: 'TsukuyomiMount', earth: 'TsukuyomiEarth', room: 'TsukuyomiRoom', news: 'TsukuyomiNews' }[id];
         try { if (g && window[g]) window[g].stop(); } catch (e) { /* 무시 */ }
@@ -249,9 +277,13 @@
                 const id = MOUNT_SCENE[desired.scene];
                 if (id && E.scene !== id) E.setScene(id);   // 산에 있는 중이면 크로스페이드
                 if (world === 'mount') return;
+            } else if (target === 'room') {
+                // 방에 머물며 하위장면(병풍 정면)만 바꾸면 전환 없이 시점만 바꾼다
+                if (world === 'room') { applyRoomView(E); return; }
             } else if (world === target) return;
             await E.start();   // 八·犬은 베이스/첫 프레임이 준비된 뒤에 resolve
             if (worldTarget !== target) { try { E.stop(); } catch (e) { /* 무시 */ } return; }
+            if (target === 'room') applyRoomView(E);   // 진입과 동시에 하위장면 반영 (ready 전이면 재시도)
             const b = bridge();
             if (instant) {
                 if (b) b.suspend();
@@ -469,8 +501,12 @@
         if (!properties) return;
         const sc = properties[KEY_SCENE] || properties.scene;
         if (sc && sc.value !== undefined) {
-            const s = sceneOf(sc.value);
-            if (s) desired.scene = s;
+            const raw = String(sc.value).trim().toLowerCase();
+            if (ROOMFRONT_ALIAS.has(raw)) { desired.scene = 'room'; desired.roomFront = true; }
+            else {
+                const s = sceneOf(sc.value);
+                if (s) desired.scene = s;
+            }
         }
         const it = properties[KEY_INTRO] || properties.intro;
         if (it && it.value !== undefined) {
@@ -492,6 +528,10 @@
         const tn = properties[KEY_DAYTONE] || properties.daytone;
         if (tn && tn.value !== undefined) {
             desired.dayTone = !!tn.value;
+        }
+        const rf = properties[KEY_ROOMFRONT] || properties.roomfront || properties.roomFront;
+        if (rf && rf.value !== undefined && rf.value !== '') {
+            desired.roomFront = !!rf.value;
         }
         for (const name of Object.keys(properties)) {
             if (GENERAL_SKIP.has(name)) continue;
@@ -540,14 +580,19 @@
         }, 50);
     }
 
-    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=mount|mount-sunset|earth|room|news|day|dusk|night|mirror(또는 1~9)&intro=0&fish=0/1/2&stars=1&tone=1&dark=1
+    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=mount|mount-sunset|earth|room|room-front|news|day|dusk|night|mirror(또는 1~9)&intro=0&fish=0/1/2&stars=1&tone=1&dark=1&roomfront=1
+    // 예: wallpaper.html?scene=earth , wallpaper.html?scene=room , wallpaper.html?scene=room-front , wallpaper.html?scene=room&roomfront=1
     // 예: wallpaper.html?scene=earth , wallpaper.html?scene=room , wallpaper.html?scene=news
     // 예: wallpaper.html?scene=day&stars=1 , wallpaper.html?scene=day&tone=1 , wallpaper.html?scene=day&dark=1 , wallpaper.html?scene=night&intro=0 , wallpaper.html?scene=night&fish=1 , wallpaper.html?scene=mirror&fish=2
     function applyQueryOverride() {
         try {
             const q = new URLSearchParams(location.search);
-            const s = sceneOf(q.get('scene') || '');
-            if (s) desired.scene = s;
+            const rawScene = (q.get('scene') || '').trim().toLowerCase();
+            if (ROOMFRONT_ALIAS.has(rawScene)) { desired.scene = 'room'; desired.roomFront = true; }
+            else {
+                const s = sceneOf(q.get('scene') || '');
+                if (s) desired.scene = s;
+            }
             const intro = q.get('intro');
             if (intro === '0' || intro === 'false' || intro === 'off') desired.intro = false;
             if (intro === '1' || intro === 'true' || intro === 'on') desired.intro = true;
@@ -565,6 +610,9 @@
             const tone = q.get('tone') ?? q.get('daytone');
             if (tone === '0' || tone === 'false' || tone === 'off') desired.dayTone = false;
             if (tone === '1' || tone === 'true' || tone === 'on') desired.dayTone = true;
+            const rfq = q.get('roomfront') ?? q.get('roomFront');
+            if (rfq === '0' || rfq === 'false' || rfq === 'off') desired.roomFront = false;
+            if (rfq === '1' || rfq === 'true' || rfq === 'on') desired.roomFront = true;
         } catch (e) { /* file:// 등 파서 미지원 시 무시 */ }
     }
 
@@ -583,6 +631,7 @@
         get dayStars() { return desired.dayStars; },
         get dayTone() { return desired.dayTone; },
         get dayDark() { return desired.dayDark; },
+        get roomFront() { return desired.roomFront; },
         get fps() { return weFps; },
         get ready() { return !!bridge(); },
         get world() { return world; },

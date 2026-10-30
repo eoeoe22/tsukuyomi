@@ -4,7 +4,7 @@
 검사:
   1. vendor/components 동결본 == public 현행본 (sha256, 코어 11종 + 컴포넌트 4종)
      + newstile 번들==dist, 웹 뉴스 장면 CDN(integrity)·로컬 폴백·구 코드 제거
-  2. project.json 유효성 (file/type/기본 8종/전 GROUPS 커버/기본값 일치/타입·조건)
+  2. project.json 유효성 (file/type/기본 9종/전 GROUPS 커버/기본값 일치/타입·조건)
   3. wallpaper.js 내 REBUILD 맵 == tools/rebuild-map.json (GROUPS rebuild와 1:1)
   4. wallpaper.html 참조 무결성 (vendor만 참조, public/debug/cloudedit/bootstrap 금지)
   5. wallpaper.css 숨김 규칙 존재
@@ -144,7 +144,7 @@ def main() -> int:
         check("project.json type", pj.get("type") == "web", f"type={pj.get('type')}")
         props = (pj.get("general") or {}).get("properties") or {}
         for k in ("a00_scene", "a01_intro", "a01_fish", "a01_daystars", "a01_daytone", "a01_daydark",
-                  "a02_show_advanced", "a03_snapshot_json"):
+                  "a01_roomfront", "a02_show_advanced", "a03_snapshot_json"):
             check(f"project.json 기본 속성: {k}", k in props, "누락")
         sc = props.get("a00_scene", {})
         check("scene 콤보", sc.get("type") == "combo"
@@ -173,6 +173,11 @@ def main() -> int:
                   f"{p.get('type')}/{p.get('value')}")
             check(f"일반 토글 {k} 조건(공백 선택 시)", p.get("condition") == "a00_scene.value == 1",
                   f"condition={p.get('condition')!r}")
+        rp = props.get("a01_roomfront", {})
+        check("일반 토글 a01_roomfront (bool 꺼짐)", rp.get("type") == "bool" and rp.get("value") is False,
+              f"{rp.get('type')}/{rp.get('value')}")
+        check("일반 토글 a01_roomfront 조건(야치요의 방 선택 시)", rp.get("condition") == "a00_scene.value == 8",
+              f"condition={rp.get('condition')!r}")
         # WE Installed 탭 썸네일은 preview.jpg/gif 관례만 인식한다 (thumbnail.png 등 별도명 무시됨).
         pv = pj.get("preview")
         check("preview 관례명", isinstance(pv, str) and pv in ("preview.jpg", "preview.gif"),
@@ -396,6 +401,10 @@ def main() -> int:
     # 4b. wallpaper.js 브릿지: 공백 토글·물고기 군집 키 + 코어 세터 위임이 있어야 한다
     check("wallpaper.js 공백 토글 키", "a01_daystars" in wjs and "a01_daytone" in wjs and "a01_daydark" in wjs,
           "a01_daystars/a01_daytone/a01_daydark 처리 없음")
+    check("wallpaper.js 병풍 하위장면 키", "a01_roomfront" in wjs and "roomFront" in wjs,
+          "a01_roomfront 처리 없음")
+    check("wallpaper.js 병풍 setView 위임", "setView" in wjs and "TsukuyomiRoom" in wjs,
+          "room setView 위임 없음")
     check("wallpaper.js 코어 위임", "b.dayStars" in wjs and "b.dayTone" in wjs and "b.dayDark" in wjs,
           "bridge dayStars/dayTone/dayDark 위임 없음")
     check("wallpaper.js 물고기 군집 키", "a01_fish" in wjs,
