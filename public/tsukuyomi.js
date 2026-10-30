@@ -199,7 +199,7 @@
                 SL_F0: 0.11, SL_F1: 1.1, SL_F2: 0.037, SL_F3: 0.7, ROW_STEP: 8,
                 REFL_SCALE: 0.5, REFL_AUTO: 1, REFL_MAX_STEP: 8,
                 RIP_MAX: 20, RIP_V: 0.42, RIP_MAX_R: 0.95, RIP_K: 80, RIP_STR: 0.04, FOCAL: 0.9,
-                LANTERN_N: 130, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
+                LANTERN_N: 200, LANTERN_GX: 0.54, LANTERN_SN0: 0.02, LANTERN_SN1: 1,
                 LANTERN_TX: 1, LANTERN_PAD: 2, LANTERN_DEPTH_K: 2,
                 // UI 회피: 1 = 하단 컨트롤 패널 실측 영역을 비움, 0 = 끔(회피 없음)
                 LANTERN_CARD_AVOID: 1,
@@ -221,8 +221,8 @@
                 LANTERN_SEED: 10,
             };
             const CFG_DEFAULTS = JSON.parse(JSON.stringify(CFG));
-            // 모바일 레이아웃에서는 랜턴 기본값 축소 (PC 130 → 모바일 30). 이하 디버그 미조작 시 기준값.
-            const LANTERN_N_PC = 130, LANTERN_N_MOBILE = 30;
+            // 모바일 레이아웃에서는 랜턴 기본값 축소 (PC 200 → 모바일 30). 이하 디버그 미조작 시 기준값.
+            const LANTERN_N_PC = 200, LANTERN_N_MOBILE = 30;
             let lastMobile = false;
             try {
                 lastMobile = window.matchMedia('(max-width: 460px), (pointer: coarse) and (max-height: 500px)').matches;
