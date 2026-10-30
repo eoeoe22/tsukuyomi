@@ -828,3 +828,16 @@
                 transition: none;
             }
         }
+
+/* 八: 병풍 정면 뷰 토글. 패널에 이 버튼 하나뿐이라 접지 않고 항상 보인다 */
+#roomPanel .wallpaper-toggle:not(.on) {
+    width: 46px;
+    min-width: 46px;
+    margin-left: 8px;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+}
+#roomPanel .wallpaper-toggle:not(.on):hover {
+    transform: translateY(-1px);
+}

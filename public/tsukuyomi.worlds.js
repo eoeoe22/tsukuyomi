@@ -127,13 +127,37 @@
     start() { return loadEarth().then(E => { this.E = E; E.start(); }); },
     stop() { if (this.E) this.E.stop(); },
   } : null;
-  // 八: 단일 장면이라 옵션이 없다. 베이스(방 구조)가 그려진 뒤에 전환이 시작되도록 start를 기다린다
+  // 八: 베이스(방 구조)가 그려진 뒤에 전환이 시작되도록 start를 기다린다.
+  // 조절 버튼은 병풍 정면 뷰 토글(#btnRoomFront) 하나
+  const btnRoomFront = document.getElementById('btnRoomFront');
+  const syncRoomFront = () => {
+    if (!btnRoomFront) return;
+    const on = !!(room && room.R && room.R.view === 'front');
+    btnRoomFront.classList.toggle('on', on);
+    btnRoomFront.setAttribute('aria-pressed', on ? 'true' : 'false');
+  };
   const room = (roomEl && roomDock) ? {
     id: 'room', el: roomEl, dock: roomDock,
     R: null,
-    start() { return loadRoom().then(R => { this.R = R; return R.start(); }); },
+    // 다시 들어올 때는 본 시점부터 (떠날 때 되돌리면 페이드아웃 중인 정지 화면이 바뀌어 보인다)
+    start() {
+      return loadRoom().then(R => {
+        this.R = R;
+        if (R.setView) R.setView('main', true);
+        return R.start();
+      }).finally(syncRoomFront);
+    },
     stop() { if (this.R) this.R.stop(); },
   } : null;
+  if (room && btnRoomFront) {
+    btnRoomFront.addEventListener('click', () => {
+      const R = room.R;
+      if (!R || !R.setView) return;
+      // 정면 뷰는 장면 준비(등 로드)가 끝나야 열린다. 아직이면 setView가 false를 돌려주고 그대로 둔다
+      R.setView(R.view === 'front' ? 'main' : 'front');
+      syncRoomFront();
+    });
+  }
   // 犬: 단일 장면이라 옵션이 없다. 첫 프레임을 그린 뒤 전환이 시작된다
   const news = (newsEl && newsDock) ? {
     id: 'news', el: newsEl, dock: newsDock,
