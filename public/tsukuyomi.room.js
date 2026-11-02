@@ -118,11 +118,11 @@ function ceiling(g) {
   for (const x of [-4.5, -1.5, 1.5, 4.5]) boxP(g, x - 0.16, x + 0.16, YC - 0.32, YC, ZB, z1, beam);
   for (const z of [-14.5, -11.5]) boxP(g, -HX, HX, YC - 0.4, YC, z - 0.16, z + 0.16, beam);
 }
-function sideOutside(g) {
+function sideOutside(g, sides = [-1, 1]) {
   // 옆 개구 밖 툇마루 + 난간. 뒤 난간과 같은 거리(벽에서 2.05m)·높이·동자 간격(아래 2칸·위 4칸)으로 깊이 방향을 따라 놓는다
   const xo = HX + 2.05, z0 = ZB - 2.2, z1 = -5, p = 0.36, w = 0.04;
   const wood = { f: '#4a3421', s: '#3d2a1b', b: '#2e2015', t: '#5a4030' };
-  for (const sd of [-1, 1]) {
+  for (const sd of sides) {
     const bx = (a, b, y0, y1, za, zb) => boxP(g, Math.min(sd * a, sd * b), Math.max(sd * a, sd * b), y0, y1, za, zb, wood);
     poly(g, [proj(sd * HX, 0, z0), proj(sd * (xo + 0.2), 0, z0), proj(sd * (xo + 0.2), 0, z1), proj(sd * HX, 0, z1)], '#3a2c20');
     for (let z = z0 + 0.15; z < z1; z += 2 * p) bx(xo - w, xo + w, 0.06, 0.48, z - w, z + w);
@@ -375,7 +375,7 @@ LANTERNS.forEach(L => { L.d = -L.z; L.k = kAt(L.z); L.y0 = baseY(L.x); });
 // 참고 이미지처럼 화면 안에 등은 두지 않는다. 빛은 관찰자 쪽(화면 밖 왼쪽 앞)에서 오는 따뜻한 빛으로 굽는다(FRONT_LIGHT)
 const FV = (() => {
   const zs = BYO_P.flatMap(P => [P.p[1], P.q[1]]);
-  return { x: 1.4, y: 1.3, z: (Math.min(...zs) + Math.max(...zs)) / 2, F: 1560, CX: 800, CY: 322 };
+  return { x: 1.4, y: 1.3, z: (Math.min(...zs) + Math.max(...zs)) / 2, F: 1300, CX: 800, CY: 300 };
 })();
 // 화면 밖 빛: 중심(cx, cy: 화면 비율), 반경(r: 화면 폭 비율, 세로 sy배), 세기
 const FRONT_LIGHT = { cx: 0.4, cy: 0.45, r: 0.8, sy: 0.7, a: 0.6 };
@@ -394,6 +394,7 @@ function frontWall(g) {
   g.save(); pathPts(g, op); g.clip();
   const r = mulberry32(17);
   for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(220,230,255,${0.2 + r() * 0.5})`; g.fillRect(r() * W, r() * H * 0.5, 1.2, 1.2); }
+  sideOutside(g, [1]);   // 개구 밖 툇마루 난간 (병풍 오른쪽 여백 뒤로 보인다)
   g.restore();
   poly(g, [proj(x, YK, ZB), proj(x, YK, Z1), proj(x, YC, Z1), proj(x, YC, ZB)], '#1a1510');
   for (const z of [ZW, -11.5]) poly(g, [proj(x - 0.36, 0, z - 0.18), proj(x - 0.36, 0, z + 0.18), proj(x - 0.36, YC, z + 0.18), proj(x - 0.36, YC, z - 0.18)], '#3d2a1b', 'rgba(0,0,0,0.35)', 0.8);
