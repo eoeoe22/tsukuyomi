@@ -150,10 +150,26 @@
         'M126 64Q340 108 554 64L548 85Q340 126 132 85Z'];
     const TORII_RED = new Path2D(TORII_RED_D.join(' '));
     const TORII_BLK = new Path2D(TORII_BLK_D.join(' '));
-    // 부재별 경로: 림(윤곽선)을 이음새 안쪽에 긋지 않으려고 따로 둔다
-    const TORII_PARTS = TORII_RED_D.concat(TORII_BLK_D).map(d => new Path2D(d));
     const TORII_ALL = new Path2D(); TORII_ALL.addPath(TORII_RED); TORII_ALL.addPath(TORII_BLK);
     const TB = { x: 124, y: 62, w: 432, h: 360, cx: 340, base: 420 };
+    // 땅거미 토리이 칠: 해를 등진 역광, 채도 낮은 짙은 주홍(땅거미·노을 장면 공용).
+    // g는 이미 토리이 SVG 공간으로 변환된 컨텍스트
+    function paintTorii(g) {
+        g.save();
+        const fg = g.createLinearGradient(0, TB.y, 0, TB.base);
+        fg.addColorStop(0, '#4e2219'); fg.addColorStop(0.35, '#421c16'); fg.addColorStop(1, '#2a1012');
+        g.fillStyle = fg; g.fill(TORII_RED);
+        g.fillStyle = '#1a0f12'; g.fill(TORII_BLK);
+        g.clip(TORII_ALL);
+        g.globalAlpha = 0.1; g.fillStyle = '#e0a29a';   // 오른쪽 면 노을 반사광
+        g.fillRect(236, 110, 8, 300); g.fillRect(456, 110, 8, 300);
+        g.globalAlpha = 0.35; g.fillStyle = '#1a0c10';   // 기둥 왼쪽 그늘 면
+        g.fillRect(213, 110, 10, 300); g.fillRect(433, 110, 10, 300);
+        g.fillRect(140, 100, 400, 14);
+        g.globalAlpha = 0.14; g.fillStyle = '#3a4668';    // 땅거미 대기
+        g.fillRect(TB.x, TB.y, TB.w, TB.h);
+        g.restore();
+    }
 
     // ---------- 공통 레이아웃 ----------
     let W = 0, H = 0, dpr = 1, U = 1;
@@ -364,19 +380,7 @@
             ctx.save();
             ctx.translate(tx - TB.cx * k, floorY + tw * 0.012 - TB.base * k);
             ctx.scale(k, k);
-            g = ctx.createLinearGradient(0, TB.y, 0, TB.base);
-            g.addColorStop(0, '#4e2219'); g.addColorStop(0.35, '#421c16'); g.addColorStop(1, '#2a1012');
-            ctx.fillStyle = g; ctx.fill(TORII_RED);
-            ctx.fillStyle = '#1a0f12'; ctx.fill(TORII_BLK);
-            ctx.clip(TORII_ALL);
-            ctx.globalAlpha = 0.1; ctx.fillStyle = '#e0a29a';   // 오른쪽 면 노을 반사광
-            ctx.fillRect(236, 110, 8, 300); ctx.fillRect(456, 110, 8, 300);
-            ctx.globalAlpha = 0.35; ctx.fillStyle = '#1a0c10';   // 기둥 왼쪽 그늘 면
-            ctx.fillRect(213, 110, 10, 300); ctx.fillRect(433, 110, 10, 300);
-            ctx.fillRect(140, 100, 400, 14);
-            ctx.globalAlpha = 0.14; ctx.fillStyle = '#3a4668';    // 땅거미 대기
-            ctx.fillRect(TB.x, TB.y, TB.w, TB.h);
-            ctx.globalAlpha = 1;
+            paintTorii(ctx);
             ctx.restore();
             // 능선 + 윗변 푸른 림
             drawRidgeImg(ridge);
@@ -763,50 +767,19 @@ void main(){
             }
             ctx.globalAlpha = 1;
         }
-        // 토리이는 움직이지 않으므로 레이아웃 때 한 번 굽는다
+        // 토리이: 땅거미 장면과 같은 칠. 움직이지 않으므로 레이아웃 때 한 번 굽는다
         let toriiC = null, toriiOx = 0, toriiOy = 0;
         function bakeTorii() {
             const { tw, tx, floorY } = L, k = tw / TB.w;
             const ox = tx - TB.cx * k, oy = floorY + tw * 0.012 - TB.base * k;
             const bx = Math.floor(ox + TB.x * k) - 2, by = Math.floor(oy + TB.y * k) - 2;
             const cw = Math.ceil(TB.w * k) + 4, ch = Math.ceil(TB.h * k) + 4;
-            const mk = () => { const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(cw * dpr)); c.height = Math.max(1, Math.round(ch * dpr)); return c; };
-            const into = g => g.setTransform(dpr * k, 0, 0, dpr * k, dpr * (ox - bx), dpr * (oy - by));
-            toriiC = mk(); toriiOx = bx; toriiOy = by;
+            toriiC = document.createElement('canvas');
+            toriiC.width = Math.max(1, Math.round(cw * dpr)); toriiC.height = Math.max(1, Math.round(ch * dpr));
+            toriiOx = bx; toriiOy = by;
             const g = toriiC.getContext('2d');
-            into(g);
-            // 역광 실루엣: 주홍이 겨우 남은 짙은 적갈색
-            const fg = g.createLinearGradient(0, TB.y, 0, TB.base);
-            fg.addColorStop(0, '#5e2a24'); fg.addColorStop(0.4, '#4a1f1c'); fg.addColorStop(1, '#2c1416');
-            g.fillStyle = fg; g.fill(TORII_RED);
-            g.fillStyle = '#1c0f12'; g.fill(TORII_BLK);
-            // 림: 윤곽 안쪽을 태양 쪽일수록 밝게(태양 좌표를 SVG 공간으로).
-            // 부재마다 윤곽을 긋고 다른 부재가 덮는 부분은 지워서, 겹친 이음새 안쪽엔 선이 남지 않게 한다
-            const lx = (sx - ox) / k, ly = (sy - oy) / k;
-            const rg = g.createRadialGradient(lx, ly, 0, lx, ly, TB.w * 0.75);
-            rg.addColorStop(0, 'rgba(255,214,170,0.9)'); rg.addColorStop(0.3, 'rgba(255,170,140,0.35)'); rg.addColorStop(1, 'rgba(220,130,130,0)');
-            const rim = mk(), rc = rim.getContext('2d');
-            const part = mk(), pc = part.getContext('2d');
-            into(rc); into(pc);
-            TORII_PARTS.forEach((p, i) => {
-                pc.globalCompositeOperation = 'source-over';
-                pc.setTransform(1, 0, 0, 1, 0, 0); pc.clearRect(0, 0, part.width, part.height); into(pc);
-                pc.strokeStyle = rg; pc.lineWidth = 3 / k;
-                pc.stroke(p);
-                pc.globalCompositeOperation = 'destination-out';
-                pc.fillStyle = '#000';
-                TORII_PARTS.forEach((q, j) => { if (j !== i) pc.fill(q); });
-                rc.setTransform(1, 0, 0, 1, 0, 0); rc.drawImage(part, 0, 0); into(rc);
-            });
-            // 지붕 윗면은 하늘을 향해 조금 더 밝다
-            rc.globalAlpha = 0.35; rc.fillStyle = rg;
-            rc.fillRect(TB.x, 62, TB.w, 14);
-            rc.globalAlpha = 1;
-            // 실루엣 안쪽만 남김
-            rc.globalCompositeOperation = 'destination-in';
-            rc.fillStyle = '#000'; rc.fill(TORII_RED); rc.fill(TORII_BLK);
-            g.setTransform(1, 0, 0, 1, 0, 0);
-            g.drawImage(rim, 0, 0);
+            g.setTransform(dpr * k, 0, 0, dpr * k, dpr * (ox - bx), dpr * (oy - by));
+            paintTorii(g);
         }
         function drawTorii() {
             if (!toriiC) return;
