@@ -141,13 +141,17 @@
     }
 
     // ---------- 토리이 (torii.svg 680×450 공간, 발 y = 420; tsukuyomi.js와 같은 도형) ----------
-    const TORII_RED = new Path2D(
-        'M216 110H244L247 410H213Z M436 110H464L467 410H433Z ' +
-        'M331 118h18v76h-18Z M168 192h344v20h-344Z ' +
-        'M146 86Q340 124 534 86L532 108Q340 146 148 108Z');
-    const TORII_BLK = new Path2D(
-        'M210 392h40v28h-40Z M430 392h40v28h-40Z ' +
-        'M126 64Q340 108 554 64L548 85Q340 126 132 85Z');
+    const TORII_RED_D = [
+        'M216 110H244L247 410H213Z', 'M436 110H464L467 410H433Z',
+        'M331 118h18v76h-18Z', 'M168 192h344v20h-344Z',
+        'M146 86Q340 124 534 86L532 108Q340 146 148 108Z'];
+    const TORII_BLK_D = [
+        'M210 392h40v28h-40Z', 'M430 392h40v28h-40Z',
+        'M126 64Q340 108 554 64L548 85Q340 126 132 85Z'];
+    const TORII_RED = new Path2D(TORII_RED_D.join(' '));
+    const TORII_BLK = new Path2D(TORII_BLK_D.join(' '));
+    // 부재별 경로: 림(윤곽선)을 이음새 안쪽에 긋지 않으려고 따로 둔다
+    const TORII_PARTS = TORII_RED_D.concat(TORII_BLK_D).map(d => new Path2D(d));
     const TORII_ALL = new Path2D(); TORII_ALL.addPath(TORII_RED); TORII_ALL.addPath(TORII_BLK);
     const TB = { x: 124, y: 62, w: 432, h: 360, cx: 340, base: 420 };
 
@@ -650,6 +654,7 @@ void main(){
                 shX: 10, shY: 18, nearK: 5, litBase: 0.1, litK: 0.8, rimK: 0.28, fallMin: 0.32,
             });
             bakeFlare();
+            bakeTorii();
         }
         const HAZE = [246, 206, 188];   // 수평선 대기색: 하늘 아랫단·먼 운해 안개가 같은 색으로 이어진다
         function drawSky() {
@@ -758,29 +763,54 @@ void main(){
             }
             ctx.globalAlpha = 1;
         }
-        function drawTorii() {
+        // 토리이는 움직이지 않으므로 레이아웃 때 한 번 굽는다
+        let toriiC = null, toriiOx = 0, toriiOy = 0;
+        function bakeTorii() {
             const { tw, tx, floorY } = L, k = tw / TB.w;
             const ox = tx - TB.cx * k, oy = floorY + tw * 0.012 - TB.base * k;
-            ctx.save();
-            ctx.translate(ox, oy);
-            ctx.scale(k, k);
+            const bx = Math.floor(ox + TB.x * k) - 2, by = Math.floor(oy + TB.y * k) - 2;
+            const cw = Math.ceil(TB.w * k) + 4, ch = Math.ceil(TB.h * k) + 4;
+            const mk = () => { const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(cw * dpr)); c.height = Math.max(1, Math.round(ch * dpr)); return c; };
+            const into = g => g.setTransform(dpr * k, 0, 0, dpr * k, dpr * (ox - bx), dpr * (oy - by));
+            toriiC = mk(); toriiOx = bx; toriiOy = by;
+            const g = toriiC.getContext('2d');
+            into(g);
             // 역광 실루엣: 주홍이 겨우 남은 짙은 적갈색
-            const g = ctx.createLinearGradient(0, TB.y, 0, TB.base);
-            g.addColorStop(0, '#5e2a24'); g.addColorStop(0.4, '#4a1f1c'); g.addColorStop(1, '#2c1416');
-            ctx.fillStyle = g; ctx.fill(TORII_RED);
-            ctx.fillStyle = '#1c0f12'; ctx.fill(TORII_BLK);
-            // 림: 윤곽 안쪽을 태양 쪽일수록 밝게(태양 좌표를 SVG 공간으로)
-            ctx.clip(TORII_ALL);
+            const fg = g.createLinearGradient(0, TB.y, 0, TB.base);
+            fg.addColorStop(0, '#5e2a24'); fg.addColorStop(0.4, '#4a1f1c'); fg.addColorStop(1, '#2c1416');
+            g.fillStyle = fg; g.fill(TORII_RED);
+            g.fillStyle = '#1c0f12'; g.fill(TORII_BLK);
+            // 림: 윤곽 안쪽을 태양 쪽일수록 밝게(태양 좌표를 SVG 공간으로).
+            // 부재마다 윤곽을 긋고 다른 부재가 덮는 부분은 지워서, 겹친 이음새 안쪽엔 선이 남지 않게 한다
             const lx = (sx - ox) / k, ly = (sy - oy) / k;
-            const rg = ctx.createRadialGradient(lx, ly, 0, lx, ly, TB.w * 0.75);
+            const rg = g.createRadialGradient(lx, ly, 0, lx, ly, TB.w * 0.75);
             rg.addColorStop(0, 'rgba(255,214,170,0.9)'); rg.addColorStop(0.3, 'rgba(255,170,140,0.35)'); rg.addColorStop(1, 'rgba(220,130,130,0)');
-            ctx.strokeStyle = rg; ctx.lineWidth = 3 / k;
-            ctx.stroke(TORII_ALL);
+            const rim = mk(), rc = rim.getContext('2d');
+            const part = mk(), pc = part.getContext('2d');
+            into(rc); into(pc);
+            TORII_PARTS.forEach((p, i) => {
+                pc.globalCompositeOperation = 'source-over';
+                pc.setTransform(1, 0, 0, 1, 0, 0); pc.clearRect(0, 0, part.width, part.height); into(pc);
+                pc.strokeStyle = rg; pc.lineWidth = 3 / k;
+                pc.stroke(p);
+                pc.globalCompositeOperation = 'destination-out';
+                pc.fillStyle = '#000';
+                TORII_PARTS.forEach((q, j) => { if (j !== i) pc.fill(q); });
+                rc.setTransform(1, 0, 0, 1, 0, 0); rc.drawImage(part, 0, 0); into(rc);
+            });
             // 지붕 윗면은 하늘을 향해 조금 더 밝다
-            ctx.globalAlpha = 0.35; ctx.fillStyle = rg;
-            ctx.fillRect(TB.x, 62, TB.w, 14);
-            ctx.globalAlpha = 1;
-            ctx.restore();
+            rc.globalAlpha = 0.35; rc.fillStyle = rg;
+            rc.fillRect(TB.x, 62, TB.w, 14);
+            rc.globalAlpha = 1;
+            // 실루엣 안쪽만 남김
+            rc.globalCompositeOperation = 'destination-in';
+            rc.fillStyle = '#000'; rc.fill(TORII_RED); rc.fill(TORII_BLK);
+            g.setTransform(1, 0, 0, 1, 0, 0);
+            g.drawImage(rim, 0, 0);
+        }
+        function drawTorii() {
+            if (!toriiC) return;
+            ctx.drawImage(toriiC, toriiOx, toriiOy, toriiC.width / dpr, toriiC.height / dpr);
         }
         function drawRidge() {
             drawRidgeImg(ridge);
