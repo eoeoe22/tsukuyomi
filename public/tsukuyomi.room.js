@@ -304,10 +304,21 @@ const BYO_P = (() => {
 })();
 // 폭 위 직사각형 (u0..u1, v0..v1) → 화면 다각형
 const byoRect = (P, u0, u1, v0, v1) => [P.at(u0, v0), P.at(u1, v0), P.at(u1, v1), P.at(u0, v1)].map(w => proj(...w));
-// 폭 로컬 좌표(m, v 위로) → 화면 아핀. 폭 하나의 깊이 차가 작아(≤0.6m / 15m+) 아핀 근사로 충분, 테두리는 정확한 다각형으로 자른다
-function byoAffine(g, P) {
-  const o = proj(...P.at(0, 0)), ex = proj(...P.at(1, 0)), ey = proj(...P.at(0, 1));
-  g.transform(ex[0] - o[0], ex[1] - o[1], ey[0] - o[0], ey[1] - o[1], o[0], o[1]);
+// 폭 로컬 좌표(m, v 위로)로 그리기: 폭 하나를 아핀 하나로 붙이면, 가까이서 보는 정면 뷰에선 원근 오차가 커져
+// 먼 쪽 구석에 무늬가 비고 폭마다 줄 기울기가 달라진다. 세로 띠(BYO_STRIPS)로 나눠 띠마다 아핀을 다시 잡는다.
+// 세로선은 원근에서도 곧아 띠 안에선 거의 정확하다. 띠 경계는 살짝 겹쳐 잘린 틈이 보이지 않게 한다
+const BYO_STRIPS = 16;
+function byoLocal(g, P, u0, u1, v0, v1, fn) {
+  const du = (u1 - u0) / BYO_STRIPS, ov = du * 0.04;
+  for (let i = 0; i < BYO_STRIPS; i++) {
+    const a = u0 + i * du, b = a + du, m = (a + b) / 2;
+    const pa = proj(...P.at(a, 0)), pb = proj(...P.at(b, 0)), pm = proj(...P.at(m, 0)), py = proj(...P.at(m, 1));
+    const ex = [(pb[0] - pa[0]) / du, (pb[1] - pa[1]) / du], ey = [py[0] - pm[0], py[1] - pm[1]];
+    g.save(); pathPts(g, byoRect(P, Math.max(u0, a - ov), Math.min(u1, b + ov), v0, v1)); g.clip();
+    g.transform(ex[0], ex[1], ey[0], ey[1], pm[0] - m * ex[0], pm[1] - m * ex[1]);
+    fn(a - ov, b + ov);
+    g.restore();
+  }
 }
 // 청해파 타일: 붙여주신 SVG와 같은 원 9겹·색. 가로 170·세로 85 단위가 한 주기 → 이음매 없이 반복.
 // 아래 줄이 위 줄을 덮도록 y 순서대로 그린다. 화면에 맺힐 크기로 바로 래스터화해 축소 무아레를 피한다
@@ -345,14 +356,12 @@ function byobu(g, kM) {
     if (!P.front) { poly(g, byoRect(P, e, w - e, e, h - e), '#2a2416'); continue; }   // 뒷면: 무지
     poly(g, byoRect(P, e, w - e, e, h - e), '#34502a');                               // 초록 비단 테
     // 비단 테 잔무늬 (가는 격자)
-    g.save(); pathPts(g, byoRect(P, e, w - e, e, h - e)); g.clip(); byoAffine(g, P);
-    g.strokeStyle = 'rgba(10,20,6,0.45)'; g.lineWidth = 0.006;
-    for (let v = 0; v < h + w; v += 0.022) { g.beginPath(); g.moveTo(0, v); g.lineTo(w, v - w); g.moveTo(0, v - w); g.lineTo(w, v); g.stroke(); }
-    g.restore();
+    byoLocal(g, P, e, w - e, e, h - e, () => {
+      g.strokeStyle = 'rgba(10,20,6,0.45)'; g.lineWidth = 0.006;
+      for (let v = 0; v < h + w; v += 0.022) { g.beginPath(); g.moveTo(0, v); g.lineTo(w, v - w); g.moveTo(0, v - w); g.lineTo(w, v); g.stroke(); }
+    });
     // 청해파 바탕
-    g.save(); pathPts(g, byoRect(P, f, w - f, f * 1.25, h - f)); g.clip(); byoAffine(g, P);
-    g.fillStyle = pat; g.fillRect(0, 0, w, h);
-    g.restore();
+    byoLocal(g, P, f, w - f, f * 1.25, h - f, (a, b) => { g.fillStyle = pat; g.fillRect(a, -0.05, b - a, h + 0.1); });
     poly(g, byoRect(P, f, w - f, f * 1.25, h - f), null, 'rgba(0,0,0,0.55)', 1);
     // 지그재그 명암: 가까운 스탠드 등불(오른쪽)을 등지는 폭일수록 어둡게. 빛무늬는 평균 평면에 투영하므로 꺾임은 여기서만 드러난다
     const lx = BYO.lamp[0] - P.c[0], lz = BYO.lamp[1] - P.c[1], ln = Math.hypot(lx, lz), cs = Math.max(0, (lx * P.n[0] + lz * P.n[1]) / ln);
