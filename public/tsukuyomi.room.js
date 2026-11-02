@@ -262,7 +262,7 @@ function dais(g, o = {}) {
 // ===== 카펫 무늬 (참고 이미지 yachiyoroom3) =====
 // 어두운 적갈 바탕에 주황 넝쿨(C자 고리·S자 줄기)과 작은 꽃송이 줄. 선은 직조처럼 점선으로 끊기고 바탕엔 가는 사선 결.
 // 타일은 카펫 평면 좌표(u = z 가로, v = x 깊이, m)로 한 번 그린다. 반 칸 엇갈린 두 줄이 한 주기
-const RUG = { res: 420, pu: 0.78, pv: 1.0, ground: '#4c1a0e', ink: 'rgba(196,92,38,0.9)', weave: 'rgba(0,0,0,0.13)' };
+const RUG = { res: 420, pu: 0.9, pv: 1.17, ground: '#4c1a0e', ink: 'rgba(196,92,38,0.9)', weave: 'rgba(0,0,0,0.13)' };
 // res: 타일 px/m. 화면에 맺힐 크기에 맞춰 시점마다 따로 굽는다(멀리서 크게 줄이면 점선이 지글거린다)
 const rugTiles = new Map();
 function rugTileCanvas(res) {
@@ -274,27 +274,67 @@ function rugTileCanvas(res) {
   t.fillStyle = RUG.ground; t.fillRect(0, 0, TW, TH);
   t.scale(res, res);   // 이제부터 m 단위
   // 한 칸 무늬(1 × 0.65 단위로 그려 pu × pv/2에 맞춘다). 타일 밖으로 넘친 부분은 이웃 위치에도 그려 이음매 없이 잇는다
+  // 한 칸: 가로로 이어지는 물결 줄기(두 겹) + 엇갈린 가는 줄기, 갈래 덩굴손, 잎, 부채꼴 꽃(팔메트), 꽃송이·점 꽃.
+  // 물결은 sin 한 주기라 칸 경계에서 높이·기울기가 맞아 이웃 칸과 끊김 없이 이어진다
   const cell = () => {
-    const r = mulberry32(31);   // 칸마다 같은 꽃송이 (이웃 복사본과 어긋나지 않게)
-    t.strokeStyle = RUG.ink; t.lineCap = 'round';
-    t.setLineDash([0.016, 0.009]);
-    // 넝쿨 고리: 두 겹 원호 + 안으로 말린 끝
-    for (const rr of [0.15, 0.172]) { t.lineWidth = 0.009; t.beginPath(); t.arc(0.26, 0.33, rr, Math.PI * 0.95, Math.PI * 2.75); t.stroke(); }
-    t.lineWidth = 0.009; t.beginPath(); t.moveTo(0.26 + 0.15 * Math.cos(Math.PI * 0.75), 0.33 + 0.15 * Math.sin(Math.PI * 0.75));
-    t.quadraticCurveTo(0.2, 0.33, 0.25, 0.3); t.quadraticCurveTo(0.3, 0.27, 0.29, 0.35); t.stroke();
-    // S자 줄기: 고리 오른쪽에서 다음 칸 고리 왼쪽으로 (갈래 Y 포함)
-    t.beginPath(); t.moveTo(0.43, 0.36); t.bezierCurveTo(0.58, 0.46, 0.66, 0.18, 0.86, 0.3); t.bezierCurveTo(0.95, 0.35, 1.02, 0.42, 1.09, 0.38); t.stroke();
-    t.beginPath(); t.moveTo(0.43, 0.39); t.bezierCurveTo(0.58, 0.49, 0.66, 0.21, 0.86, 0.33); t.stroke();
-    t.beginPath(); t.moveTo(0.7, 0.26); t.quadraticCurveTo(0.72, 0.18, 0.66, 0.13); t.moveTo(0.7, 0.26); t.quadraticCurveTo(0.77, 0.2, 0.8, 0.12); t.stroke();
-    t.setLineDash([]);
-    // 꽃송이 줄: 가로로 퍼진 작은 꽃잎 덩어리 (위·아래 두 군데)
-    t.fillStyle = RUG.ink;
-    for (const [cx, cy, n] of [[0.72, 0.52, 22], [0.27, 0.08, 16], [0.56, 0.05, 12], [0.06, 0.55, 10]]) {
-      for (let i = 0; i < n; i++) {
-        const x = cx + (r() - 0.5) * 0.26, y = cy + (r() - 0.5) * 0.08, a = 0.005 + r() * 0.008;
-        t.beginPath(); t.ellipse(x, y, a * 1.5, a, (r() - 0.5) * 0.8, 0, Math.PI * 2); t.fill();
+    const r = mulberry32(31);   // 칸마다 같은 배치 (이웃 복사본과 어긋나지 않게)
+    const TAU = Math.PI * 2, Y0 = 0.33;
+    const wave = (u, a, ph) => Y0 + a * Math.sin(TAU * u + ph);
+    const dash = (w, on = 0.016, off = 0.009) => { t.lineWidth = w; t.setLineDash([on, off]); };
+    const curve = (pts) => { t.beginPath(); t.moveTo(...pts[0]); for (let k = 1; k + 2 < pts.length + 1; k += 3) t.bezierCurveTo(...pts[k], ...pts[k + 1], ...pts[k + 2]); t.stroke(); };
+    t.strokeStyle = RUG.ink; t.fillStyle = RUG.ink; t.lineCap = 'round';
+    // 굵은 물결 줄기 두 겹 + 반대 위상의 가는 줄기
+    for (const [dy, a, ph, w] of [[0, 0.11, 0, 0.012], [0.02, 0.11, 0, 0.009], [0, 0.07, Math.PI, 0.008]]) {
+      dash(w); t.beginPath();
+      for (let k = 0; k <= 60; k++) { const u = k / 60, y = wave(u, a, ph) + dy; k ? t.lineTo(u, y) : t.moveTo(u, y); }
+      t.stroke();
+    }
+    // 덩굴손: 줄기에서 갈라져 나가 끝이 작게 한 바퀴 말린다 (위·아래 번갈아)
+    const tendril = (u, up, len, sw) => {
+      const x0 = u, y0 = wave(u, 0.11, 0), sg = up ? -1 : 1;
+      const ex = x0 + sw * len, ey = y0 + sg * len * 0.9, rr = len * 0.2;
+      dash(0.008, 0.014, 0.007);
+      curve([[x0, y0], [x0 + sw * len * 0.2, y0 + sg * len * 0.5], [ex - sw * len * 0.5, ey], [ex, ey]]);
+      t.beginPath(); t.arc(ex, ey - sg * rr, rr, up ? Math.PI / 2 : -Math.PI / 2, up ? Math.PI * 2.2 : Math.PI * 1.2, sw < 0); t.stroke();
+    };
+    tendril(0.06, true, 0.17, 1); tendril(0.38, false, 0.15, -1); tendril(0.58, true, 0.13, -1); tendril(0.86, false, 0.17, 1);
+    // 잎: 줄기 양옆 뾰족한 잎 (윤곽 점선 + 잎맥)
+    const leaf = (u, ang, L) => {
+      const x = u, y = wave(u, 0.11, 0);
+      t.save(); t.translate(x, y); t.rotate(ang);
+      dash(0.007, 0.012, 0.006);
+      t.beginPath(); t.moveTo(0, 0); t.quadraticCurveTo(L * 0.5, -L * 0.32, L, 0); t.quadraticCurveTo(L * 0.5, L * 0.32, 0, 0); t.stroke();
+      t.setLineDash([]); t.lineWidth = 0.005; t.beginPath(); t.moveTo(L * 0.1, 0); t.lineTo(L * 0.85, 0); t.stroke();
+      t.restore();
+    };
+    leaf(0.14, -1.1, 0.12); leaf(0.2, 1.9, 0.11); leaf(0.45, 2.3, 0.11); leaf(0.52, -0.9, 0.1); leaf(0.66, -0.7, 0.12); leaf(0.72, 1.3, 0.1); leaf(0.95, -2.2, 0.11); leaf(0.98, 1.0, 0.09);
+    // 부채꼴 꽃(팔메트): 줄기 마루·골에 꽃잎 다섯 장을 부채처럼, 밑동은 반원
+    const palm = (u, up, S) => {
+      const x = u, y = wave(u, 0.11, 0) + (up ? -0.02 : 0.02), sg = up ? -1 : 1;
+      t.setLineDash([]);
+      t.beginPath(); t.ellipse(x, y, S * 0.35, S * 0.22, 0, 0, Math.PI * 2); t.fill();
+      dash(0.007, 0.011, 0.005);
+      for (let k = -2; k <= 2; k++) {
+        const a = -Math.PI / 2 * sg + k * 0.42;
+        const px = x + Math.cos(a) * S, py = y + Math.sin(a) * S * (up ? 1 : 1);
+        t.beginPath(); t.moveTo(x, y); t.quadraticCurveTo(x + Math.cos(a - 0.25) * S * 0.9, y + Math.sin(a - 0.25) * S * 0.9, px, py);
+        t.quadraticCurveTo(x + Math.cos(a + 0.25) * S * 0.9, y + Math.sin(a + 0.25) * S * 0.9, x, y); t.stroke();
+        t.beginPath(); t.arc(px, py, 0.009, 0, TAU); t.fill();
       }
-      t.beginPath(); t.ellipse(cx, cy, 0.016, 0.011, 0, 0, Math.PI * 2); t.fill();
+    };
+    palm(0.25, true, 0.11); palm(0.75, false, 0.11); palm(0.75, true, 0.06); palm(0.25, false, 0.06);
+    // 꽃송이 줄: 가로로 퍼진 작은 꽃잎 덩어리
+    t.setLineDash([]);
+    for (const [cx, cy, n, wd] of [[0.74, 0.07, 30, 0.3], [0.25, 0.59, 30, 0.3], [0.5, 0.6, 12, 0.14], [0.0, 0.06, 12, 0.14], [0.42, 0.04, 10, 0.1], [0.58, 0.62, 10, 0.1]]) {
+      for (let k = 0; k < n; k++) {
+        const x = cx + (r() - 0.5) * wd, y = cy + (r() - 0.5) * 0.06, a = 0.006 + r() * 0.009;
+        t.beginPath(); t.ellipse(x, y, a * 1.5, a, (r() - 0.5) * 0.8, 0, TAU); t.fill();
+      }
+    }
+    // 점 꽃: 가운데 점 + 다섯 점
+    for (const [cx, cy] of [[0.48, 0.12], [0.02, 0.55], [0.6, 0.5], [0.12, 0.18], [0.9, 0.55]]) {
+      t.beginPath(); t.arc(cx, cy, 0.007, 0, TAU); t.fill();
+      for (let k = 0; k < 5; k++) { const a = k * TAU / 5 + 0.3; t.beginPath(); t.arc(cx + Math.cos(a) * 0.022, cy + Math.sin(a) * 0.022, 0.007, 0, TAU); t.fill(); }
     }
   };
   // cell을 두 줄(둘째 줄은 반 칸 밀림)·이웃 타일 위치에 반복
