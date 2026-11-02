@@ -235,7 +235,7 @@ function backWall(g) {
     g.fillStyle = 'rgba(255,230,160,0.25)'; g.fillRect(sx - k * 0.28, sy - k * 0.07, k * 0.56, k * 0.035);
   }
 }
-// o: 정면 뷰에서 단 길이(z0~z1)·카펫 자리(rz0~rz1)를 병풍 가운데 기준 대칭으로 바꿀 때만 넘긴다
+// o: 정면 뷰에서 단 길이(z0~z1)·카펫 자리(rz0~rz1, 양끝 폭 가운데까지)·앞 모서리까지 깔기(edge)를 바꿀 때만 넘긴다
 function dais(g, o = {}) {
   const { z0: Z0 = ZB, z1: Z1 = DZ1, rz0 = -15.5, rz1 = -9.6 } = o;
   // 몸체: 옆면(챌판)·윗면
@@ -253,33 +253,23 @@ function dais(g, o = {}) {
   boxP(g, DX0, DX0 + 0.12, DH - 0.06, DH + 0.01, Z0, Z1, { f: '#4a3421', s: '#3d2a1b', t: '#7a5a3c' });
   line3(g, [DX0, DH + 0.01, Z0], [DX0, DH + 0.01, Z1], 'rgba(255,220,170,0.45)', 2);
   line3(g, [DX0, 0, Z0], [DX0, 0, Z1], 'rgba(0,0,0,0.6)', 2);
-  // 카펫 (적갈색, 테두리 2겹)
+  // 카펫: 넝쿨 무늬, 얇은 테 한 줄. edge면 단 앞 모서리까지 깐다(정면 뷰)
   const rug = (x0, x1, z0, z1, c) => poly(g, [proj(x0, DH + 0.01, z0), proj(x1, DH + 0.01, z0), proj(x1, DH + 0.01, z1), proj(x0, DH + 0.01, z1)], c);
-  if (o.weave) {   // 정면 뷰: 단 앞 모서리까지 깔린 넝쿨 무늬 카펫 (얇은 테 한 줄)
-    const [ra, rb, za, zb] = [DX0 + 0.13, HX - 0.3, rz0, rz1];
-    rug(ra, rb, za, zb, '#22100a');
-    rugWeave(g, ra + 0.04, rb, za + 0.06, zb - 0.06);
-    return;
-  }
-  const [ra, rb, za, zb] = [DX0 + 0.55, HX - 0.3, rz0, rz1];
-  rug(ra, rb, za, zb, '#2a120d');
-  rug(ra + 0.12, rb - 0.12, za + 0.12, zb - 0.12, '#6a3a22');
-  rug(ra + 0.22, rb - 0.22, za + 0.22, zb - 0.22, '#5a2218');
-  const rr = mulberry32(21);
-  for (let i = 0; i < 70; i++) {   // 잔무늬
-    const x = ra + 0.35 + rr() * (rb - ra - 0.7), z = za + 0.35 + rr() * (zb - za - 0.7), w = 0.08 + rr() * 0.1;
-    rug(x - w, x + w, z - w * 0.6, z + w * 0.6, `rgba(150,80,45,${0.25 + rr() * 0.2})`);
-  }
+  const [ra, rb, za, zb] = [DX0 + (o.edge ? 0.13 : 0.55), HX - 0.3, rz0, rz1];
+  rug(ra, rb, za, zb, '#22100a');
+  rugWeave(g, ra + 0.05, rb - 0.05, za + 0.06, zb - 0.06);
 }
 // ===== 카펫 무늬 (참고 이미지 yachiyoroom3) =====
 // 어두운 적갈 바탕에 주황 넝쿨(C자 고리·S자 줄기)과 작은 꽃송이 줄. 선은 직조처럼 점선으로 끊기고 바탕엔 가는 사선 결.
 // 타일은 카펫 평면 좌표(u = z 가로, v = x 깊이, m)로 한 번 그린다. 반 칸 엇갈린 두 줄이 한 주기
 const RUG = { res: 420, pu: 0.78, pv: 1.0, ground: '#4c1a0e', ink: 'rgba(196,92,38,0.9)', weave: 'rgba(0,0,0,0.13)' };
-let rugTile = null;
-function rugTileCanvas() {
+// res: 타일 px/m. 화면에 맺힐 크기에 맞춰 시점마다 따로 굽는다(멀리서 크게 줄이면 점선이 지글거린다)
+const rugTiles = new Map();
+function rugTileCanvas(res) {
+  let rugTile = rugTiles.get(res);
   if (rugTile) return rugTile;
-  const { res, pu, pv } = RUG, TW = Math.round(pu * res), TH = Math.round(pv * res);
-  rugTile = document.createElement('canvas'); rugTile.width = TW; rugTile.height = TH;
+  const { pu, pv } = RUG, TW = Math.round(pu * res), TH = Math.round(pv * res);
+  rugTile = document.createElement('canvas'); rugTile.width = TW; rugTile.height = TH; rugTiles.set(res, rugTile);
   const t = rugTile.getContext('2d');
   t.fillStyle = RUG.ground; t.fillRect(0, 0, TW, TH);
   t.scale(res, res);   // 이제부터 m 단위
@@ -320,17 +310,26 @@ function rugTileCanvas() {
   for (let k = -pv; k < pu + pv; k += 0.009) { t.beginPath(); t.moveTo(k, 0); t.lineTo(k + pv * 0.35, pv); t.stroke(); }
   return rugTile;
 }
-// 정면 뷰 바닥에 카펫 무늬 붙이기: 같은 깊이(x)는 화면에서 한 가로줄이므로 줄마다 정확한 배율로 패턴을 채운다
-// (깊이 방향 원근을 줄 단위로 맞추는 방식이라 아핀 하나로 붙일 때의 일그러짐이 없다)
+// 바닥에 카펫 무늬 붙이기: 두 시점 모두 같은 깊이는 화면에서 한 가로줄이므로, 줄마다 그 깊이에 맞는 배율로 패턴을 채운다
+// (깊이 방향 원근을 줄 단위로 맞추는 방식이라 아핀 하나로 붙일 때의 일그러짐이 없다).
+// 무늬 방향은 월드에 고정: 타일 u = z, v = x. 정면 뷰는 z가 가로·x가 깊이, 본 장면은 x가 가로·z가 깊이
 function rugWeave(g, x0, x1, z0, z1) {
-  const pat = g.createPattern(rugTileCanvas(), 'repeat'), m = 1 / RUG.res, hy = FV.y - DH;
+  const fr = proj === projFront, kNear = fr ? FV.F / (x0 - FV.x) : F / -z1;   // 카펫 가장 가까운 줄의 px/m
+  const res = Math.max(120, Math.min(RUG.res, Math.round(kNear * dpr / 8) * 8));
+  const pat = g.createPattern(rugTileCanvas(res), 'repeat'), m = 1 / res;
   const pts = [proj(x0, DH, z0), proj(x1, DH, z0), proj(x1, DH, z1), proj(x0, DH, z1)];
-  const yNear = proj(x0, DH, FV.z)[1], yFar = proj(x1, DH, FV.z)[1], step = 0.5;
+  const ys = pts.map(p => p[1]), step = 0.5;
+  // 화면 줄 Y → 깊이 좌표 w(정면: x, 본: z), 가로 배율 s, 깊이당 Y 변화 dY
+  const row = fr
+    ? Y => { const d = FV.F * (FV.y - DH) / (Y - FV.CY); return { w: FV.x + d, s: FV.F / d, dY: -(Y - FV.CY) / d }; }
+    : Y => { const d = F * (EYE - DH) / (Y - CY); return { w: -d, s: F / d, dY: (Y - CY) / d }; };
   g.save(); pathPts(g, pts); g.clip(); g.fillStyle = pat;
-  for (let Y = yFar; Y < yNear; Y += step) {
-    const Yc = Y + step / 2, d = FV.F * hy / (Yc - FV.CY), x = FV.x + d, s = FV.F / d, dY = -FV.F * hy / (d * d);
-    // 타일 px (pu, pv) → 화면: X = CX + s·(pu·m − FV.z), Y = Yc + dY·(pv·m − x)
-    pat.setTransform(new DOMMatrix([s * m, 0, 0, dY * m, FV.CX - s * FV.z, Yc - dY * x]));
+  for (let Y = Math.min(...ys); Y < Math.max(...ys); Y += step) {
+    const Yc = Y + step / 2, { w, s, dY } = row(Yc);
+    // 타일 px (pu, pv) → 화면
+    pat.setTransform(new DOMMatrix(fr
+      ? [s * m, 0, 0, dY * m, FV.CX - s * FV.z, Yc - dY * w]     // X = CX + s·(z − FV.z), Y = Yc + dY·(x − w)
+      : [0, dY * m, s * m, 0, CX, Yc - dY * w]));                 // X = CX + s·x,          Y = Yc + dY·(z − w)
     g.fillRect(0, Y, W, step + 0.35);
   }
   g.restore();
@@ -497,7 +496,7 @@ function buildFront() {
   const fr = BYO_P.map(P => P.front);
   BYO_P.forEach(P => { P.front = (FV.x - P.c[0]) * P.n[0] + (FV.z - P.c[1]) * P.n[1] > 0; });
   proj = projFront;
-  try { frontWall(bg); dais(bg, { z0: FV.z - FW.b, z1: FV.z + FW.b, rz0: FV.z - 2.95, rz1: FV.z + 2.95, weave: true }); BYO.lamp = [FV.x, FV.z]; byobu(bg, kFront(BYO.x0)); } finally { proj = projMain; TAGS.length = nTags; BYO.lamp = BYO_LAMP; BYO_P.forEach((P, i) => { P.front = fr[i]; }); }
+  try { frontWall(bg); dais(bg, { z0: FV.z - FW.b, z1: FV.z + FW.b, rz0: Math.min(...BYO_P.map(P => P.c[1])), rz1: Math.max(...BYO_P.map(P => P.c[1])), edge: true }); BYO.lamp = [FV.x, FV.z]; byobu(bg, kFront(BYO.x0)); } finally { proj = projMain; TAGS.length = nTags; BYO.lamp = BYO_LAMP; BYO_P.forEach((P, i) => { P.front = fr[i]; }); }
   const [ac, ag] = mkLayer();
   ag.drawImage(bc, 0, 0, W, H);
   ag.globalCompositeOperation = 'screen'; ag.fillStyle = 'rgb(110,100,90)'; ag.fillRect(0, 0, W, H);
