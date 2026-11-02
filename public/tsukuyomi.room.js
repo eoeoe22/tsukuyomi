@@ -118,11 +118,11 @@ function ceiling(g) {
   for (const x of [-4.5, -1.5, 1.5, 4.5]) boxP(g, x - 0.16, x + 0.16, YC - 0.32, YC, ZB, z1, beam);
   for (const z of [-14.5, -11.5]) boxP(g, -HX, HX, YC - 0.4, YC, z - 0.16, z + 0.16, beam);
 }
-function sideOutside(g) {
+function sideOutside(g, sides = [-1, 1], z0 = ZB - 2.2, z1 = -5) {
   // 옆 개구 밖 툇마루 + 난간. 뒤 난간과 같은 거리(벽에서 2.05m)·높이·동자 간격(아래 2칸·위 4칸)으로 깊이 방향을 따라 놓는다
-  const xo = HX + 2.05, z0 = ZB - 2.2, z1 = -5, p = 0.36, w = 0.04;
+  const xo = HX + 2.05, p = 0.36, w = 0.04;
   const wood = { f: '#4a3421', s: '#3d2a1b', b: '#2e2015', t: '#5a4030' };
-  for (const sd of [-1, 1]) {
+  for (const sd of sides) {
     const bx = (a, b, y0, y1, za, zb) => boxP(g, Math.min(sd * a, sd * b), Math.max(sd * a, sd * b), y0, y1, za, zb, wood);
     poly(g, [proj(sd * HX, 0, z0), proj(sd * (xo + 0.2), 0, z0), proj(sd * (xo + 0.2), 0, z1), proj(sd * HX, 0, z1)], '#3a2c20');
     for (let z = z0 + 0.15; z < z1; z += 2 * p) bx(xo - w, xo + w, 0.06, 0.48, z - w, z + w);
@@ -235,25 +235,27 @@ function backWall(g) {
     g.fillStyle = 'rgba(255,230,160,0.25)'; g.fillRect(sx - k * 0.28, sy - k * 0.07, k * 0.56, k * 0.035);
   }
 }
-function dais(g) {
+// o: 정면 뷰에서 단 길이(z0~z1)·카펫 자리(rz0~rz1)를 병풍 가운데 기준 대칭으로 바꿀 때만 넘긴다
+function dais(g, o = {}) {
+  const { z0: Z0 = ZB, z1: Z1 = DZ1, rz0 = -15.5, rz1 = -9.6 } = o;
   // 몸체: 옆면(챌판)·윗면
-  boxP(g, DX0, HX, 0, DH, ZB, DZ1, { f: '#3a2818', s: '#1c120a', t: '#5a4030' });
+  boxP(g, DX0, HX, 0, DH, Z0, Z1, { f: '#3a2818', s: '#1c120a', t: '#5a4030' });
   // 윗면 마루판 (깊이 방향 판 + 이음선)
   const r = mulberry32(9), step = 0.3;
   for (let x = DX0 + 0.12; x < HX - 1e-6; x += step) {
     const x1 = Math.min(HX, x + step), v = (r() - 0.5) * 12;
     const c = [78 + v, 56 + v * 0.7, 38 + v * 0.5].map(n => n | 0);
-    poly(g, [proj(x, DH, ZB), proj(x1, DH, ZB), proj(x1, DH, DZ1), proj(x, DH, DZ1)], `rgb(${c})`);
-    line3(g, [x, DH, ZB], [x, DH, DZ1], 'rgba(15,8,4,0.5)', 1);
-    for (let z = ZB + r() * 2; z < DZ1; z += 2 + r() * 2) line3(g, [x, DH, z], [x1, DH, z], 'rgba(15,8,4,0.45)', 1);
+    poly(g, [proj(x, DH, Z0), proj(x1, DH, Z0), proj(x1, DH, Z1), proj(x, DH, Z1)], `rgb(${c})`);
+    line3(g, [x, DH, Z0], [x, DH, Z1], 'rgba(15,8,4,0.5)', 1);
+    for (let z = Z0 + r() * 2; z < Z1; z += 2 + r() * 2) line3(g, [x, DH, z], [x1, DH, z], 'rgba(15,8,4,0.45)', 1);
   }
   // 가장자리 귀틀 (밝은 윗선)
-  boxP(g, DX0, DX0 + 0.12, DH - 0.06, DH + 0.01, ZB, DZ1, { f: '#4a3421', s: '#3d2a1b', t: '#7a5a3c' });
-  line3(g, [DX0, DH + 0.01, ZB], [DX0, DH + 0.01, DZ1], 'rgba(255,220,170,0.45)', 2);
-  line3(g, [DX0, 0, ZB], [DX0, 0, DZ1], 'rgba(0,0,0,0.6)', 2);
+  boxP(g, DX0, DX0 + 0.12, DH - 0.06, DH + 0.01, Z0, Z1, { f: '#4a3421', s: '#3d2a1b', t: '#7a5a3c' });
+  line3(g, [DX0, DH + 0.01, Z0], [DX0, DH + 0.01, Z1], 'rgba(255,220,170,0.45)', 2);
+  line3(g, [DX0, 0, Z0], [DX0, 0, Z1], 'rgba(0,0,0,0.6)', 2);
   // 카펫 (적갈색, 테두리 2겹)
   const rug = (x0, x1, z0, z1, c) => poly(g, [proj(x0, DH + 0.01, z0), proj(x1, DH + 0.01, z0), proj(x1, DH + 0.01, z1), proj(x0, DH + 0.01, z1)], c);
-  const [ra, rb, za, zb] = [DX0 + 0.55, HX - 0.3, -15.5, -9.6];
+  const [ra, rb, za, zb] = [DX0 + 0.55, HX - 0.3, rz0, rz1];
   rug(ra, rb, za, zb, '#2a120d');
   rug(ra + 0.12, rb - 0.12, za + 0.12, zb - 0.12, '#6a3a22');
   rug(ra + 0.22, rb - 0.22, za + 0.22, zb - 0.22, '#5a2218');
@@ -280,11 +282,13 @@ function screens(g) {
 // 오른쪽 옆벽 기둥 바로 안쪽에 벽과 평행하게 세워 방 가운데를 보게 한다 → 오른쪽 벽 자리를 병풍이 대신 막는다.
 // 방 가운데에서 오른쪽을 보면 참고 이미지 3처럼 정면이 된다
 const BYO = {
-  x0: 7.0, z0: -16.8, w: 1.0, h: 1.9, zig: 12, turn: [90, 90, 90, 90, 90, 90],
+  x0: 7.0, z0: -16.8, w: 1.0, h: 1.9, zig: 24, turn: [90, 90, 90, 90, 90, 90],
   edge: 0.014, frame: 0.065,          // 검은 옻칠 테 / 초록 비단 테 (m)
   wave: 0.17,                         // 청해파 물결 하나 지름 (m)
   shade: 0.45,                        // 지그재그 명암 (등불을 등진 폭이 어두워지는 정도)
+  lamp: [5.5, -15.9],                 // 명암 기준 빛 (본 장면: 오른쪽 스탠드 등 / 정면 뷰: 관찰자 쪽)
 };
+const BYO_LAMP = BYO.lamp;
 const BYO_P = (() => {
   const J = [[BYO.x0, BYO.z0]];
   return BYO.turn.map((t, i) => {
@@ -300,10 +304,21 @@ const BYO_P = (() => {
 })();
 // 폭 위 직사각형 (u0..u1, v0..v1) → 화면 다각형
 const byoRect = (P, u0, u1, v0, v1) => [P.at(u0, v0), P.at(u1, v0), P.at(u1, v1), P.at(u0, v1)].map(w => proj(...w));
-// 폭 로컬 좌표(m, v 위로) → 화면 아핀. 폭 하나의 깊이 차가 작아(≤0.6m / 15m+) 아핀 근사로 충분, 테두리는 정확한 다각형으로 자른다
-function byoAffine(g, P) {
-  const o = proj(...P.at(0, 0)), ex = proj(...P.at(1, 0)), ey = proj(...P.at(0, 1));
-  g.transform(ex[0] - o[0], ex[1] - o[1], ey[0] - o[0], ey[1] - o[1], o[0], o[1]);
+// 폭 로컬 좌표(m, v 위로)로 그리기: 폭 하나를 아핀 하나로 붙이면, 가까이서 보는 정면 뷰에선 원근 오차가 커져
+// 먼 쪽 구석에 무늬가 비고 폭마다 줄 기울기가 달라진다. 세로 띠(BYO_STRIPS)로 나눠 띠마다 아핀을 다시 잡는다.
+// 세로선은 원근에서도 곧아 띠 안에선 거의 정확하다. 띠 경계는 살짝 겹쳐 잘린 틈이 보이지 않게 한다
+const BYO_STRIPS = 16;
+function byoLocal(g, P, u0, u1, v0, v1, fn) {
+  const du = (u1 - u0) / BYO_STRIPS, ov = du * 0.04;
+  for (let i = 0; i < BYO_STRIPS; i++) {
+    const a = u0 + i * du, b = a + du, m = (a + b) / 2;
+    const pa = proj(...P.at(a, 0)), pb = proj(...P.at(b, 0)), pm = proj(...P.at(m, 0)), py = proj(...P.at(m, 1));
+    const ex = [(pb[0] - pa[0]) / du, (pb[1] - pa[1]) / du], ey = [py[0] - pm[0], py[1] - pm[1]];
+    g.save(); pathPts(g, byoRect(P, Math.max(u0, a - ov), Math.min(u1, b + ov), v0, v1)); g.clip();
+    g.transform(ex[0], ex[1], ey[0], ey[1], pm[0] - m * ex[0], pm[1] - m * ex[1]);
+    fn(a - ov, b + ov);
+    g.restore();
+  }
 }
 // 청해파 타일: 붙여주신 SVG와 같은 원 9겹·색. 가로 170·세로 85 단위가 한 주기 → 이음매 없이 반복.
 // 아래 줄이 위 줄을 덮도록 y 순서대로 그린다. 화면에 맺힐 크기로 바로 래스터화해 축소 무아레를 피한다
@@ -341,17 +356,15 @@ function byobu(g, kM) {
     if (!P.front) { poly(g, byoRect(P, e, w - e, e, h - e), '#2a2416'); continue; }   // 뒷면: 무지
     poly(g, byoRect(P, e, w - e, e, h - e), '#34502a');                               // 초록 비단 테
     // 비단 테 잔무늬 (가는 격자)
-    g.save(); pathPts(g, byoRect(P, e, w - e, e, h - e)); g.clip(); byoAffine(g, P);
-    g.strokeStyle = 'rgba(10,20,6,0.45)'; g.lineWidth = 0.006;
-    for (let v = 0; v < h + w; v += 0.022) { g.beginPath(); g.moveTo(0, v); g.lineTo(w, v - w); g.moveTo(0, v - w); g.lineTo(w, v); g.stroke(); }
-    g.restore();
+    byoLocal(g, P, e, w - e, e, h - e, () => {
+      g.strokeStyle = 'rgba(10,20,6,0.45)'; g.lineWidth = 0.006;
+      for (let v = 0; v < h + w; v += 0.022) { g.beginPath(); g.moveTo(0, v); g.lineTo(w, v - w); g.moveTo(0, v - w); g.lineTo(w, v); g.stroke(); }
+    });
     // 청해파 바탕
-    g.save(); pathPts(g, byoRect(P, f, w - f, f * 1.25, h - f)); g.clip(); byoAffine(g, P);
-    g.fillStyle = pat; g.fillRect(0, 0, w, h);
-    g.restore();
+    byoLocal(g, P, f, w - f, f * 1.25, h - f, (a, b) => { g.fillStyle = pat; g.fillRect(a, -0.05, b - a, h + 0.1); });
     poly(g, byoRect(P, f, w - f, f * 1.25, h - f), null, 'rgba(0,0,0,0.55)', 1);
     // 지그재그 명암: 가까운 스탠드 등불(오른쪽)을 등지는 폭일수록 어둡게. 빛무늬는 평균 평면에 투영하므로 꺾임은 여기서만 드러난다
-    const lx = 5.5 - P.c[0], lz = -15.9 - P.c[1], ln = Math.hypot(lx, lz), cs = Math.max(0, (lx * P.n[0] + lz * P.n[1]) / ln);
+    const lx = BYO.lamp[0] - P.c[0], lz = BYO.lamp[1] - P.c[1], ln = Math.hypot(lx, lz), cs = Math.max(0, (lx * P.n[0] + lz * P.n[1]) / ln);
     poly(g, byoRect(P, 0, w, 0, h), `rgba(0,0,0,${(BYO.shade * (1 - cs)).toFixed(3)})`);
   }
   // 이음매 (폭 사이 세로선)
@@ -372,55 +385,61 @@ LANTERNS.forEach(L => { L.d = -L.z; L.k = kAt(L.z); L.y0 = baseY(L.x); });
 // ===== 병풍 정면 뷰 (참고 이미지 yachiyoroom3) =====
 // 단 앞 바닥에 서서 +x(병풍)를 똑바로 본다. 화면 오른쪽 = +z(방 앞쪽). 세로선이 서도록 고개는 숙이지 않고 화면 중심만 위로 옮긴다(렌즈 시프트).
 // 병풍이 화면 폭을 거의 채우고, 아랫단에 단 앞 귀틀이 걸리게 눈높이·거리를 잡았다.
-// 원통 등은 이 뷰에만 있는 두 개(FRONT_EXTRA)를 병풍 가운데(z = FV.z) 기준 좌우대칭으로 둔다. 본 장면의 등은 이 뷰에 나오지 않는다
+// 참고 이미지처럼 화면 안에 등은 두지 않는다. 빛은 관찰자 쪽(화면 밖 왼쪽 앞)에서 오는 따뜻한 빛으로 굽는다(FRONT_LIGHT)
 const FV = (() => {
   const zs = BYO_P.flatMap(P => [P.p[1], P.q[1]]);
-  return { x: 1.4, y: 1.3, z: (Math.min(...zs) + Math.max(...zs)) / 2, F: 1380, CX: 800, CY: 322 };
+  return { x: 1.4, y: 1.3, z: (Math.min(...zs) + Math.max(...zs)) / 2, F: 1300, CX: 800, CY: 300 };
 })();
-// 정면 뷰 등: x(깊이), dz(가운데에서 좌우로 떨어진 거리, 클수록 벌어진다),
-// size(본 장면 등이 이 뷰에 보이던 크기 대비 화면 크기). 병풍 앞이라 더 물릴 수 없어 등 자체를 줄인다(높이 h)
-const FL = { x: 6.5, dz: 2.7, size: 0.5 };
+// 화면 밖 빛: 중심(cx, cy: 화면 비율), 반경(r: 화면 폭 비율, 세로 sy배), 세기
+const FRONT_LIGHT = { cx: 0.5, cy: 0.45, r: 0.8, sy: 0.7, a: 0.6 };
 const projFront = (x, y, z) => { const d = Math.max(0.05, x - FV.x); return [FV.CX + FV.F * (z - FV.z) / d, FV.CY - FV.F * (y - FV.y) / d]; };
 const kFront = x => FV.F / (x - FV.x);
 // 병풍 뒤로 보이는 오른쪽 옆벽(x = HX): 먼 칸 회벽, ZW부터 앞은 밖으로 트인 개구(밤하늘), 가모이 위는 란마 띠
+// 정면 뷰는 병풍 가운데(FV.z) 기준 좌우대칭으로 따로 꾸민다: 벽 없이 통째로 밖으로 트인 개구(밤하늘 + 툇마루 난간), 기둥은 양옆 한 쌍.
+// 실제 방대로 그리면 왼쪽은 뒷벽 모서리에 막히고 오른쪽만 트여 한쪽으로 쏠려 보인다
+const FW = { a: 3.0, b: 9.5 };   // 기둥 자리(± a + 3), 개구 바깥 끝 (FV.z에서 m)
 function frontWall(g) {
-  const x = HX, Z1 = DZ1;
+  const x = HX, c = FV.z, A = c - FW.a, B = c + FW.a, Z0 = c - FW.b, Z1 = c + FW.b;
   g.fillStyle = '#120d09'; g.fillRect(0, 0, W, H);
-  poly(g, [proj(x, DH, ZB), proj(x, DH, ZW), proj(x, YK, ZW), proj(x, YK, ZB)], '#4c3f31');
-  poly(g, [proj(x, DH, ZB), proj(x, DH, ZW), proj(x, 0.9, ZW), proj(x, 0.9, ZB)], '#3a2f24');
-  const sk = g.createLinearGradient(0, proj(x, YK, ZW)[1], 0, proj(x, DH, ZW)[1]);
-  sk.addColorStop(0, '#113154'); sk.addColorStop(1, '#0d2441');
-  const op = [proj(x, DH, ZW), proj(x, DH, Z1), proj(x, YK, Z1), proj(x, YK, ZW)];
-  poly(g, op, sk);
-  g.save(); pathPts(g, op); g.clip();
   const r = mulberry32(17);
-  for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(220,230,255,${0.2 + r() * 0.5})`; g.fillRect(r() * W, r() * H * 0.5, 1.2, 1.2); }
-  g.restore();
-  poly(g, [proj(x, YK, ZB), proj(x, YK, Z1), proj(x, YC, Z1), proj(x, YC, ZB)], '#1a1510');
-  for (const z of [ZW, -11.5]) poly(g, [proj(x - 0.36, 0, z - 0.18), proj(x - 0.36, 0, z + 0.18), proj(x - 0.36, YC, z + 0.18), proj(x - 0.36, YC, z - 0.18)], '#3d2a1b', 'rgba(0,0,0,0.35)', 0.8);
-  poly(g, [proj(x - 0.18, YK - 0.12, ZB), proj(x - 0.18, YK - 0.12, Z1), proj(x - 0.18, YK + 0.12, Z1), proj(x - 0.18, YK + 0.12, ZB)], '#4a3421');
+  for (const [za, zb] of [[Z0, Z1]]) {
+    const sk = g.createLinearGradient(0, proj(x, YK, za)[1], 0, proj(x, DH, za)[1]);
+    sk.addColorStop(0, '#113154'); sk.addColorStop(1, '#0d2441');
+    const op = [proj(x, DH, za), proj(x, DH, zb), proj(x, YK, zb), proj(x, YK, za)];
+    poly(g, op, sk);
+    g.save(); pathPts(g, op); g.clip();
+    for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(220,230,255,${0.2 + r() * 0.5})`; g.fillRect(r() * W, r() * H * 0.5, 1.2, 1.2); }
+    sideOutside(g, [1], Z0, Z1);   // 개구 밖 툇마루 난간 (병풍 뒤·양옆으로 보인다)
+    g.restore();
+  }
+  poly(g, [proj(x, YK, Z0), proj(x, YK, Z1), proj(x, YC, Z1), proj(x, YC, Z0)], '#1a1510');
+  const wood = { f: '#4a3421', s: '#3d2a1b', b: '#2e2015', t: '#5a4030' };
+  boxP(g, x - 0.18, x, DH, DH + 0.08, Z0, Z1, wood);   // 개구 문지방
+  for (const z of [A - 3, B + 3]) poly(g, [proj(x - 0.36, 0, z - 0.18), proj(x - 0.36, 0, z + 0.18), proj(x - 0.36, YC, z + 0.18), proj(x - 0.36, YC, z - 0.18)], '#3d2a1b', 'rgba(0,0,0,0.35)', 0.8);
+  poly(g, [proj(x - 0.18, YK - 0.12, Z0), proj(x - 0.18, YK - 0.12, Z1), proj(x - 0.18, YK + 0.12, Z1), proj(x - 0.18, YK + 0.12, Z0)], '#4a3421');
 }
 // 정면 뷰 정적 레이어(어둡게 하기 전 표면색 → 빛 반사용, 어둡게 한 것 → 바탕). 처음 필요할 때 한 번 굽는다
 let front = null;
 function buildFront() {
   const [bc, bg] = mkLayer();
   const nTags = TAGS.length;
+  // 앞·뒷면은 이 뷰의 눈(FV) 기준으로 다시 가린다 (본 장면 눈 기준이면 끝 폭이 뒷면으로 보인다)
+  const fr = BYO_P.map(P => P.front);
+  BYO_P.forEach(P => { P.front = (FV.x - P.c[0]) * P.n[0] + (FV.z - P.c[1]) * P.n[1] > 0; });
   proj = projFront;
-  try { frontWall(bg); dais(bg); byobu(bg, kFront(BYO.x0)); } finally { proj = projMain; TAGS.length = nTags; }
+  try { frontWall(bg); dais(bg, { z0: FV.z - FW.b, z1: FV.z + FW.b, rz0: FV.z - 2.95, rz1: FV.z + 2.95 }); BYO.lamp = [FV.x, FV.z]; byobu(bg, kFront(BYO.x0)); } finally { proj = projMain; TAGS.length = nTags; BYO.lamp = BYO_LAMP; BYO_P.forEach((P, i) => { P.front = fr[i]; }); }
   const [ac, ag] = mkLayer();
   ag.drawImage(bc, 0, 0, W, H);
   ag.globalCompositeOperation = 'screen'; ag.fillStyle = 'rgb(110,100,90)'; ag.fillRect(0, 0, W, H);
   darken(bg);
-  // 보이는 원통 등 (몸통이 원통이라 정면 그림을 그대로 크게 쓴다. 이미지가 SVG라 키워도 선명하다)
-  const lamps = [];
-  for (const L of FRONT_EXTRA) {
-    if (!L.img || L.x - FV.x < 0.5) continue;
-    const [sx, sy] = projFront(L.x, L.y0, L.z), k = kFront(L.x), c = L.cyg, m = (k * L.h / c.units) / c.S;
-    const P = { ...L, sx, sy, k, m, d: L.x - FV.x, eye: FV.y - L.y0, dx: sx - c.ax * m, dy: sy - c.ay * m, dw: c.W * m, dh: c.H * m };
-    if (P.dx > W || P.dx + P.dw < 0) continue;
-    lamps.push(P);
-  }
-  front = { base: bc, alb: ac, lamps };
+  // 화면 밖 빛: 반사광 = 표면색 × 따뜻한 빛 (본 장면 reflect와 같은 방식)
+  const [lc, lg] = mkLayer(), F = FRONT_LIGHT;
+  lg.fillStyle = '#000'; lg.fillRect(0, 0, W, H);
+  radial(lg, W * F.cx, H * F.cy, W * F.r, W * F.r * F.sy, glow('255,170,95', F.a));
+  lg.globalCompositeOperation = 'multiply'; lg.drawImage(ac, 0, 0, W, H);
+  bg.globalCompositeOperation = 'lighter'; bg.drawImage(lc, 0, 0, W, H);
+  bg.globalCompositeOperation = 'source-over';
+  front = { base: bc, alb: ac };
 }
 
 // 장면이 쓰는 외부 파일은 components/에만 둔다(examples/·reference-images/는 수시로 바뀌는 임시 폴더).
@@ -776,16 +795,6 @@ function buildPatterns() {
     lg.drawImage(oc, 0, 0, W, H); lg.filter = 'none';
     lg.globalCompositeOperation = 'source-over';
   }
-  // 병풍 정면 뷰에만 있는 등 두 개: 정면 뷰에서 보이는 원통 등을 본떠 FL 자리에 좌우대칭으로 둔다
-  const FT = LANTERNS.find(L => L.type === 'cy' && L.x - FV.x > 0.5);
-  FRONT_EXTRA = FT ? [-1, 1].map(s => {
-    const h = FT.h * FL.size * (FL.x - FV.x) / (FT.x - FV.x);
-    const V = { ...FT, x: FL.x, y0: baseY(FL.x), z: FV.z + s * FL.dz, h, gs: h / FT.h, extra: true };
-    V.d = -V.z; V.k = kAt(V.z);
-    const Lp = cylPt(V, 0, LY); Lp[0] = V.x; Lp[2] = V.z;
-    V.Lp = Lp; V.SURF = SURF_ALL.filter(f => !f.face || Math.sign(dotN(f, Lp) - f.v) === f.face);
-    return V;
-  }) : [];
   litSrc = lc;
   refreshAlbedo();
   // 도는 종이창 무늬는 WebGL로 그린다. 안 되면 2D 경로(paperLight)가 쓸 버퍼·밝기 지도는 그때 만든다
@@ -1259,39 +1268,10 @@ function drawMain() {
   vignette();
   if (S.tags) drawTags();
 }
-// 병풍 정면 뷰: 정적 바탕 → 등 둘레 빛 → (WebGL이 되면) 도는 종이창 빛 → 원통 등 → 블룸
+// 병풍 정면 뷰: 등이 없어 빛까지 구운 정적 바탕 하나로 끝난다
 function drawFront() {
   ctx.clearRect(0, 0, W, H);
   ctx.drawImage(front.base, 0, 0, W, H);
-  const GC = S.glowCy / 100;
-  ctx.globalCompositeOperation = 'screen';
-  for (const L of front.lamps) {
-    // 둘레 빛 반경은 등 크기를 따른다(gs: 본 장면 등 대비 높이 비)
-    const r = 3.4 * L.gs * L.k, ry = r * Math.sin(Math.atan(L.eye / L.d)) * 1.15;
-    radial(ctx, L.sx, L.sy, r, ry, glow('255,150,70', 0.55 * GC));
-    const rr = 4.2 * L.gs * L.k;
-    radial(ctx, L.sx, L.sy - L.h * 0.55 * L.k, rr, rr, glow('255,145,60', 0.32 * GC));
-  }
-  const sp = spinAngle();
-  if (GLP && (paperSp !== sp || paperView !== 'front') && GLP.draw(sp, 'front')) { paperLayer = GLP.c; paperSp = sp; paperView = 'front'; }
-  if (GLP && paperView === 'front') {
-    ctx.globalCompositeOperation = 'lighter';
-    const pa = S.pat / 100 * GC;
-    ctx.globalAlpha = Math.min(1, pa); ctx.drawImage(paperLayer, 0, 0, W, H);
-    if (pa > 1) { ctx.globalAlpha = Math.min(1, pa - 1); ctx.drawImage(paperLayer, 0, 0, W, H); }
-    ctx.globalAlpha = 1;
-  }
-  ctx.globalCompositeOperation = 'source-over';
-  for (const L of front.lamps) {
-    ctx.drawImage(L.img, L.dx, L.dy, L.dw, L.dh);
-    lanternMotifs(ctx, L, sp); ctx.drawImage(L.imgOver, L.dx, L.dy, L.dw, L.dh);
-  }
-  ctx.globalCompositeOperation = 'screen';
-  for (const L of front.lamps) {
-    const r = L.h * 0.9 * L.k;
-    radial(ctx, L.sx, L.sy - L.h * 0.62 * L.k, r, r, glow('255,190,110', 0.3 * GC));
-  }
-  ctx.globalCompositeOperation = 'source-over';
   vignette();
 }
 // 시점 바꾸기. instant: 세계 전환 등으로 바로 돌아갈 때. 정면 뷰는 장면 준비가 끝나야 열 수 있다(false)
