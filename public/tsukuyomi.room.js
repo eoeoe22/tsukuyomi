@@ -235,7 +235,7 @@ function backWall(g) {
     g.fillStyle = 'rgba(255,230,160,0.25)'; g.fillRect(sx - k * 0.28, sy - k * 0.07, k * 0.56, k * 0.035);
   }
 }
-// o: 정면 뷰에서 단 길이(z0~z1)·카펫 자리(rz0~rz1)를 병풍 가운데 기준 대칭으로 바꿀 때만 넘긴다
+// o: 정면 뷰에서 단 길이(z0~z1)·카펫 자리(rz0~rz1, 양끝 폭 가운데까지)·앞 모서리까지 깔기(edge)를 바꿀 때만 넘긴다
 function dais(g, o = {}) {
   const { z0: Z0 = ZB, z1: Z1 = DZ1, rz0 = -15.5, rz1 = -9.6 } = o;
   // 몸체: 옆면(챌판)·윗면
@@ -253,17 +253,128 @@ function dais(g, o = {}) {
   boxP(g, DX0, DX0 + 0.12, DH - 0.06, DH + 0.01, Z0, Z1, { f: '#4a3421', s: '#3d2a1b', t: '#7a5a3c' });
   line3(g, [DX0, DH + 0.01, Z0], [DX0, DH + 0.01, Z1], 'rgba(255,220,170,0.45)', 2);
   line3(g, [DX0, 0, Z0], [DX0, 0, Z1], 'rgba(0,0,0,0.6)', 2);
-  // 카펫 (적갈색, 테두리 2겹)
+  // 카펫: 넝쿨 무늬, 얇은 테 한 줄. edge면 단 앞 모서리까지 깐다(정면 뷰)
   const rug = (x0, x1, z0, z1, c) => poly(g, [proj(x0, DH + 0.01, z0), proj(x1, DH + 0.01, z0), proj(x1, DH + 0.01, z1), proj(x0, DH + 0.01, z1)], c);
-  const [ra, rb, za, zb] = [DX0 + 0.55, HX - 0.3, rz0, rz1];
-  rug(ra, rb, za, zb, '#2a120d');
-  rug(ra + 0.12, rb - 0.12, za + 0.12, zb - 0.12, '#6a3a22');
-  rug(ra + 0.22, rb - 0.22, za + 0.22, zb - 0.22, '#5a2218');
-  const rr = mulberry32(21);
-  for (let i = 0; i < 70; i++) {   // 잔무늬
-    const x = ra + 0.35 + rr() * (rb - ra - 0.7), z = za + 0.35 + rr() * (zb - za - 0.7), w = 0.08 + rr() * 0.1;
-    rug(x - w, x + w, z - w * 0.6, z + w * 0.6, `rgba(150,80,45,${0.25 + rr() * 0.2})`);
+  const [ra, rb, za, zb] = [DX0 + (o.edge ? 0.13 : 0.55), HX - 0.3, rz0, rz1];
+  rug(ra, rb, za, zb, '#22100a');
+  rugWeave(g, ra + 0.05, rb - 0.05, za + 0.06, zb - 0.06);
+}
+// ===== 카펫 무늬 (참고 이미지 yachiyoroom3) =====
+// 어두운 적갈 바탕에 주황 넝쿨(C자 고리·S자 줄기)과 작은 꽃송이 줄. 선은 직조처럼 점선으로 끊기고 바탕엔 가는 사선 결.
+// 타일은 카펫 평면 좌표(u = z 가로, v = x 깊이, m)로 한 번 그린다. 반 칸 엇갈린 두 줄이 한 주기
+const RUG = { res: 420, pu: 0.78, pv: 1.0, ground: '#4c1a0e', ink: 'rgba(196,92,38,0.9)', weave: 'rgba(0,0,0,0.13)' };
+// res: 타일 px/m. 화면에 맺힐 크기에 맞춰 시점마다 따로 굽는다(멀리서 크게 줄이면 점선이 지글거린다)
+const rugTiles = new Map();
+function rugTileCanvas(res) {
+  let rugTile = rugTiles.get(res);
+  if (rugTile) return rugTile;
+  const { pu, pv } = RUG, TW = Math.round(pu * res), TH = Math.round(pv * res);
+  rugTile = document.createElement('canvas'); rugTile.width = TW; rugTile.height = TH; rugTiles.set(res, rugTile);
+  const t = rugTile.getContext('2d');
+  t.fillStyle = RUG.ground; t.fillRect(0, 0, TW, TH);
+  t.scale(res, res);   // 이제부터 m 단위
+  // 한 칸 무늬(1 × 0.65 단위로 그려 pu × pv/2에 맞춘다). 타일 밖으로 넘친 부분은 이웃 위치에도 그려 이음매 없이 잇는다
+  // 한 칸: 넝쿨 고리(두 겹 원호, 안에 꽃) + S자 줄기(두 겹, Y 갈래) + 꽃송이 줄이 뼈대.
+  // 여기에 잎·작은 덩굴손·점 꽃을 덧붙여 빽빽하게 한다. 고리 안쪽은 말린 끝 대신 꽃을 둬 달팽이처럼 보이지 않게
+  const cell = () => {
+    const r = mulberry32(31);   // 칸마다 같은 배치 (이웃 복사본과 어긋나지 않게)
+    const TAU = Math.PI * 2, CX0 = 0.26, CY0 = 0.33;
+    const dash = (w, on = 0.016, off = 0.009) => { t.lineWidth = w; t.setLineDash([on, off]); };
+    t.strokeStyle = RUG.ink; t.fillStyle = RUG.ink; t.lineCap = 'round';
+    // 잎: 뾰족한 잎 윤곽(점선) + 잎맥
+    const leaf = (x, y, ang, L) => {
+      t.save(); t.translate(x, y); t.rotate(ang); dash(0.005, 0.01, 0.006);
+      t.beginPath(); t.moveTo(0, 0); t.quadraticCurveTo(L * 0.5, -L * 0.34, L, 0); t.quadraticCurveTo(L * 0.5, L * 0.34, 0, 0); t.stroke();
+      t.setLineDash([]); t.lineWidth = 0.0035; t.beginPath(); t.moveTo(L * 0.12, 0); t.lineTo(L * 0.8, 0); t.stroke();
+      t.restore();
+    };
+    // 작은 덩굴손: (x, y)에서 각 ang로 뻗다 끝이 바깥으로 작게 말린다
+    const curl = (x, y, ang, L, dir = 1) => {
+      dash(0.006, 0.012, 0.007);
+      const ex = x + Math.cos(ang) * L, ey = y + Math.sin(ang) * L, rr = L * 0.22, na = ang + dir * Math.PI / 2;
+      t.beginPath(); t.moveTo(x, y); t.quadraticCurveTo(x + Math.cos(ang - dir * 0.5) * L * 0.6, y + Math.sin(ang - dir * 0.5) * L * 0.6, ex, ey); t.stroke();
+      const cx = ex + Math.cos(na) * rr, cy = ey + Math.sin(na) * rr;
+      t.beginPath(); t.arc(cx, cy, rr, na + Math.PI, na + Math.PI + dir * TAU * 0.8, dir < 0); t.stroke();
+    };
+    // 다섯 잎 꽃
+    const flower = (x, y, R) => {
+      t.setLineDash([]);
+      for (let k = 0; k < 5; k++) { const a = k * TAU / 5 - Math.PI / 2; t.beginPath(); t.ellipse(x + Math.cos(a) * R, y + Math.sin(a) * R, R * 0.75, R * 0.45, a, 0, TAU); t.fill(); }
+      t.save(); t.fillStyle = RUG.ground; t.beginPath(); t.arc(x, y, R * 0.45, 0, TAU); t.fill(); t.restore();
+      t.beginPath(); t.arc(x, y, R * 0.25, 0, TAU); t.fill();
+    };
+    // 넝쿨 고리: 두 겹 원호 + 안쪽 가는 세 번째 원호
+    for (const [rr, w] of [[0.15, 0.009], [0.172, 0.009], [0.122, 0.005]]) { dash(w); t.beginPath(); t.arc(CX0, CY0, rr, Math.PI * 0.95, Math.PI * 2.75); t.stroke(); }
+    flower(CX0, CY0, 0.034);                                   // 고리 안 꽃
+    for (let k = 0; k < 8; k++) { const a = k * TAU / 8 + 0.2; t.beginPath(); t.arc(CX0 + Math.cos(a) * 0.085, CY0 + Math.sin(a) * 0.085, 0.006, 0, TAU); t.fill(); }   // 꽃 둘레 점
+    // 고리 바깥 잎·덩굴손
+    leaf(CX0 + 0.172 * Math.cos(-2.3), CY0 + 0.172 * Math.sin(-2.3), -2.3, 0.075);
+    leaf(CX0 + 0.172 * Math.cos(-1.1), CY0 + 0.172 * Math.sin(-1.1), -1.3, 0.07);
+    leaf(CX0 + 0.172 * Math.cos(2.0), CY0 + 0.172 * Math.sin(2.0), 2.2, 0.07);
+    curl(CX0 + 0.172 * Math.cos(0.75 * Math.PI), CY0 + 0.172 * Math.sin(0.75 * Math.PI), 2.6, 0.09, -1);
+    // S자 줄기: 고리 오른쪽에서 다음 칸 고리 왼쪽으로 (두 겹 + Y 갈래)
+    dash(0.009);
+    t.beginPath(); t.moveTo(0.43, 0.36); t.bezierCurveTo(0.58, 0.46, 0.66, 0.18, 0.86, 0.3); t.bezierCurveTo(0.95, 0.35, 1.02, 0.42, 1.09, 0.38); t.stroke();
+    t.beginPath(); t.moveTo(0.43, 0.39); t.bezierCurveTo(0.58, 0.49, 0.66, 0.21, 0.86, 0.33); t.stroke();
+    t.beginPath(); t.moveTo(0.7, 0.26); t.quadraticCurveTo(0.72, 0.18, 0.66, 0.13); t.moveTo(0.7, 0.26); t.quadraticCurveTo(0.77, 0.2, 0.8, 0.12); t.stroke();
+    // 줄기 잎·Y 갈래 끝 덩굴손·아래로 처진 가는 곁가지
+    leaf(0.52, 0.41, 1.2, 0.07); leaf(0.6, 0.36, -1.9, 0.065); leaf(0.8, 0.29, -1.2, 0.06); leaf(0.95, 0.37, 1.4, 0.065);
+    curl(0.66, 0.13, -2.2, 0.06, 1); curl(0.8, 0.12, -0.9, 0.06, -1);
+    dash(0.005, 0.012, 0.007);
+    t.beginPath(); t.moveTo(0.86, 0.32); t.bezierCurveTo(0.84, 0.42, 0.78, 0.46, 0.74, 0.5); t.stroke();
+    flower(0.72, 0.15, 0.022);
+    // 꽃송이 줄: 가로로 퍼진 작은 꽃잎 덩어리
+    t.setLineDash([]);
+    for (const [cx, cy, n, wd] of [[0.72, 0.52, 26, 0.28], [0.27, 0.08, 20, 0.26], [0.56, 0.05, 14, 0.18], [0.06, 0.55, 14, 0.18]]) {
+      for (let k = 0; k < n; k++) {
+        const x = cx + (r() - 0.5) * wd, y = cy + (r() - 0.5) * 0.08, a = 0.005 + r() * 0.008;
+        t.beginPath(); t.ellipse(x, y, a * 1.5, a, (r() - 0.5) * 0.8, 0, TAU); t.fill();
+      }
+      t.beginPath(); t.ellipse(cx, cy, 0.016, 0.011, 0, 0, TAU); t.fill();
+      leaf(cx - wd * 0.55, cy, Math.PI + 0.3, 0.05); leaf(cx + wd * 0.55, cy, -0.3, 0.05);   // 송이 양끝 잎
+    }
+    // 점 꽃: 빈 자리 메우기
+    for (const [cx, cy] of [[0.47, 0.18], [0.5, 0.58], [0.95, 0.12], [0.08, 0.2], [0.38, 0.56]]) {
+      t.beginPath(); t.arc(cx, cy, 0.005, 0, TAU); t.fill();
+      for (let k = 0; k < 5; k++) { const a = k * TAU / 5 + 0.3; t.beginPath(); t.arc(cx + Math.cos(a) * 0.016, cy + Math.sin(a) * 0.016, 0.005, 0, TAU); t.fill(); }
+    }
+  };
+  // cell을 두 줄(둘째 줄은 반 칸 밀림)·이웃 타일 위치에 반복
+  for (const [ox, oy] of [[0, 0], [pu / 2, pv / 2]]) for (const dx of [-pu, 0, pu]) for (const dy of [-pv, 0, pv]) {
+    t.save(); t.translate(ox + dx, oy + dy); t.scale(pu, pv / 1.3); cell(); t.restore();
   }
+  // 직조 얼룩: 바탕색 잔점으로 선·꽃을 군데군데 끊는다
+  const rs = mulberry32(37);
+  t.fillStyle = RUG.ground;
+  for (let i = 0; i < 9000; i++) t.fillRect(rs() * pu, rs() * pv, 0.002 + rs() * 0.004, 0.0015 + rs() * 0.002);
+  // 직조 결: 가는 사선
+  t.strokeStyle = RUG.weave; t.lineWidth = 0.0025;
+  for (let k = -pv; k < pu + pv; k += 0.009) { t.beginPath(); t.moveTo(k, 0); t.lineTo(k + pv * 0.35, pv); t.stroke(); }
+  return rugTile;
+}
+// 바닥에 카펫 무늬 붙이기: 두 시점 모두 같은 깊이는 화면에서 한 가로줄이므로, 줄마다 그 깊이에 맞는 배율로 패턴을 채운다
+// (깊이 방향 원근을 줄 단위로 맞추는 방식이라 아핀 하나로 붙일 때의 일그러짐이 없다).
+// 무늬 방향은 월드에 고정: 타일 u = z, v = x. 정면 뷰는 z가 가로·x가 깊이, 본 장면은 x가 가로·z가 깊이
+function rugWeave(g, x0, x1, z0, z1) {
+  const fr = proj === projFront, kNear = fr ? FV.F / (x0 - FV.x) : F / -z1;   // 카펫 가장 가까운 줄의 px/m
+  const res = Math.max(120, Math.min(RUG.res, Math.round(kNear * dpr / 8) * 8));
+  const pat = g.createPattern(rugTileCanvas(res), 'repeat'), m = 1 / res;
+  const pts = [proj(x0, DH, z0), proj(x1, DH, z0), proj(x1, DH, z1), proj(x0, DH, z1)];
+  const ys = pts.map(p => p[1]), step = 0.5;
+  // 화면 줄 Y → 깊이 좌표 w(정면: x, 본: z), 가로 배율 s, 깊이당 Y 변화 dY
+  const row = fr
+    ? Y => { const d = FV.F * (FV.y - DH) / (Y - FV.CY); return { w: FV.x + d, s: FV.F / d, dY: -(Y - FV.CY) / d }; }
+    : Y => { const d = F * (EYE - DH) / (Y - CY); return { w: -d, s: F / d, dY: (Y - CY) / d }; };
+  g.save(); pathPts(g, pts); g.clip(); g.fillStyle = pat;
+  for (let Y = Math.min(...ys); Y < Math.max(...ys); Y += step) {
+    const Yc = Y + step / 2, { w, s, dY } = row(Yc);
+    // 타일 px (pu, pv) → 화면
+    pat.setTransform(new DOMMatrix(fr
+      ? [s * m, 0, 0, dY * m, FV.CX - s * FV.z, Yc - dY * w]     // X = CX + s·(z − FV.z), Y = Yc + dY·(x − w)
+      : [0, dY * m, s * m, 0, CX, Yc - dY * w]));                 // X = CX + s·x,          Y = Yc + dY·(z − w)
+    g.fillRect(0, Y, W, step + 0.35);
+  }
+  g.restore();
 }
 const SCR = { x: 6.55, z: -17.15, u: 1.25, rot: 0, fold: 70 };
 function screens(g) {
@@ -427,7 +538,7 @@ function buildFront() {
   const fr = BYO_P.map(P => P.front);
   BYO_P.forEach(P => { P.front = (FV.x - P.c[0]) * P.n[0] + (FV.z - P.c[1]) * P.n[1] > 0; });
   proj = projFront;
-  try { frontWall(bg); dais(bg, { z0: FV.z - FW.b, z1: FV.z + FW.b, rz0: FV.z - 2.95, rz1: FV.z + 2.95 }); BYO.lamp = [FV.x, FV.z]; byobu(bg, kFront(BYO.x0)); } finally { proj = projMain; TAGS.length = nTags; BYO.lamp = BYO_LAMP; BYO_P.forEach((P, i) => { P.front = fr[i]; }); }
+  try { frontWall(bg); dais(bg, { z0: FV.z - FW.b, z1: FV.z + FW.b, rz0: Math.min(...BYO_P.map(P => P.c[1])), rz1: Math.max(...BYO_P.map(P => P.c[1])), edge: true }); BYO.lamp = [FV.x, FV.z]; byobu(bg, kFront(BYO.x0)); } finally { proj = projMain; TAGS.length = nTags; BYO.lamp = BYO_LAMP; BYO_P.forEach((P, i) => { P.front = fr[i]; }); }
   const [ac, ag] = mkLayer();
   ag.drawImage(bc, 0, 0, W, H);
   ag.globalCompositeOperation = 'screen'; ag.fillStyle = 'rgb(110,100,90)'; ag.fillRect(0, 0, W, H);
