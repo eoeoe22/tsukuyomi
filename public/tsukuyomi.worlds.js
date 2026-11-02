@@ -128,13 +128,48 @@
     stop() { if (this.E) this.E.stop(); },
   } : null;
   // 八: 베이스(방 구조)가 그려진 뒤에 전환이 시작되도록 start를 기다린다.
-  // 조절 버튼은 병풍 정면 뷰 토글(#btnRoomFront) 하나
-  const btnRoomFront = document.getElementById('btnRoomFront');
-  const syncRoomFront = () => {
-    if (!btnRoomFront) return;
-    const on = !!(room && room.R && room.R.view === 'front');
-    btnRoomFront.classList.toggle('on', on);
-    btnRoomFront.setAttribute('aria-pressed', on ? 'true' : 'false');
+  // 조절 버튼은 시점 버튼그룹(#roomGroup: 방 / 병풍 정면 / 스탠딩 랜턴). 月·山의 버튼그룹과 같은 방식(접힘·펼침 + thumb 슬라이드)
+  const roomPanel = document.getElementById('roomPanel');
+  const roomThumb = document.getElementById('roomThumb');
+  const roomBtns = Array.from(document.querySelectorAll('#roomGroup button[data-view]'));
+  const HOVER_OK = (() => { try { return window.matchMedia('(hover: hover)').matches; } catch (e) { return true; } })();
+  const TOUCH_UI = (() => { try { return window.matchMedia('(hover: none)').matches; } catch (e) { return false; } })();
+  let roomPending = null;   // 아직 열리지 않은(굽는 중인) 시점: 버튼은 먼저 눌린 것으로 보인다
+  const roomView = () => roomPending || (room && room.R && room.R.view) || 'main';
+  const roomExpanded = () => {
+    if (!roomPanel) return false;
+    if (roomPanel.classList.contains('expanded')) return true;
+    try {
+      if (roomPanel.matches(':focus-within')) return true;
+      if (HOVER_OK && roomPanel.matches(':hover')) return true;
+    } catch (e) { /* matches 미지원 */ }
+    return false;
+  };
+  let roomThumbInit = false;
+  const roomMoveThumb = (animate = true) => {
+    if (!roomThumb || !roomBtns.length) return;
+    const idx = Math.max(0, roomBtns.findIndex(b => b.classList.contains('on')));
+    // 버튼은 정원형: width는 transition 도중 값이 읽힐 수 있어 height 기준으로 맞춘다
+    const fh = roomBtns[idx].offsetHeight || 46;
+    roomThumb.style.width = fh + 'px'; roomThumb.style.height = fh + 'px';
+    const x = roomExpanded() ? idx * (fh + 4) : 0;   // 4 = .icongroup gap
+    if (!roomThumbInit || !animate) {
+      const prev = roomThumb.style.transition;
+      roomThumb.style.transition = 'none';
+      roomThumb.style.transform = `translateX(${x}px)`;
+      void roomThumb.offsetWidth;
+      roomThumb.style.transition = prev;
+      roomThumbInit = true;
+    } else roomThumb.style.transform = `translateX(${x}px)`;
+  };
+  const syncRoomView = () => {
+    const v = roomView();
+    for (const b of roomBtns) {
+      const on = b.dataset.view === v;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    roomMoveThumb();
   };
   const room = (roomEl && roomDock) ? {
     id: 'room', el: roomEl, dock: roomDock,
@@ -143,20 +178,40 @@
     start() {
       return loadRoom().then(R => {
         this.R = R;
+        roomPending = null;
         if (R.setView) R.setView('main', true);
+        // 랜턴 뷰는 굽기가 끝난 뒤에 넘어간다 → 그때 버튼을 맞춘다
+        R.onView = () => { roomPending = null; syncRoomView(); };
         return R.start();
-      }).finally(syncRoomFront);
+      }).finally(syncRoomView);
     },
     stop() { if (this.R) this.R.stop(); },
   } : null;
-  if (room && btnRoomFront) {
-    btnRoomFront.addEventListener('click', () => {
-      const R = room.R;
-      if (!R || !R.setView) return;
-      // 정면 뷰는 장면 준비(등 로드)가 끝나야 열린다. 아직이면 setView가 false를 돌려주고 그대로 둔다
-      R.setView(R.view === 'front' ? 'main' : 'front');
-      syncRoomFront();
-    });
+  let roomCollapse = 0;
+  if (room) for (const b of roomBtns) b.addEventListener('click', () => {
+    const v = b.dataset.view;
+    // 터치: 접힌 상태에서 현재 아이콘을 누르면 펼치기만 한다
+    if (TOUCH_UI && roomPanel && !roomPanel.classList.contains('expanded') && v === roomView()) {
+      roomPanel.classList.add('expanded');
+      roomMoveThumb();
+      return;
+    }
+    const R = room.R;
+    if (R && R.setView) {
+      // 정면 뷰는 장면 준비(등 로드)가 끝나야, 랜턴 뷰는 굽기가 끝나야 열린다. 랜턴 뷰만 끝나는 대로 넘어간다
+      const ok = R.setView(v);
+      roomPending = !ok && v === 'lantern' ? v : null;
+    }
+    syncRoomView();
+    if (TOUCH_UI && roomPanel) {
+      clearTimeout(roomCollapse);
+      roomCollapse = setTimeout(() => { roomPanel.classList.remove('expanded'); roomMoveThumb(); }, 1400);
+    }
+  });
+  if (roomPanel && roomBtns.length) {
+    for (const ev of ['mouseenter', 'mouseleave', 'focusin']) roomPanel.addEventListener(ev, () => roomMoveThumb());
+    roomPanel.addEventListener('focusout', () => setTimeout(() => roomMoveThumb(), 0));
+    window.addEventListener('resize', () => roomMoveThumb(false));
   }
   // 犬: 단일 장면이라 옵션이 없다. 첫 프레임을 그린 뒤 전환이 시작된다
   const news = (newsEl && newsDock) ? {

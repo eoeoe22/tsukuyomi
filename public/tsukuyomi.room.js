@@ -1,4 +1,5 @@
-/* 八 야치요의 방: 초안 yachiyo-room-scene.html(examples/ 임시 폴더) 이식 (단일 장면, 옵션 없음).
+/* 八 야치요의 방: 초안 yachiyo-room-scene.html(examples/ 임시 폴더) 이식.
+ * 시점 3개: 방(main) / 병풍 정면(front) / 스탠딩 랜턴 근접(lantern, 참고 references/standinglantern.png). setView로 바꾼다.
  * 런타임 의존 파일(랜턴 iframe 2종, yachiroom.umd.js)은 public/components/에 복사본을 둔다.
  * tsukuyomi.html의 다섯 번째 세계(#worldRoom, 경로 #room)로, tsukuyomi.worlds.js가 처음 필요할 때 로드.
  */
@@ -440,6 +441,213 @@ function buildFront() {
   bg.globalCompositeOperation = 'lighter'; bg.drawImage(lc, 0, 0, W, H);
   bg.globalCompositeOperation = 'source-over';
   front = { base: bc, alb: ac };
+}
+
+// ===== 스탠딩 랜턴 근접 뷰 (참고 이미지 references/standinglantern.png) =====
+// 원통 랜턴 하나를 위에서 비스듬히 내려다본다(등 윗부분은 화면 밖). 랜턴 예제(lantern-cylinder.html)와 같은 정사영이라
+// 바닥(y = Y_FLOOR)이 화면에 아핀 변환 하나로 맺힌다: 바닥점 (x, z) → (LV.ax + k·x, LV.ay + k·st·z), k = LV.k.
+// 빛무늬: 아래 띠 육각별 투각 → 바닥에 고정 / 종이창 무늬(매화·물결) → 바닥에 맺혀 등과 함께 천천히 돈다.
+// 위 띠는 광원보다 위라 천장 쪽으로 가므로 투영하지 않는다.
+const LV = {
+  // 시점 기울기(도, 위에서): 바닥 별 고리가 참고 이미지처럼 가로:세로 ≈ 2:1로 눌리고, 위 띠는 화면 위로 빠진다
+  tilt: 30, rot: -0.4,     // 등 방향(rad): 받침판 가까운 모서리가 오른쪽 아래로 (참고 이미지)
+  ax: 1010, ay: 590,       // 등 축이 바닥과 만나는 화면 점 (참고 이미지처럼 오른쪽으로 치우침)
+  k: 2.6,                  // 화면 px / 랜턴 이미지 px
+  focusX: 1010,            // 세로 화면 등 좁은 화면에서 잘라 보일 때 가운데로 둘 x (등 축)
+  period: 90,              // 종이창 무늬 1회전(초). 바닥에선 멀리 크게 맺혀 느려도 잘 보인다
+  // 종이창 무늬 두 묶음(원래 광원 아래·위)을 옮겨 둘 높이(이미지 px, 광원 175 · 아래 가로대 249.6).
+  // 바닥 반지름 ρ = R·(Y_FLOOR − 광원)/(y − 광원) → 광원에 가까울수록 멀리 크게 맺힌다. 둘 다 광원 아래라 바닥에 닿는다
+  motifY: [235, 211],
+  plank: 40, plankRot: -0.55,  // 마루 판 너비(이미지 px)·방향(rad)
+  amb: 'rgb(12,9,11)',         // 바닥 바탕빛(어둠)
+  star: 1.0, starBloom: 0.4,   // 육각별 빛 세기 / 번짐
+  glow: 0.14,                  // 등 바로 둘레 바닥빛
+  paper: 0.09,                 // 종이창을 지난 바탕빛 (별 띠 바깥)
+  lit: 0.5, dark: 0.6,         // 종이창 무늬: 매화·물결 빛 / 어두운 윤곽
+};
+let lanternV = null, lanternBuilding = null;
+function buildLanternView() {
+  if (lanternV) return Promise.resolve(lanternV);
+  if (lanternBuilding) return lanternBuilding;
+  lanternBuilding = (async () => {
+    const f = await loadFrame('components/lantern-cylinder.html');
+    try {
+      const w = f.contentWindow, A = w.__api;
+      A.pause(); A.setSpin(0); A.setTilt(LV.tilt); A.setRot(LV.rot);
+      const g = w.eval('({S, OY, ct, st, CX, W, H, YC, Y_FLOOR, R, LIGHT_Y, RAILS, BAND_LO, rIn: FLOOR_HOLES.rIn, rOut: FLOOR_HOLES.rOut})');
+      const holes = JSON.parse(w.eval('JSON.stringify(FLOOR_HOLES.map(h => ({ pts: h.pts, I: h.I })))'));
+      const motifs = JSON.parse(w.eval('JSON.stringify(MOTIFS.map(m => ({ th: m.th, layers: m.layers })))'));
+      const mcol = JSON.parse(w.eval('JSON.stringify(MOTIF_COL)'));
+      // 등 몸통: 바닥 빛(타원·별·무늬)·후광 사각형은 빼고 무늬 아래(under)·위(over) 두 장. 크게 그려도 선명하게 SVG 크기를 키워 굽는다
+      const m = LV.k / g.S, ox = LV.ax - m * g.CX, oy = LV.ay - m * (g.OY - g.S * (g.YC - g.Y_FLOOR) * g.ct);
+      const sc = m * dpr;
+      const svgOf = layer => A.buildSVG(false, { layer })
+        .replace(/<ellipse[^>]*fill="url\(#floor\)"[^>]*\/>/g, '')
+        .replace(/<rect[^>]*fill="url\(#halo\)"[^>]*\/>/g, '')
+        .replace(/<g filter="url\(#soft\)">[\s\S]*?<\/g>/g, '')
+        .replace(`width="${g.W}" height="${g.H}"`, `width="${Math.round(g.W * sc)}" height="${Math.round(g.H * sc)}"`);
+      const [imU, imO] = await Promise.all([svgImg(svgOf('under')), svgImg(svgOf('over'))]);
+      const lay = im => { const [c, cg] = mkLayer(); cg.drawImage(im, ox, oy, g.W * m, g.H * m); return c; };
+      lanternV = { g, m, ox, oy, mcol, under: lay(imU), over: lay(imO) };
+      lvMotifs(lanternV, motifs);
+      lvFloor(lanternV, holes);
+      lvGlow(lanternV);
+      return lanternV;
+    } finally { f.remove(); }
+  })().catch(e => { lanternBuilding = null; throw e; });
+  return lanternBuilding;
+}
+// 종이창 무늬를 LV.motifY 두 높이로 옮기고, 바닥에 맺힐 (θ, ρ) 다각형을 미리 만든다
+function lvMotifs(V, motifs) {
+  const { g } = V, LY = g.LIGHT_Y, h = g.Y_FLOOR - LY;
+  const ys = m => { let s = 0, n = 0; for (const l of m.layers) for (const p of l.polys) for (const q of p) { s += q[1]; n++; } return n ? s / n : LY; };
+  const groups = [motifs.filter(m => ys(m) > LY), motifs.filter(m => ys(m) <= LY)];
+  groups.forEach((ms, gi) => {
+    if (!ms.length) return;
+    const dy = LV.motifY[gi] - ms.reduce((s, m) => s + ys(m), 0) / ms.length;
+    for (const m of ms) for (const l of m.layers) l.polys = l.polys.map(p => p.map(([th, y]) => [th, y + dy]));
+  });
+  V.mot = motifs;
+  // 바닥 투영: 광원 아래 종이창(가로대 사이)만. 화면 밖까지 멀리 가는 부분은 자른다
+  const RMAX = 1200, rho = y => g.R * h / (y - LY);
+  const irr = r => h / Math.pow(r * r + h * h, 1.5), e0 = irr(rho(g.BAND_LO[1]));
+  const lo = Math.max(g.RAILS[0], LY + g.R * h / RMAX), hi = g.RAILS[1];
+  const dens = (P, n) => { const o = []; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length]; for (let t = 0; t < n; t++) o.push([a[0] + (b[0] - a[0]) * t / n, a[1] + (b[1] - a[1]) * t / n]); } return o; };
+  V.floorMot = [];
+  for (const mo of motifs) {
+    let n = 0, sum = 0;
+    const layers = mo.layers.map(l => ({ lit: l.lit, polys: l.polys.map(p => {
+      const P = clipYPoly(p, lo, hi); if (!P) return null;
+      const q = dens(P, 3).map(([th, y]) => [th, rho(y)]);
+      for (const v of q) { sum += v[1]; n++; }
+      return q;
+    }).filter(Boolean) })).filter(l => l.polys.length);
+    if (n) V.floorMot.push({ layers, I: Math.min(1, Math.pow(irr(sum / n) / e0, 0.3)) });
+  }
+}
+// 바닥: 나무 마루(albedo) × (어둠 + 등 주변 빛 + 종이창 바탕빛 + 육각별) → 정적인 한 장. 도는 종이창 무늬만 매 프레임 따로
+function lvFloor(V, holes) {
+  const { g } = V, st = g.st, k = LV.k;
+  const fx = (c, s = dpr) => c.setTransform(s * k, 0, 0, s * k * st, s * LV.ax, s * LV.ay);
+  // 화면 네 귀퉁이까지 덮는 바닥 반경 (이미지 px)
+  const E = Math.max(...[[0, 0], [W, 0], [0, H], [W, H]].map(([x, y]) => Math.hypot((x - LV.ax) / k, (y - LV.ay) / (k * st)))) + 60;
+  const [alb, ag] = mkLayer();
+  fx(ag); ag.rotate(LV.plankRot);
+  const rnd = mulberry32(11), PW = LV.plank;
+  const tone = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t))})`;
+  for (let z0 = -Math.ceil(E / PW) * PW; z0 < E; z0 += PW) {
+    ag.fillStyle = tone([118, 72, 42], [156, 98, 58], rnd()); ag.fillRect(-E, z0, 2 * E, PW);
+    for (let i = 0; i < 70; i++) {   // 결
+      ag.fillStyle = `rgba(${rnd() < 0.55 ? '36,14,4' : '255,210,150'},${0.05 + rnd() * 0.16})`;
+      ag.fillRect(-E + rnd() * 2 * E, z0 + 1.5 + rnd() * (PW - 3), 40 + rnd() * 220, 0.35 + rnd() * 1.1);
+    }
+    ag.fillStyle = '#1e0c04'; ag.fillRect(-E, z0, 2 * E, 1.3);   // 판 사이 이음
+    for (let x = -E + rnd() * 300; x < E; x += 300 + rnd() * 500) ag.fillRect(x, z0, 1.2, PW);
+  }
+  V.alb = alb;
+  // 육각별 (띠는 고정 → 한 번만)
+  const [sm, sg] = mkLayer();
+  fx(sg);
+  for (const hl of holes) {
+    sg.beginPath();
+    hl.pts.forEach(([th, r], i) => { const a = th + LV.rot, x = r * Math.sin(a), z = r * Math.cos(a); i ? sg.lineTo(x, z) : sg.moveTo(x, z); });
+    sg.closePath();
+    const I = Math.min(1, hl.I);
+    sg.fillStyle = `rgba(255,${Math.round(165 + 45 * I)},${Math.round(90 + 50 * I)},${Math.min(1, hl.I * LV.star)})`;
+    sg.fill();
+  }
+  // 광량 지도
+  const [lm, lg] = mkLayer();
+  lg.fillStyle = LV.amb; lg.fillRect(0, 0, W, H);
+  fx(lg); lg.globalCompositeOperation = 'lighter';
+  const rO = g.rOut || g.rIn * 1.8;
+  const radF = (r, stops) => { lg.fillStyle = (() => { const q = lg.createRadialGradient(0, 0, 0, 0, 0, r); stops.forEach(([o, c]) => q.addColorStop(o, c)); return q; })(); lg.fillRect(-r, -r, 2 * r, 2 * r); };
+  radF(rO * 2.2, [[0, `rgba(255,140,60,${LV.glow})`], [0.45, `rgba(255,120,45,${LV.glow * 0.35})`], [1, 'rgba(255,110,40,0)']]);
+  // 종이창 바탕빛: 아래 띠 윗변의 투영(rOut)부터 바깥으로, 멀수록 옅게. 경계는 부드럽게
+  const RP = rO * 4.2, e = rO / RP, P = LV.paper;
+  radF(RP, [[0, 'rgba(255,150,70,0)'], [e * 0.9, 'rgba(255,150,70,0)'], [e * 1.06, `rgba(255,150,70,${P})`],
+    [e * 1.6, `rgba(255,140,60,${P * 0.55})`], [0.6, `rgba(255,130,50,${P * 0.2})`], [1, 'rgba(255,120,40,0)']]);
+  lg.setTransform(1, 0, 0, 1, 0, 0);
+  if (CAN_FILTER) lg.filter = `blur(${(1.3 * dpr).toFixed(1)}px)`;   // 등불 크기만큼의 반그림자
+  lg.drawImage(sm, 0, 0); lg.filter = 'none';
+  lg.globalCompositeOperation = 'multiply'; lg.drawImage(alb, 0, 0);
+  // 밝은 별무늬는 살짝 넘치게(노출) + 번짐
+  lg.globalCompositeOperation = 'lighter';
+  lg.globalAlpha = 0.25; lg.drawImage(sm, 0, 0);
+  if (CAN_FILTER) { lg.filter = `blur(${(9 * dpr).toFixed(1)}px)`; lg.globalAlpha = LV.starBloom; lg.drawImage(sm, 0, 0); lg.filter = 'none'; }
+  lg.globalAlpha = 1; lg.globalCompositeOperation = 'source-over';
+  V.floor = lm;
+  // 매 프레임 쓰는 반해상도 무늬 버퍼 + 같은 해상도의 마루 (lit 무늬에 나무결을 입힌다)
+  const hw = Math.ceil(W * dpr / 2), hh = Math.ceil(H * dpr / 2);
+  const mk = () => { const c = document.createElement('canvas'); c.width = hw; c.height = hh; return c; };
+  V.mLit = mk(); V.mDark = mk(); V.albH = mk();
+  V.albH.getContext('2d').drawImage(alb, 0, 0, hw, hh);
+  V.fxH = c => fx(c, dpr / 2);
+}
+// 등 둘레 공기 빛·블룸 (화면 공간, screen으로 얹는다)
+function lvGlow(V) {
+  const { g, m, ox, oy } = V;
+  const sx = ox + m * g.CX, syAt = y => oy + m * (g.OY - g.S * (g.YC - y) * g.ct), rx = m * g.S * g.R;
+  const [c, cg] = mkLayer();
+  const rad = (x, y, r, stops) => { const q = cg.createRadialGradient(x, y, 0, x, y, r); stops.forEach(([o, s]) => q.addColorStop(o, s)); cg.fillStyle = q; cg.fillRect(0, 0, W, H); };
+  rad(sx, syAt(g.LIGHT_Y), rx * 5.5, glow('255,160,80', 0.42));
+  rad(sx, syAt((g.BAND_LO[0] + g.BAND_LO[1]) / 2), rx * 3, glow('255,150,70', 0.2));
+  rad(sx, syAt(g.LIGHT_Y - 40), rx * 2.2, glow('255,230,180', 0.35));
+  V.glow = c;
+}
+// 등 표면 종이창 무늬 (랜턴 예제 projSurf와 같은 계산)
+function lvSurface(V, sp) {
+  const { g, m, ox, oy, mcol } = V, c = ctx;
+  const P = ([th, y]) => {
+    let a = th + LV.rot + sp; a = Math.atan2(Math.sin(a), Math.cos(a));
+    a = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, a));
+    const x = g.R * Math.sin(a), z = g.R * Math.cos(a);
+    return [ox + m * (g.CX + g.S * x), oy + m * (g.OY - g.S * ((g.YC - y) * g.ct - z * g.st))];
+  };
+  const path = polys => { c.beginPath(); for (const q of polys) { q.forEach((p, i) => { const [x, y] = P(p); i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.closePath(); } };
+  for (const mo of V.mot) {
+    if (Math.cos(mo.th + LV.rot + sp) <= 0.12) continue;
+    const ls = mo.layers;
+    if (ls.length === 2 && !ls[0].lit && ls[1].lit) {
+      path([...ls[0].polys, ...ls[1].polys]); c.fillStyle = mcol.dark; c.fill('evenodd');
+      path(ls[1].polys); c.fillStyle = mcol.lit; c.fill();
+    } else for (const ly of ls) { path(ly.polys); c.fillStyle = ly.lit ? mcol.lit : mcol.dark; c.fill(); }
+  }
+}
+// 바닥에 맺힌 종이창 무늬 (매 프레임, 반해상도): 어두운 윤곽은 바탕빛을 가리고, 매화·물결은 나무결 위에 빛을 더한다
+function lvFloorMotifs(V, sp) {
+  const L = V.mLit.getContext('2d'), D = V.mDark.getContext('2d');
+  for (const b of [L, D]) { b.setTransform(1, 0, 0, 1, 0, 0); b.globalCompositeOperation = 'source-over'; b.clearRect(0, 0, V.mLit.width, V.mLit.height); V.fxH(b); }
+  const path = (b, polys) => { b.beginPath(); for (const p of polys) { p.forEach(([th, r], i) => { const a = th + LV.rot + sp, x = r * Math.sin(a), z = r * Math.cos(a); i ? b.lineTo(x, z) : b.moveTo(x, z); }); b.closePath(); } };
+  for (const mo of V.floorMot) {
+    for (const ly of mo.layers) {
+      if (ly.lit) {
+        path(L, ly.polys); L.fillStyle = `rgba(255,255,255,${mo.I})`; L.fill();
+        path(D, ly.polys); D.globalCompositeOperation = 'destination-out'; D.fillStyle = '#000'; D.fill(); D.globalCompositeOperation = 'source-over';
+      } else {
+        path(D, ly.polys); D.fillStyle = `rgba(0,0,0,${mo.I})`; D.fill();
+        path(L, ly.polys); L.globalCompositeOperation = 'destination-out'; L.fillStyle = '#000'; L.fill(); L.globalCompositeOperation = 'source-over';
+      }
+    }
+  }
+  L.setTransform(1, 0, 0, 1, 0, 0); L.globalCompositeOperation = 'source-in'; L.drawImage(V.albH, 0, 0); L.globalCompositeOperation = 'source-over';
+}
+function drawLantern() {
+  const V = lanternV;
+  ctx.clearRect(0, 0, W, H);
+  if (!V) { ctx.fillStyle = '#05070d'; ctx.fillRect(0, 0, W, H); return; }
+  const sp = (spinClock * Math.PI * 2 / LV.period) % (Math.PI * 2);
+  ctx.drawImage(V.floor, 0, 0, W, H);
+  lvFloorMotifs(V, sp);
+  ctx.globalAlpha = LV.dark; ctx.drawImage(V.mDark, 0, 0, W, H);
+  ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = LV.lit; ctx.drawImage(V.mLit, 0, 0, W, H);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(V.under, 0, 0, W, H);
+  lvSurface(V, sp);
+  ctx.drawImage(V.over, 0, 0, W, H);
+  ctx.globalCompositeOperation = 'screen'; ctx.drawImage(V.glow, 0, 0, W, H);
+  ctx.globalCompositeOperation = 'source-over';
+  vignette();
 }
 
 // 장면이 쓰는 외부 파일은 components/에만 둔다(examples/·reference-images/는 수시로 바뀌는 임시 폴더).
@@ -1209,11 +1417,14 @@ function radial(g, x, y, rx, ry, stops) {
 }
 let clock = 0, spinClock = 0;   // spinClock: 원통 랜턴 종이창 무늬 회전 시간 (멈추면 그 자리에서 정지)
 const spinAngle = () => (spinClock * Math.PI * 2 / SPIN_PERIOD) % (Math.PI * 2);
-// 시점: 'main' = 본 장면 / 'front' = 병풍 정면 뷰. 바꿀 때는 직전 화면을 떠 두고 그 위로 새 시점을 서서히 드러낸다(setView)
-let viewMode = 'main', paperView = 'main', fadeFrom = null, fadeBuf = null, fadeT0 = 0;
+// 시점: 'main' = 본 장면 / 'front' = 병풍 정면 뷰 / 'lantern' = 스탠딩 랜턴 근접 뷰.
+// 바꿀 때는 직전 화면을 떠 두고 그 위로 새 시점을 서서히 드러낸다(setView)
+let viewMode = 'main', wantView = null, onView = null, paperView = 'main', fadeFrom = null, fadeBuf = null, fadeT0 = 0;
 const FADE_MS = 700;
 function draw() {
-  if (viewMode === 'front' && front) drawFront(); else drawMain();
+  if (viewMode === 'front' && front) drawFront();
+  else if (viewMode === 'lantern') drawLantern();
+  else drawMain();
   if (fadeFrom) {
     const u = (performance.now() - fadeT0) / FADE_MS;
     if (u >= 1) fadeFrom = null;
@@ -1274,13 +1485,23 @@ function drawFront() {
   ctx.drawImage(front.base, 0, 0, W, H);
   vignette();
 }
-// 시점 바꾸기. instant: 세계 전환 등으로 바로 돌아갈 때. 정면 뷰는 장면 준비가 끝나야 열 수 있다(false)
+// 시점 바꾸기. instant: 세계 전환 등으로 바로 돌아갈 때.
+// 정면 뷰는 장면 준비가 끝나야, 랜턴 뷰는 랜턴 컴포넌트를 불러와 구운 뒤에 열린다. 아직이면 false를 돌려주고,
+// 랜턴 뷰는 굽기가 끝나는 대로(그 사이 다른 시점을 고르지 않았다면) 넘어가며 onView로 알린다
+const VIEWS = ['main', 'front', 'lantern'];
 function setView(v, instant) {
-  v = v === 'front' ? 'front' : 'main';
+  v = VIEWS.includes(v) ? v : 'main';
+  wantView = v;
   if (v === viewMode) return true;
   if (v === 'front') {
     if (!ready) return false;
     if (!front) { try { buildFront(); } catch (e) { console.warn('[room] 정면 뷰 생성 실패:', e); return false; } }
+  }
+  if (v === 'lantern' && !lanternV) {
+    buildLanternView().then(() => {
+      if (wantView === 'lantern' && viewMode !== 'lantern' && setView('lantern') && onView) onView(viewMode);
+    }).catch(e => console.warn('[room] 랜턴 뷰 생성 실패:', e));
+    return false;
   }
   fadeFrom = null;
   if (!instant && !reduce && built) {
@@ -1336,9 +1557,12 @@ function present() {
   if (!view || !vg || !built) return;
   if (vw <= 0 || vh <= 0) return;
   const s = Math.max(vw / W, vh / H), dw = W * s, dh = H * s;
+  // 좁은 화면에서 잘릴 때 가운데로 둘 x: 랜턴 뷰는 오른쪽으로 치우친 등을 따라간다
+  const fx = viewMode === 'lantern' ? LV.focusX : W / 2;
+  const ox = Math.min(0, Math.max(vw - dw, vw / 2 - fx * s));
   vg.setTransform(vdpr, 0, 0, vdpr, 0, 0);
   vg.fillStyle = '#05070d'; vg.fillRect(0, 0, vw, vh);
-  vg.drawImage(cv, (vw - dw) / 2, (vh - dh) / 2, dw, dh);
+  vg.drawImage(cv, ox, (vh - dh) / 2, dw, dh);
 }
 const _drawInner = draw;
 draw = function () {
@@ -1428,6 +1652,8 @@ window.TsukuyomiRoom = { start, stop, setScene,
   get byobu() { return byobuGeom(); },
   // 병풍 정면 뷰: setView('front') / setView('main', instant). 허브 병풍 랜드마크가 확대 대신 쓴다
   setView, get view() { return viewMode; },
+  // 시점이 비동기로 바뀌었을 때(랜턴 뷰 굽기 완료) 부를 함수. UI 동기화용
+  set onView(fn) { onView = typeof fn === 'function' ? fn : null; },
 };
 window.__ROOM__ = { get ready() { return ready; }, start, stop, setView, get view() { return viewMode; }, get byobu() { try { return byobuGeom(); } catch (e) { return null; } } };
 

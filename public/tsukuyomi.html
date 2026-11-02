@@ -37,7 +37,7 @@
             <canvas id="earthScene" aria-hidden="true"></canvas>
         </div>
     </div>
-    <!-- 八: 야치요의 방 장면 (tsukuyomi.room.js, 처음 필요할 때 로드). 경로는 #room. 조절 버튼은 병풍 정면 뷰 토글 하나 -->
+    <!-- 八: 야치요의 방 장면 (tsukuyomi.room.js, 처음 필요할 때 로드). 경로는 #room. 조절 버튼은 시점 3개(방 / 병풍 정면 / 스탠딩 랜턴) -->
     <div class="world" id="worldRoom" hidden>
         <div class="world-view">
             <canvas id="roomScene" aria-hidden="true"></canvas>
@@ -107,8 +107,18 @@
     </div>
     <div class="dock" id="roomDock" hidden>
         <section class="panel is-night" id="roomPanel" aria-label="야치요의 방">
-            <button type="button" id="btnRoomFront" class="wallpaper-toggle" aria-label="병풍 정면 뷰"
-                aria-pressed="false"><i class="bi bi-layout-three-columns" aria-hidden="true"></i></button>
+            <div class="icongroup" id="roomGroup" role="group" aria-label="방 / 병풍 / 랜턴 시점 선택">
+                <span class="thumb" id="roomThumb" aria-hidden="true"></span>
+                <button type="button" data-view="main" class="on" aria-label="방" aria-pressed="true"><i
+                        class="bi bi-house-fill" aria-hidden="true"></i></button>
+                <button type="button" data-view="front" aria-label="병풍" aria-pressed="false"><i
+                        class="bi bi-layout-three-columns" aria-hidden="true"></i></button>
+                <!-- bootstrap-icons에 랜턴 아이콘이 없어 원통 스탠딩 랜턴을 인라인 SVG로 (bi 아이콘과 같은 1em·currentColor) -->
+                <button type="button" data-view="lantern" aria-label="랜턴" aria-pressed="false"><svg class="bi-svg"
+                        viewBox="0 0 16 16" width="1em" height="1em" fill="currentColor" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M5 0h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1 0-1m-.5 1.5h7a1 1 0 0 1 1 1V9a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V2.5a1 1 0 0 1 1-1M4.5 6.4v.6h7v-.6zM6 7.6l-.6.7.6.7.6-.7zm2 0-.6.7.6.7.6-.7zm2 0-.6.7.6.7.6-.7zM5 10h1.2v3.4H5zm4.8 0H11v3.4H9.8zM3.5 13.4h9a.5.5 0 0 1 .5.5v1.1a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-1.1a.5.5 0 0 1 .5-.5"/>
+                    </svg></button>
+            </div>
         </section>
     </div>
     <div class="dock" id="newsDock" hidden>
