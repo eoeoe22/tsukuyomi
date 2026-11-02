@@ -386,29 +386,27 @@ const FRONT_LIGHT = { cx: 0.5, cy: 0.45, r: 0.8, sy: 0.7, a: 0.6 };
 const projFront = (x, y, z) => { const d = Math.max(0.05, x - FV.x); return [FV.CX + FV.F * (z - FV.z) / d, FV.CY - FV.F * (y - FV.y) / d]; };
 const kFront = x => FV.F / (x - FV.x);
 // 병풍 뒤로 보이는 오른쪽 옆벽(x = HX): 먼 칸 회벽, ZW부터 앞은 밖으로 트인 개구(밤하늘), 가모이 위는 란마 띠
-// 정면 뷰는 병풍 가운데(FV.z) 기준 좌우대칭으로 따로 꾸민다: 병풍 뒤 회벽 한 칸, 그 양옆은 밖으로 트인 개구(밤하늘 + 툇마루 난간).
+// 정면 뷰는 병풍 가운데(FV.z) 기준 좌우대칭으로 따로 꾸민다: 벽 없이 통째로 밖으로 트인 개구(밤하늘 + 툇마루 난간), 기둥은 양옆 한 쌍.
 // 실제 방대로 그리면 왼쪽은 뒷벽 모서리에 막히고 오른쪽만 트여 한쪽으로 쏠려 보인다
-const FW = { a: 3.0, b: 9.5 };   // 회벽 반폭, 개구 바깥 끝 (FV.z에서 m)
+const FW = { a: 3.0, b: 9.5 };   // 기둥 자리(± a + 3), 개구 바깥 끝 (FV.z에서 m)
 function frontWall(g) {
   const x = HX, c = FV.z, A = c - FW.a, B = c + FW.a, Z0 = c - FW.b, Z1 = c + FW.b;
   g.fillStyle = '#120d09'; g.fillRect(0, 0, W, H);
-  poly(g, [proj(x, DH, A), proj(x, DH, B), proj(x, YK, B), proj(x, YK, A)], '#4c3f31');
-  poly(g, [proj(x, DH, A), proj(x, DH, B), proj(x, 0.9, B), proj(x, 0.9, A)], '#3a2f24');
   const r = mulberry32(17);
-  for (const [za, zb] of [[Z0, A], [B, Z1]]) {
+  for (const [za, zb] of [[Z0, Z1]]) {
     const sk = g.createLinearGradient(0, proj(x, YK, za)[1], 0, proj(x, DH, za)[1]);
     sk.addColorStop(0, '#113154'); sk.addColorStop(1, '#0d2441');
     const op = [proj(x, DH, za), proj(x, DH, zb), proj(x, YK, zb), proj(x, YK, za)];
     poly(g, op, sk);
     g.save(); pathPts(g, op); g.clip();
     for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(220,230,255,${0.2 + r() * 0.5})`; g.fillRect(r() * W, r() * H * 0.5, 1.2, 1.2); }
-    sideOutside(g, [1], Z0, Z1);   // 개구 밖 툇마루 난간 (병풍 양옆 여백 뒤로 보인다)
+    sideOutside(g, [1], Z0, Z1);   // 개구 밖 툇마루 난간 (병풍 뒤·양옆으로 보인다)
     g.restore();
   }
   poly(g, [proj(x, YK, Z0), proj(x, YK, Z1), proj(x, YC, Z1), proj(x, YC, Z0)], '#1a1510');
   const wood = { f: '#4a3421', s: '#3d2a1b', b: '#2e2015', t: '#5a4030' };
   boxP(g, x - 0.18, x, DH, DH + 0.08, Z0, Z1, wood);   // 개구 문지방
-  for (const z of [A, B, A - 3, B + 3]) poly(g, [proj(x - 0.36, 0, z - 0.18), proj(x - 0.36, 0, z + 0.18), proj(x - 0.36, YC, z + 0.18), proj(x - 0.36, YC, z - 0.18)], '#3d2a1b', 'rgba(0,0,0,0.35)', 0.8);
+  for (const z of [A - 3, B + 3]) poly(g, [proj(x - 0.36, 0, z - 0.18), proj(x - 0.36, 0, z + 0.18), proj(x - 0.36, YC, z + 0.18), proj(x - 0.36, YC, z - 0.18)], '#3d2a1b', 'rgba(0,0,0,0.35)', 0.8);
   poly(g, [proj(x - 0.18, YK - 0.12, Z0), proj(x - 0.18, YK - 0.12, Z1), proj(x - 0.18, YK + 0.12, Z1), proj(x - 0.18, YK + 0.12, Z0)], '#4a3421');
 }
 // 정면 뷰 정적 레이어(어둡게 하기 전 표면색 → 빛 반사용, 어둡게 한 것 → 바탕). 처음 필요할 때 한 번 굽는다
