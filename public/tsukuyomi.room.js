@@ -280,7 +280,7 @@ function screens(g) {
 // 오른쪽 옆벽 기둥 바로 안쪽에 벽과 평행하게 세워 방 가운데를 보게 한다 → 오른쪽 벽 자리를 병풍이 대신 막는다.
 // 방 가운데에서 오른쪽을 보면 참고 이미지 3처럼 정면이 된다
 const BYO = {
-  x0: 7.0, z0: -16.8, w: 1.0, h: 1.9, zig: 12, turn: [90, 90, 90, 90, 90, 90],
+  x0: 7.0, z0: -16.8, w: 1.0, h: 1.9, zig: 24, turn: [90, 90, 90, 90, 90, 90],
   edge: 0.014, frame: 0.065,          // 검은 옻칠 테 / 초록 비단 테 (m)
   wave: 0.17,                         // 청해파 물결 하나 지름 (m)
   shade: 0.45,                        // 지그재그 명암 (등불을 등진 폭이 어두워지는 정도)
@@ -372,14 +372,13 @@ LANTERNS.forEach(L => { L.d = -L.z; L.k = kAt(L.z); L.y0 = baseY(L.x); });
 // ===== 병풍 정면 뷰 (참고 이미지 yachiyoroom3) =====
 // 단 앞 바닥에 서서 +x(병풍)를 똑바로 본다. 화면 오른쪽 = +z(방 앞쪽). 세로선이 서도록 고개는 숙이지 않고 화면 중심만 위로 옮긴다(렌즈 시프트).
 // 병풍이 화면 폭을 거의 채우고, 아랫단에 단 앞 귀틀이 걸리게 눈높이·거리를 잡았다.
-// 원통 등은 이 뷰에만 있는 두 개(FRONT_EXTRA)를 병풍 가운데(z = FV.z) 기준 좌우대칭으로 둔다. 본 장면의 등은 이 뷰에 나오지 않는다
+// 참고 이미지처럼 화면 안에 등은 두지 않는다. 빛은 관찰자 쪽(화면 밖 왼쪽 앞)에서 오는 따뜻한 빛으로 굽는다(FRONT_LIGHT)
 const FV = (() => {
   const zs = BYO_P.flatMap(P => [P.p[1], P.q[1]]);
-  return { x: 1.4, y: 1.3, z: (Math.min(...zs) + Math.max(...zs)) / 2, F: 1380, CX: 800, CY: 322 };
+  return { x: 1.4, y: 1.3, z: (Math.min(...zs) + Math.max(...zs)) / 2, F: 1560, CX: 800, CY: 322 };
 })();
-// 정면 뷰 등: x(깊이), dz(가운데에서 좌우로 떨어진 거리, 클수록 벌어진다),
-// size(본 장면 등이 이 뷰에 보이던 크기 대비 화면 크기). 병풍 앞이라 더 물릴 수 없어 등 자체를 줄인다(높이 h)
-const FL = { x: 6.5, dz: 2.7, size: 0.5 };
+// 화면 밖 빛: 중심(cx, cy: 화면 비율), 반경(r: 화면 폭 비율, 세로 sy배), 세기
+const FRONT_LIGHT = { cx: 0.4, cy: 0.45, r: 0.8, sy: 0.7, a: 0.6 };
 const projFront = (x, y, z) => { const d = Math.max(0.05, x - FV.x); return [FV.CX + FV.F * (z - FV.z) / d, FV.CY - FV.F * (y - FV.y) / d]; };
 const kFront = x => FV.F / (x - FV.x);
 // 병풍 뒤로 보이는 오른쪽 옆벽(x = HX): 먼 칸 회벽, ZW부터 앞은 밖으로 트인 개구(밤하늘), 가모이 위는 란마 띠
@@ -405,22 +404,23 @@ let front = null;
 function buildFront() {
   const [bc, bg] = mkLayer();
   const nTags = TAGS.length;
+  // 앞·뒷면은 이 뷰의 눈(FV) 기준으로 다시 가린다 (본 장면 눈 기준이면 끝 폭이 뒷면으로 보인다)
+  const fr = BYO_P.map(P => P.front);
+  BYO_P.forEach(P => { P.front = (FV.x - P.c[0]) * P.n[0] + (FV.z - P.c[1]) * P.n[1] > 0; });
   proj = projFront;
-  try { frontWall(bg); dais(bg); byobu(bg, kFront(BYO.x0)); } finally { proj = projMain; TAGS.length = nTags; }
+  try { frontWall(bg); dais(bg); byobu(bg, kFront(BYO.x0)); } finally { proj = projMain; TAGS.length = nTags; BYO_P.forEach((P, i) => { P.front = fr[i]; }); }
   const [ac, ag] = mkLayer();
   ag.drawImage(bc, 0, 0, W, H);
   ag.globalCompositeOperation = 'screen'; ag.fillStyle = 'rgb(110,100,90)'; ag.fillRect(0, 0, W, H);
   darken(bg);
-  // 보이는 원통 등 (몸통이 원통이라 정면 그림을 그대로 크게 쓴다. 이미지가 SVG라 키워도 선명하다)
-  const lamps = [];
-  for (const L of FRONT_EXTRA) {
-    if (!L.img || L.x - FV.x < 0.5) continue;
-    const [sx, sy] = projFront(L.x, L.y0, L.z), k = kFront(L.x), c = L.cyg, m = (k * L.h / c.units) / c.S;
-    const P = { ...L, sx, sy, k, m, d: L.x - FV.x, eye: FV.y - L.y0, dx: sx - c.ax * m, dy: sy - c.ay * m, dw: c.W * m, dh: c.H * m };
-    if (P.dx > W || P.dx + P.dw < 0) continue;
-    lamps.push(P);
-  }
-  front = { base: bc, alb: ac, lamps };
+  // 화면 밖 빛: 반사광 = 표면색 × 따뜻한 빛 (본 장면 reflect와 같은 방식)
+  const [lc, lg] = mkLayer(), F = FRONT_LIGHT;
+  lg.fillStyle = '#000'; lg.fillRect(0, 0, W, H);
+  radial(lg, W * F.cx, H * F.cy, W * F.r, W * F.r * F.sy, glow('255,170,95', F.a));
+  lg.globalCompositeOperation = 'multiply'; lg.drawImage(ac, 0, 0, W, H);
+  bg.globalCompositeOperation = 'lighter'; bg.drawImage(lc, 0, 0, W, H);
+  bg.globalCompositeOperation = 'source-over';
+  front = { base: bc, alb: ac };
 }
 
 // 장면이 쓰는 외부 파일은 components/에만 둔다(examples/·reference-images/는 수시로 바뀌는 임시 폴더).
@@ -776,16 +776,6 @@ function buildPatterns() {
     lg.drawImage(oc, 0, 0, W, H); lg.filter = 'none';
     lg.globalCompositeOperation = 'source-over';
   }
-  // 병풍 정면 뷰에만 있는 등 두 개: 정면 뷰에서 보이는 원통 등을 본떠 FL 자리에 좌우대칭으로 둔다
-  const FT = LANTERNS.find(L => L.type === 'cy' && L.x - FV.x > 0.5);
-  FRONT_EXTRA = FT ? [-1, 1].map(s => {
-    const h = FT.h * FL.size * (FL.x - FV.x) / (FT.x - FV.x);
-    const V = { ...FT, x: FL.x, y0: baseY(FL.x), z: FV.z + s * FL.dz, h, gs: h / FT.h, extra: true };
-    V.d = -V.z; V.k = kAt(V.z);
-    const Lp = cylPt(V, 0, LY); Lp[0] = V.x; Lp[2] = V.z;
-    V.Lp = Lp; V.SURF = SURF_ALL.filter(f => !f.face || Math.sign(dotN(f, Lp) - f.v) === f.face);
-    return V;
-  }) : [];
   litSrc = lc;
   refreshAlbedo();
   // 도는 종이창 무늬는 WebGL로 그린다. 안 되면 2D 경로(paperLight)가 쓸 버퍼·밝기 지도는 그때 만든다
@@ -1259,39 +1249,10 @@ function drawMain() {
   vignette();
   if (S.tags) drawTags();
 }
-// 병풍 정면 뷰: 정적 바탕 → 등 둘레 빛 → (WebGL이 되면) 도는 종이창 빛 → 원통 등 → 블룸
+// 병풍 정면 뷰: 등이 없어 빛까지 구운 정적 바탕 하나로 끝난다
 function drawFront() {
   ctx.clearRect(0, 0, W, H);
   ctx.drawImage(front.base, 0, 0, W, H);
-  const GC = S.glowCy / 100;
-  ctx.globalCompositeOperation = 'screen';
-  for (const L of front.lamps) {
-    // 둘레 빛 반경은 등 크기를 따른다(gs: 본 장면 등 대비 높이 비)
-    const r = 3.4 * L.gs * L.k, ry = r * Math.sin(Math.atan(L.eye / L.d)) * 1.15;
-    radial(ctx, L.sx, L.sy, r, ry, glow('255,150,70', 0.55 * GC));
-    const rr = 4.2 * L.gs * L.k;
-    radial(ctx, L.sx, L.sy - L.h * 0.55 * L.k, rr, rr, glow('255,145,60', 0.32 * GC));
-  }
-  const sp = spinAngle();
-  if (GLP && (paperSp !== sp || paperView !== 'front') && GLP.draw(sp, 'front')) { paperLayer = GLP.c; paperSp = sp; paperView = 'front'; }
-  if (GLP && paperView === 'front') {
-    ctx.globalCompositeOperation = 'lighter';
-    const pa = S.pat / 100 * GC;
-    ctx.globalAlpha = Math.min(1, pa); ctx.drawImage(paperLayer, 0, 0, W, H);
-    if (pa > 1) { ctx.globalAlpha = Math.min(1, pa - 1); ctx.drawImage(paperLayer, 0, 0, W, H); }
-    ctx.globalAlpha = 1;
-  }
-  ctx.globalCompositeOperation = 'source-over';
-  for (const L of front.lamps) {
-    ctx.drawImage(L.img, L.dx, L.dy, L.dw, L.dh);
-    lanternMotifs(ctx, L, sp); ctx.drawImage(L.imgOver, L.dx, L.dy, L.dw, L.dh);
-  }
-  ctx.globalCompositeOperation = 'screen';
-  for (const L of front.lamps) {
-    const r = L.h * 0.9 * L.k;
-    radial(ctx, L.sx, L.sy - L.h * 0.62 * L.k, r, r, glow('255,190,110', 0.3 * GC));
-  }
-  ctx.globalCompositeOperation = 'source-over';
   vignette();
 }
 // 시점 바꾸기. instant: 세계 전환 등으로 바로 돌아갈 때. 정면 뷰는 장면 준비가 끝나야 열 수 있다(false)
