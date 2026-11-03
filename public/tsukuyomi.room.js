@@ -571,7 +571,7 @@ const LV = {
   motifY: [209, 186],
   plank: 40, plankRot: -0.55,  // 마루 판 너비(이미지 px)·방향(rad)
   wood: [[100, 64, 44], [134, 88, 62]],   // 마루 판 색 범위(albedo). 채도를 낮춰 그늘이 주황으로 뜨지 않게
-  amb: 'rgb(8,7,7)',           // 바닥 바탕빛(어둠). 참고 이미지의 그늘은 주황기 없이 거의 무채색
+  amb: 'rgb(40,34,32)',        // 바닥 바탕빛(어둠). 그늘에서도 나무결이 보이게 (참고 이미지)
   star: 1.0, starOver: 0.65, starBloom: 0.18,  // 육각별 빛 세기 / 넘침(노출) / 번짐. 참고 이미지처럼 바닥에서 가장 밝게
   starInner: 0.25,             // 별 고리 안쪽 가장자리 밝기(바깥 = 1). 참고 이미지 안쪽 줄 ≈ 바깥의 0.5배
   starGap: 0.2,                // 마름모 창 사이 나무살 비율(컴포넌트 기본 0.08). 참고 이미지처럼 창끼리 떨어져 바람개비 모양으로
@@ -588,12 +588,13 @@ const LV = {
   starM: 26, starIn: 1.85, starOut: 2.85, starY0: 313.4,
   lightY: 150,                 // 등불 높이(이미지 px, 컴포넌트 기본 175). 별 고리 안·밖 반지름 ≈ 1.75R·2.85R (참고 이미지)
   penumbra: 0.6,               // 별무늬 가장자리 반그림자(px). 참고 이미지는 가장자리가 또렷하다
-  glow: 0.14,                  // 등 바로 둘레 바닥빛
+  glow: 0.3,                   // 등 바로 둘레 바닥빛
   halo: [0.38, 0.4, 0.95, 0.3], // 등 둘레 공기 빛(screen): 넓은 주황 / 아래 띠 / 종이창 흰빛 / 받침(위에서 내리비친 빛)
   burn: [1.0, 0.5],            // 갓 노출(screen): 종이창 / 아래 띠
   paper: 0.05,                 // 종이창을 지난 바탕빛 (별 띠 바깥)
   grade: 'rgb(255,242,230)',   // 마지막 색보정(곱하기): 노랑기를 빼 참고 이미지의 붉은 주황 쪽으로
-  vig: 0.75,                   // 가장자리 어둡게(방 뷰 0.55보다 진하게: 참고 이미지는 등에서 멀면 거의 검다)
+  lift: 'rgb(8,7,7)',          // 검은 쪽 들어올림(screen): 참고 이미지의 그늘은 새까맣지 않다 (다이나믹 레인지를 참고 이미지에 맞춤)
+  vig: 0.5,                    // 가장자리 어둡게
   lit: 0.22, dark: 0.6,         // 종이창 무늬: 매화·물결 빛 / 어두운 윤곽
 };
 let lanternV = null, lanternBuilding = null;
@@ -825,6 +826,7 @@ function drawLantern() {
   vignette(LV.vig);   // 등빛(노출·후광)은 비네트 뒤에 얹는다: 화면 위쪽에 걸린 갓이 어두워지지 않게
   ctx.globalCompositeOperation = 'screen'; ctx.drawImage(V.burn, 0, 0, W, H); ctx.drawImage(V.glow, 0, 0, W, H);
   ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = LV.grade; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = LV.lift; ctx.fillRect(0, 0, W, H);
   ctx.globalCompositeOperation = 'source-over';
 }
 
