@@ -589,12 +589,13 @@ const LV = {
   lightY: 150,                 // 등불 높이(이미지 px, 컴포넌트 기본 175). 별 고리 안·밖 반지름 ≈ 1.75R·2.85R (참고 이미지)
   penumbra: 0.6,               // 별무늬 가장자리 반그림자(px). 참고 이미지는 가장자리가 또렷하다
   glow: 0.3,                   // 등 바로 둘레 바닥빛
+  spill: [1, 1.8],             // 등 둘레로 넓게 퍼지는 바닥빛 [세기, 반지름(×별 고리 바깥 반지름)]: 참고 이미지는 그늘 속 마루도 중간 톤으로 보인다
   halo: [0.38, 0.4, 0.95, 0.3], // 등 둘레 공기 빛(screen): 넓은 주황 / 아래 띠 / 종이창 흰빛 / 받침(위에서 내리비친 빛)
   burn: [1.0, 0.5],            // 갓 노출(screen): 종이창 / 아래 띠
   paper: 0.05,                 // 종이창을 지난 바탕빛 (별 띠 바깥)
   grade: 'rgb(255,242,230)',   // 마지막 색보정(곱하기): 노랑기를 빼 참고 이미지의 붉은 주황 쪽으로
   lift: 'rgb(8,7,7)',          // 검은 쪽 들어올림(screen): 참고 이미지의 그늘은 새까맣지 않다 (다이나믹 레인지를 참고 이미지에 맞춤)
-  vig: 0.5,                    // 가장자리 어둡게
+  vig: 0.65,                   // 가장자리 어둡게
   lit: 0.3, dark: 0.5,          // 종이창 무늬(바닥에서 도는 바깥 그림자): 매화·물결 빛 / 어두운 윤곽
 };
 let lanternV = null, lanternBuilding = null;
@@ -719,6 +720,8 @@ function lvFloor(V, holes) {
   sg.restore();
   const rO = Math.min(g.rOut || g.rIn * 1.8, LV.starOut * g.R);
   const radF = (r, stops) => { lg.fillStyle = (() => { const q = lg.createRadialGradient(0, 0, 0, 0, 0, r); stops.forEach(([o, c]) => q.addColorStop(o, c)); return q; })(); lg.fillRect(-r, -r, 2 * r, 2 * r); };
+  const [sa, sr] = LV.spill;
+  radF(rO * sr, [[0, `rgba(255,150,80,${sa})`], [0.35, `rgba(255,135,65,${sa * 0.7})`], [0.7, `rgba(255,120,55,${sa * 0.3})`], [1, 'rgba(255,110,50,0)']]);
   radF(rO * 2.2, [[0, `rgba(255,140,60,${LV.glow})`], [0.45, `rgba(255,120,45,${LV.glow * 0.35})`], [1, 'rgba(255,110,40,0)']]);
   // 종이창 바탕빛: 아래 띠 윗변의 투영(rOut)부터 바깥으로, 멀수록 옅게. 경계는 부드럽게
   const RP = rO * 4.2, e = rO / RP, P = LV.paper;
@@ -766,8 +769,8 @@ function lvGlow(V) {
   bg.beginPath(); bg.moveTo(sx - rx, -10); bg.lineTo(sx - rx, yE); bg.ellipse(sx, yE, rx, rx * g.st, 0, Math.PI, 0, true); bg.lineTo(sx + rx, -10); bg.closePath(); bg.clip();
   const q = bg.createLinearGradient(0, yT, 0, yE);
   const at = y => Math.max(0, Math.min(1, (y - yT) / (yE - yT)));
-  q.addColorStop(0, `rgba(255,250,236,${p0})`);
-  q.addColorStop(at(yB) * 0.9, `rgba(255,236,200,${p0 * 0.8})`);
+  q.addColorStop(0, `rgba(255,255,250,${p0})`);
+  q.addColorStop(at(yB) * 0.9, `rgba(255,246,226,${p0 * 0.85})`);
   q.addColorStop(at(yB), `rgba(255,170,95,${p1})`);
   q.addColorStop(1, `rgba(255,150,80,${p1 * 0.7})`);
   bg.fillStyle = q; bg.fillRect(0, 0, W, H);
@@ -824,8 +827,10 @@ function drawLantern() {
   lvSurface(V, sp);
   ctx.drawImage(V.over, 0, 0, W, H);
   vignette(LV.vig);   // 등빛(노출·후광)은 비네트 뒤에 얹는다: 화면 위쪽에 걸린 갓이 어두워지지 않게
-  ctx.globalCompositeOperation = 'screen'; ctx.drawImage(V.burn, 0, 0, W, H); ctx.drawImage(V.glow, 0, 0, W, H);
+  ctx.globalCompositeOperation = 'screen'; ctx.drawImage(V.glow, 0, 0, W, H);
   ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = LV.grade; ctx.fillRect(0, 0, W, H);
+  // 갓 노출은 색보정 뒤에: 곱하기 보정이 흰빛을 크림색으로 눌러 하이라이트가 255까지 가지 못하던 것을 막는다 (참고 이미지는 갓이 하얗게 날아간다)
+  ctx.globalCompositeOperation = 'screen'; ctx.drawImage(V.burn, 0, 0, W, H);
   ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = LV.lift; ctx.fillRect(0, 0, W, H);
   ctx.globalCompositeOperation = 'source-over';
 }
