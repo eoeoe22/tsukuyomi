@@ -102,7 +102,7 @@ const STAR_SIZE = 0.4;        // 고정: 별 크기 (작게)
 let STAR_VMUL = 1.0;
 let LIGHT_Y = 175; // 등불(점광원) 높이: 축 위의 한 점
 let FLOOR_GAIN = 1.0;          // 수직 간격 조절기용 (별 사이 거리 배율, 예시 구현본의 dy에 대응)
-const STAR_GAP = 0.08;        // 마름모 창 사이 나무살 비율 (작게 → 별 작게·창 크게)
+let STAR_GAP = 0.08;          // 마름모 창 사이 나무살 비율 (작게 → 별 작게·창 크게). 장면이 바꿔 쓸 수 있게 let
 // 받침: 사각 판 + 그 위 얇은 단 + 다리 4개 (모두 R 배수)
 const Y_FLOOR = 432;          // 판 밑면(바닥)
 const BASE = { half: 0.95, top: 424 };
@@ -408,6 +408,11 @@ function densify(P, n) {
   for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length]; for (let t = 0; t < n; t++) out.push([a[0] + (b[0] - a[0]) * t / n, a[1] + (b[1] - a[1]) * t / n]); }
   return out;
 }
+function densifyArc(P, dth) {
+  const out = [];
+  for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length], n = Math.max(2, Math.ceil(Math.abs(b[0] - a[0]) / dth)); for (let t = 0; t < n; t++) out.push([a[0] + (b[0] - a[0]) * t / n, a[1] + (b[1] - a[1]) * t / n]); }
+  return out;
+}
 const rhoAt = y => R * (Y_FLOOR - LIGHT_Y) / (y - LIGHT_Y);
 // 수평 바닥의 조도 ∝ h / d³ (h = 광원 높이, d = 광원~바닥점 거리)
 const irr = rho => { const h = Y_FLOOR - LIGHT_Y; return h / Math.pow(rho * rho + h * h, 1.5); };
@@ -420,7 +425,8 @@ function rebuildFloor() {
     for (const h of b.holes) {
       if (h.th < 0 || h.th >= TAU) continue; // 한 바퀴분만 (이음매 중복 제거)
       const P = clipY(h.pts, lo, hi); if (!P) continue;
-      const pts = densify(P, 2).map(([th, y]) => [th, rhoAt(y)]);
+      // 띠 경계(일정 y)에서 잘린 변은 바닥에서 원호가 되므로, 각도 간격(≤0.004rad)으로 잘게 나눠 꺾임 없이 둥글게
+      const pts = densifyArc(P, 0.004).map(([th, y]) => [th, rhoAt(y)]);
       const rc = pts.reduce((s, p) => s + p[1], 0) / pts.length;
       FLOOR_HOLES.push({ pts, I: Math.pow(irr(rc) / e0, 0.6) });
     }
