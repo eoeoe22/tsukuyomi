@@ -595,7 +595,7 @@ const LV = {
   grade: 'rgb(255,242,230)',   // 마지막 색보정(곱하기): 노랑기를 빼 참고 이미지의 붉은 주황 쪽으로
   lift: 'rgb(8,7,7)',          // 검은 쪽 들어올림(screen): 참고 이미지의 그늘은 새까맣지 않다 (다이나믹 레인지를 참고 이미지에 맞춤)
   vig: 0.5,                    // 가장자리 어둡게
-  lit: 0.22, dark: 0.6,         // 종이창 무늬: 매화·물결 빛 / 어두운 윤곽
+  lit: 0.3, dark: 0.5,          // 종이창 무늬(바닥에서 도는 바깥 그림자): 매화·물결 빛 / 어두운 윤곽
 };
 let lanternV = null, lanternBuilding = null;
 function buildLanternView() {
