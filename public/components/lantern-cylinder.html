@@ -102,7 +102,7 @@ const STAR_SIZE = 0.4;        // 고정: 별 크기 (작게)
 let STAR_VMUL = 1.0;
 let LIGHT_Y = 175; // 등불(점광원) 높이: 축 위의 한 점
 let FLOOR_GAIN = 1.0;          // 수직 간격 조절기용 (별 사이 거리 배율, 예시 구현본의 dy에 대응)
-const STAR_GAP = 0.08;        // 마름모 창 사이 나무살 비율 (작게 → 별 작게·창 크게)
+let STAR_GAP = 0.08;          // 마름모 창 사이 나무살 비율 (작게 → 별 작게·창 크게). 장면이 바꿔 쓸 수 있게 let
 // 받침: 사각 판 + 그 위 얇은 단 + 다리 4개 (모두 R 배수)
 const Y_FLOOR = 432;          // 판 밑면(바닥)
 const BASE = { half: 0.95, top: 424 };
