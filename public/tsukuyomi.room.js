@@ -576,12 +576,13 @@ const LV = {
   starGap: 0.2,                // 마름모 창 사이 나무살 비율(컴포넌트 기본 0.08). 참고 이미지처럼 창끼리 떨어져 바람개비 모양으로
   starShift: 7,                // 별무늬 세로 위상(px): 띠 아래 가장자리가 별 중심을 지나면 바닥 안쪽 경계가 톱니처럼 각진다 → 마름모를 가로지르게
   // 바닥 별 고리: 점광원 식 ρ = R·h/(y−광원)은 별이 반지름 방향으로 0.4~0.6배 눌려(화면 세로 압축과 겹치면 납작)
-  // 참고 이미지와 다르다 → 원통→바닥 등각 사상 ρ = starIn·R·exp((띠 아랫변 − y)/R)로 별 모양을 그대로 둔다(밖/안 = e^(띠 높이/R))
-  // starIn: 안쪽 반지름(×R). 받침(모서리 1.34R) 둘레에 빈 그늘이 남게 넉넉히. starOut: 바깥을 잘라 고리가 너무 커지지 않게
-  starIn: 1.85, starOut: 2.85,   // 참고 이미지 왼쪽(화면 가로) 실측: 안 ≈ 1.85R, 밖 ≈ 2.85R
-  // 고리(starIn~starOut)에 담기는 건 띠 높이 R·ln(밖/안) ≈ 27px뿐 → 띠의 어느 높이를 담을지(starY0: starIn에 맺히는 y).
-  // 별 한 줄(중심 287.8)이 고리 가운데, 엇갈린 줄 별 중심이 가장자리에 걸려 바람개비로 잘리게 (참고 이미지)
-  starY0: 301,
+  // 참고 이미지와 다르다 → 원통→바닥 등각 사상으로 별 모양을 그대로 둔다:
+  //   θ' = θ·s (s = 14/starM),  ρ = starIn·R·exp(s·(starY0 − y)/R)  → 반지름·둘레 방향 배율이 같다
+  // starM: 바닥 한 바퀴 별 열 수. 참고 이미지 등 표면 별 간격으로 재면 ≈ 18 (등 표면은 14 그대로)
+  // starIn/starOut: 고리 안·밖 반지름(×R). 참고 이미지 왼쪽(화면 가로) 실측 ≈ 1.85R / 2.85R. 안쪽은 받침 둘레 빈 그늘
+  // starY0: starIn에 맺히는 띠 높이. 고리에 담기는 띠 높이 = R·ln(밖/안)/s ≈ 34px → 별 한 줄(중심 287.8)이 가운데,
+  //   엇갈린 줄 별 중심이 가장자리에 걸려 바람개비로 잘리게 (참고 이미지)
+  starM: 18, starIn: 1.85, starOut: 2.85, starY0: 305,
   lightY: 150,                 // 등불 높이(이미지 px, 컴포넌트 기본 175). 별 고리 안·밖 반지름 ≈ 1.75R·2.85R (참고 이미지)
   penumbra: 0.6,               // 별무늬 가장자리 반그림자(px). 참고 이미지는 가장자리가 또렷하다
   glow: 0.14,                  // 등 바로 둘레 바닥빛
@@ -599,10 +600,9 @@ function buildLanternView() {
     try {
       const w = f.contentWindow, A = w.__api;
       A.pause(); A.setSpin(0); A.setTilt(LV.tilt); A.setRot(LV.rot);
-      w.eval(`STAR_GAP = ${LV.starGap}; STAR_YSHIFT = ${LV.starShift}; LIGHT_Y = ${LV.lightY};
-        rhoAt = y => ${LV.starIn} * R * Math.exp((${LV.starY0} - y) / R); rebuildBands(); rebuildFloor();`);   // 등 표면·바닥 투영 둘 다 같은 창 크기로
+      w.eval(`STAR_GAP = ${LV.starGap}; STAR_YSHIFT = ${LV.starShift}; LIGHT_Y = ${LV.lightY}; rebuildBands(); rebuildFloor();`);   // 등 표면·바닥 투영 둘 다 같은 창 크기로
       const g = w.eval('({S, OY, ct, st, CX, W, H, YC, Y_FLOOR, R, LIGHT_Y, RAILS, BAND_LO, rIn: FLOOR_HOLES.rIn, rOut: FLOOR_HOLES.rOut})');
-      const holes = JSON.parse(w.eval('JSON.stringify(FLOOR_HOLES.map(h => ({ pts: h.pts, I: h.I })))'));
+      const holes = lvStarHoles(g, JSON.parse(w.eval('JSON.stringify(BANDS[1].holes.map(h => ({ th: h.th, pts: h.pts })))')));
       const motifs = JSON.parse(w.eval('JSON.stringify(MOTIFS.map(m => ({ th: m.th, layers: m.layers })))'));
       const mcol = JSON.parse(w.eval('JSON.stringify(MOTIF_COL)'));
       // 등 몸통: 바닥 빛(타원·별·무늬)·후광 사각형은 빼고 무늬 아래(under)·위(over) 두 장. 크게 그려도 선명하게 SVG 크기를 키워 굽는다
@@ -651,6 +651,24 @@ function lvMotifs(V, motifs) {
     }).filter(Boolean) })).filter(l => l.polys.length);
     if (n) V.floorMot.push({ layers, I: Math.min(1, Math.pow(irr(sum / n) / e0, 0.3)) });
   }
+}
+// 아래 띠 투각 → 바닥 별 고리 (θ, ρ) 다각형. 등각 사상이라 별 모양이 눌리지 않는다 (LV.starM 설명)
+function lvStarHoles(g, raw) {
+  const R = g.R, s = 14 / LV.starM, per = 2 * (2 * Math.PI / 14);   // 별무늬 θ 주기 = 두 열
+  const hi = Math.min(LV.starY0, g.BAND_LO[1]), lo = Math.max(g.BAND_LO[0], LV.starY0 - R * Math.log(LV.starOut / LV.starIn) / s);
+  const rho = y => LV.starIn * R * Math.exp(s * (LV.starY0 - y) / R);
+  const arc = P => { const o = []; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length], n = Math.max(2, Math.ceil(Math.abs(b[0] - a[0]) / 0.004)); for (let t = 0; t < n; t++) o.push([a[0] + (b[0] - a[0]) * t / n, a[1] + (b[1] - a[1]) * t / n]); } return o; };
+  const one = [];   // 한 주기분
+  for (const h of raw) {
+    if (h.th < 0 || h.th >= per) continue;
+    const P = clipYPoly(h.pts, lo, hi); if (!P) continue;
+    const q = arc(P).map(([th, y]) => [th * s, rho(y)]);
+    const rc = q.reduce((a, p) => a + p[1], 0) / q.length;
+    one.push({ pts: q, I: Math.pow(LV.starIn * R / rc, 0.6) });
+  }
+  const out = [];
+  for (let k = 0; k < LV.starM / 2; k++) for (const h of one) out.push({ I: h.I, pts: h.pts.map(([th, r]) => [th + k * per * s, r]) });
+  return out;
 }
 // 바닥: 나무 마루(albedo) × (어둠 + 등 주변 빛 + 종이창 바탕빛 + 육각별) → 정적인 한 장. 도는 종이창 무늬만 매 프레임 따로
 function lvFloor(V, holes) {

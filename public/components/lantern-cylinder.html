@@ -414,8 +414,7 @@ function densifyArc(P, dth) {
   for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length], n = Math.max(2, Math.ceil(Math.abs(b[0] - a[0]) / dth)); for (let t = 0; t < n; t++) out.push([a[0] + (b[0] - a[0]) * t / n, a[1] + (b[1] - a[1]) * t / n]); }
   return out;
 }
-// 장면이 바꿔 쓸 수 있게 let (예: 랜턴 근접 뷰는 별 모양이 눌리지 않는 등각 사상으로 바꾼다)
-let rhoAt = y => R * (Y_FLOOR - LIGHT_Y) / (y - LIGHT_Y);
+const rhoAt = y => R * (Y_FLOOR - LIGHT_Y) / (y - LIGHT_Y);
 // 수평 바닥의 조도 ∝ h / d³ (h = 광원 높이, d = 광원~바닥점 거리)
 const irr = rho => { const h = Y_FLOOR - LIGHT_Y; return h / Math.pow(rho * rho + h * h, 1.5); };
 function rebuildFloor() {
