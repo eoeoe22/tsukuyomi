@@ -568,7 +568,7 @@ const LV = {
   period: 90,              // 종이창 무늬 1회전(초). 바닥에선 멀리 크게 맺혀 느려도 잘 보인다
   // 종이창 무늬 두 묶음(원래 광원 아래·위)을 옮겨 둘 높이(이미지 px, 광원 lightY · 아래 가로대 249.6).
   // 바닥 반지름 ρ = R·(Y_FLOOR − 광원)/(y − 광원) → 광원에 가까울수록 멀리 크게 맺힌다. 둘 다 광원 아래라 바닥에 닿는다
-  motifY: [216, 190],
+  motifY: [209, 186],
   plank: 40, plankRot: -0.55,  // 마루 판 너비(이미지 px)·방향(rad)
   wood: [[100, 64, 44], [134, 88, 62]],   // 마루 판 색 범위(albedo). 채도를 낮춰 그늘이 주황으로 뜨지 않게
   amb: 'rgb(8,7,7)',           // 바닥 바탕빛(어둠). 참고 이미지의 그늘은 주황기 없이 거의 무채색
@@ -578,7 +578,10 @@ const LV = {
   // 바닥 별 고리: 점광원 식 ρ = R·h/(y−광원)은 별이 반지름 방향으로 0.4~0.6배 눌려(화면 세로 압축과 겹치면 납작)
   // 참고 이미지와 다르다 → 원통→바닥 등각 사상 ρ = starIn·R·exp((띠 아랫변 − y)/R)로 별 모양을 그대로 둔다(밖/안 = e^(띠 높이/R))
   // starIn: 안쪽 반지름(×R). 받침(모서리 1.34R) 둘레에 빈 그늘이 남게 넉넉히. starOut: 바깥을 잘라 고리가 너무 커지지 않게
-  starIn: 1.6, starOut: 3.3,
+  starIn: 1.85, starOut: 2.85,   // 참고 이미지 왼쪽(화면 가로) 실측: 안 ≈ 1.85R, 밖 ≈ 2.85R
+  // 고리(starIn~starOut)에 담기는 건 띠 높이 R·ln(밖/안) ≈ 27px뿐 → 띠의 어느 높이를 담을지(starY0: starIn에 맺히는 y).
+  // 별 한 줄(중심 287.8)이 고리 가운데, 엇갈린 줄 별 중심이 가장자리에 걸려 바람개비로 잘리게 (참고 이미지)
+  starY0: 301,
   lightY: 150,                 // 등불 높이(이미지 px, 컴포넌트 기본 175). 별 고리 안·밖 반지름 ≈ 1.75R·2.85R (참고 이미지)
   penumbra: 0.6,               // 별무늬 가장자리 반그림자(px). 참고 이미지는 가장자리가 또렷하다
   glow: 0.14,                  // 등 바로 둘레 바닥빛
@@ -597,7 +600,7 @@ function buildLanternView() {
       const w = f.contentWindow, A = w.__api;
       A.pause(); A.setSpin(0); A.setTilt(LV.tilt); A.setRot(LV.rot);
       w.eval(`STAR_GAP = ${LV.starGap}; STAR_YSHIFT = ${LV.starShift}; LIGHT_Y = ${LV.lightY};
-        rhoAt = y => ${LV.starIn} * R * Math.exp((BAND_LO[1] - y) / R); rebuildBands(); rebuildFloor();`);   // 등 표면·바닥 투영 둘 다 같은 창 크기로
+        rhoAt = y => ${LV.starIn} * R * Math.exp((${LV.starY0} - y) / R); rebuildBands(); rebuildFloor();`);   // 등 표면·바닥 투영 둘 다 같은 창 크기로
       const g = w.eval('({S, OY, ct, st, CX, W, H, YC, Y_FLOOR, R, LIGHT_Y, RAILS, BAND_LO, rIn: FLOOR_HOLES.rIn, rOut: FLOOR_HOLES.rOut})');
       const holes = JSON.parse(w.eval('JSON.stringify(FLOOR_HOLES.map(h => ({ pts: h.pts, I: h.I })))'));
       const motifs = JSON.parse(w.eval('JSON.stringify(MOTIFS.map(m => ({ th: m.th, layers: m.layers })))'));
@@ -672,7 +675,7 @@ function lvFloor(V, holes) {
   // 육각별 (띠는 고정 → 한 번만)
   const [sm, sg] = mkLayer();
   fx(sg);
-  sg.save(); sg.beginPath(); sg.arc(0, 0, LV.starOut * g.R, 0, Math.PI * 2); sg.clip();
+  sg.save(); sg.beginPath(); sg.arc(0, 0, LV.starOut * g.R, 0, Math.PI * 2); sg.arc(0, 0, LV.starIn * g.R, 0, Math.PI * 2, true); sg.clip();   // 고리만
   for (const hl of holes) {
     sg.beginPath();
     hl.pts.forEach(([th, r], i) => { const a = th + LV.rot, x = r * Math.sin(a), z = r * Math.cos(a); i ? sg.lineTo(x, z) : sg.moveTo(x, z); });
