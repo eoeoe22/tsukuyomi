@@ -103,6 +103,7 @@ let STAR_VMUL = 1.0;
 let LIGHT_Y = 175; // 등불(점광원) 높이: 축 위의 한 점
 let FLOOR_GAIN = 1.0;          // 수직 간격 조절기용 (별 사이 거리 배율, 예시 구현본의 dy에 대응)
 let STAR_GAP = 0.08;          // 마름모 창 사이 나무살 비율 (작게 → 별 작게·창 크게). 장면이 바꿔 쓸 수 있게 let
+let STAR_YSHIFT = 0;          // 별무늬 세로 위상(px, +아래). 띠 가장자리가 별 중심 대신 마름모를 가로지르게 장면이 바꿔 쓴다
 // 받침: 사각 판 + 그 위 얇은 단 + 다리 4개 (모두 R 배수)
 const Y_FLOOR = 432;          // 판 밑면(바닥)
 const BASE = { half: 0.95, top: 424 };
@@ -146,7 +147,7 @@ const R = rAt((Y0 + Y1) / 2);   // 몸통 반지름 (원통이라 하나)
 // 조절기(예시 구현본 대응): STAR_SIZE=0.4·STAR_M=14 고정, STAR_VMUL=수직 간격 배율(dy)만 조절.
 // 수직 간격은 별 사이 거리만 벌리고(위치만 이동), 마름모 창 모양은 그대로 둔다(예시 dy와 동일). 세로줄 엇갈림은 V/2로 고정.
 function starHoles(yA, yB, phase) {
-const C = TAU * R, Lh = C / STAR_M, V0 = Lh * 2 / Math.sqrt(3), V = V0 * STAR_VMUL, yc = (yA + yB) / 2;
+const C = TAU * R, Lh = C / STAR_M, V0 = Lh * 2 / Math.sqrt(3), V = V0 * STAR_VMUL, yc = (yA + yB) / 2 + STAR_YSHIFT;
 // STAR_SIZE↑ → 나무별↑(마름모 창↓). s>1이면 창끼리 살짝 겹쳐 별이 더 작아진다.
 const out = [], s = (1 - STAR_GAP) + (1 - STAR_SIZE) * 0.25;
 // B 꼭짓점 → 이웃 C 꼭짓점 세 방향 (납작별용: 동·북서·남서). 모양은 V0 기준 고정.
