@@ -572,7 +572,7 @@ const LV = {
   plank: 40, plankRot: -0.55,  // 마루 판 너비(이미지 px)·방향(rad)
   wood: [[100, 64, 44], [134, 88, 62]],   // 마루 판 색 범위(albedo). 채도를 낮춰 그늘이 주황으로 뜨지 않게
   amb: 'rgb(8,7,7)',           // 바닥 바탕빛(어둠). 참고 이미지의 그늘은 주황기 없이 거의 무채색
-  star: 0.45, starOver: 0, starBloom: 0.08,  // 육각별 빛 세기 / 넘침(노출) / 번짐. 바깥 종이창 무늬(lit 0.42)와 같은 밝기로
+  star: 1.0, starOver: 0.45, starBloom: 0.18,  // 육각별 빛 세기 / 넘침(노출) / 번짐. 바깥 종이창 무늬(lit 0.42)와 같은 밝기로
   starGap: 0.2,                // 마름모 창 사이 나무살 비율(컴포넌트 기본 0.08). 참고 이미지처럼 창끼리 떨어져 바람개비 모양으로
   starShift: 7,                // 별무늬 세로 위상(px): 띠 아래 가장자리가 별 중심을 지나면 바닥 안쪽 경계가 톱니처럼 각진다 → 마름모를 가로지르게
   // 바닥 별 고리: 점광원 식 ρ = R·h/(y−광원)은 별이 반지름 방향으로 0.4~0.6배 눌려(화면 세로 압축과 겹치면 납작)
@@ -588,10 +588,12 @@ const LV = {
   lightY: 150,                 // 등불 높이(이미지 px, 컴포넌트 기본 175). 별 고리 안·밖 반지름 ≈ 1.75R·2.85R (참고 이미지)
   penumbra: 0.6,               // 별무늬 가장자리 반그림자(px). 참고 이미지는 가장자리가 또렷하다
   glow: 0.14,                  // 등 바로 둘레 바닥빛
-  paper: 0.07,                 // 종이창을 지난 바탕빛 (별 띠 바깥)
-  grade: 'rgb(255,236,220)',   // 마지막 색보정(곱하기): 노랑기를 빼 참고 이미지의 붉은 주황 쪽으로
+  halo: [0.38, 0.4, 0.95, 0.3], // 등 둘레 공기 빛(screen): 넓은 주황 / 아래 띠 / 종이창 흰빛 / 받침(위에서 내리비친 빛)
+  burn: [1.0, 0.5],            // 갓 노출(screen): 종이창 / 아래 띠
+  paper: 0.05,                 // 종이창을 지난 바탕빛 (별 띠 바깥)
+  grade: 'rgb(255,242,230)',   // 마지막 색보정(곱하기): 노랑기를 빼 참고 이미지의 붉은 주황 쪽으로
   vig: 0.75,                   // 가장자리 어둡게(방 뷰 0.55보다 진하게: 참고 이미지는 등에서 멀면 거의 검다)
-  lit: 0.42, dark: 0.6,         // 종이창 무늬: 매화·물결 빛 / 어두운 윤곽
+  lit: 0.22, dark: 0.6,         // 종이창 무늬: 매화·물결 빛 / 어두운 윤곽
 };
 let lanternV = null, lanternBuilding = null;
 function buildLanternView() {
@@ -739,10 +741,24 @@ function lvGlow(V) {
   const sx = ox + m * g.CX, syAt = y => oy + m * (g.OY - g.S * (g.YC - y) * g.ct), rx = m * g.S * g.R;
   const [c, cg] = mkLayer();
   const rad = (x, y, r, stops) => { const q = cg.createRadialGradient(x, y, 0, x, y, r); stops.forEach(([o, s]) => q.addColorStop(o, s)); cg.fillStyle = q; cg.fillRect(0, 0, W, H); };
-  rad(sx, syAt(g.LIGHT_Y), rx * 5.5, glow('255,160,80', 0.42));
-  rad(sx, syAt((g.BAND_LO[0] + g.BAND_LO[1]) / 2), rx * 3, glow('255,150,70', 0.2));
-  rad(sx, syAt(g.LIGHT_Y - 40), rx * 2.2, glow('255,236,200', 0.5));   // 종이창이 하얗게 날아갈 만큼
+  const [a0, a1, a2, a3] = LV.halo;
+  rad(sx, syAt(g.Y_FLOOR), rx * 1.7, glow('255,180,120', a3));
+  rad(sx, syAt(g.LIGHT_Y), rx * 5.5, glow('255,160,80', a0));
+  rad(sx, syAt((g.BAND_LO[0] + g.BAND_LO[1]) / 2), rx * 3, glow('255,150,70', a1));
+  rad(sx, syAt(g.LIGHT_Y - 40), rx * 2.2, glow('255,236,200', a2));   // 종이창이 하얗게 날아갈 만큼
   V.glow = c;
+  // 갓 노출: 원통 실루엣(아래 띠 아랫변까지)으로 잘라 위쪽 종이창은 거의 흰빛, 아래 띠는 주황빛으로 들뜨게 (참고 이미지는 갓이 하얗게 날아간다)
+  const [bc, bg] = mkLayer();
+  const [p0, p1] = LV.burn, yT = syAt(g.LIGHT_Y - 60), yB = syAt(g.BAND_LO[0]), yE = syAt(g.BAND_LO[1]);
+  bg.beginPath(); bg.moveTo(sx - rx, -10); bg.lineTo(sx - rx, yE); bg.ellipse(sx, yE, rx, rx * g.st, 0, Math.PI, 0, true); bg.lineTo(sx + rx, -10); bg.closePath(); bg.clip();
+  const q = bg.createLinearGradient(0, yT, 0, yE);
+  const at = y => Math.max(0, Math.min(1, (y - yT) / (yE - yT)));
+  q.addColorStop(0, `rgba(255,250,236,${p0})`);
+  q.addColorStop(at(yB) * 0.9, `rgba(255,236,200,${p0 * 0.8})`);
+  q.addColorStop(at(yB), `rgba(255,170,95,${p1})`);
+  q.addColorStop(1, `rgba(255,150,80,${p1 * 0.7})`);
+  bg.fillStyle = q; bg.fillRect(0, 0, W, H);
+  V.burn = bc;
 }
 // 등 표면 종이창 무늬 (랜턴 예제 projSurf와 같은 계산)
 function lvSurface(V, sp) {
@@ -794,10 +810,10 @@ function drawLantern() {
   ctx.drawImage(V.under, 0, 0, W, H);
   lvSurface(V, sp);
   ctx.drawImage(V.over, 0, 0, W, H);
-  ctx.globalCompositeOperation = 'screen'; ctx.drawImage(V.glow, 0, 0, W, H);
+  vignette(LV.vig);   // 등빛(노출·후광)은 비네트 뒤에 얹는다: 화면 위쪽에 걸린 갓이 어두워지지 않게
+  ctx.globalCompositeOperation = 'screen'; ctx.drawImage(V.burn, 0, 0, W, H); ctx.drawImage(V.glow, 0, 0, W, H);
   ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = LV.grade; ctx.fillRect(0, 0, W, H);
   ctx.globalCompositeOperation = 'source-over';
-  vignette(LV.vig);
 }
 
 // 장면이 쓰는 외부 파일은 components/에만 둔다(examples/·reference-images/는 수시로 바뀌는 임시 폴더).
