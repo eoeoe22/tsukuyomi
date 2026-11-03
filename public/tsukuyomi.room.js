@@ -566,14 +566,26 @@ const LV = {
   k: 2.6,                  // 화면 px / 랜턴 이미지 px
   focusX: 1010,            // 세로 화면 등 좁은 화면에서 잘라 보일 때 가운데로 둘 x (등 축)
   period: 90,              // 종이창 무늬 1회전(초). 바닥에선 멀리 크게 맺혀 느려도 잘 보인다
-  // 종이창 무늬 두 묶음(원래 광원 아래·위)을 옮겨 둘 높이(이미지 px, 광원 175 · 아래 가로대 249.6).
+  // 종이창 무늬 두 묶음(원래 광원 아래·위)을 옮겨 둘 높이(이미지 px, 광원 lightY · 아래 가로대 249.6).
   // 바닥 반지름 ρ = R·(Y_FLOOR − 광원)/(y − 광원) → 광원에 가까울수록 멀리 크게 맺힌다. 둘 다 광원 아래라 바닥에 닿는다
-  motifY: [235, 211],
+  motifY: [209, 186],
   plank: 40, plankRot: -0.55,  // 마루 판 너비(이미지 px)·방향(rad)
   wood: [[100, 64, 44], [134, 88, 62]],   // 마루 판 색 범위(albedo). 채도를 낮춰 그늘이 주황으로 뜨지 않게
   amb: 'rgb(8,7,7)',           // 바닥 바탕빛(어둠). 참고 이미지의 그늘은 주황기 없이 거의 무채색
-  star: 1.0, starBloom: 0.25,  // 육각별 빛 세기 / 번짐
+  star: 0.45, starOver: 0, starBloom: 0.08,  // 육각별 빛 세기 / 넘침(노출) / 번짐. 바깥 종이창 무늬(lit 0.42)와 같은 밝기로
   starGap: 0.2,                // 마름모 창 사이 나무살 비율(컴포넌트 기본 0.08). 참고 이미지처럼 창끼리 떨어져 바람개비 모양으로
+  starShift: 7,                // 별무늬 세로 위상(px): 띠 아래 가장자리가 별 중심을 지나면 바닥 안쪽 경계가 톱니처럼 각진다 → 마름모를 가로지르게
+  // 바닥 별 고리: 점광원 식 ρ = R·h/(y−광원)은 별이 반지름 방향으로 0.4~0.6배 눌려(화면 세로 압축과 겹치면 납작)
+  // 참고 이미지와 다르다 → 원통→바닥 등각 사상으로 별 모양을 그대로 둔다:
+  //   θ' = θ·s (s = 14/starM),  ρ = starIn·R·exp(s·(starY0 − y)/R)  → 반지름·둘레 방향 배율이 같다
+  // starM: 바닥 한 바퀴 별 열 수(등 표면은 14 그대로). 참고 이미지처럼 작은 별이 고리를 촘촘히 채우게 26
+  // starIn/starOut: 고리 안·밖 반지름(×R). 참고 이미지 왼쪽(화면 가로) 실측 ≈ 1.85R / 2.85R. 안쪽은 받침 둘레 빈 그늘
+  // starY0: starIn에 맺히는 띠 높이. 고리에 담기는 띠 높이 = R·ln(밖/안)/s ≈ 50px → 엇갈린 별 두 줄.
+  //   별 중심 높이(열 엇갈림 포함) 255.6·271.7·287.8·303.8·319.9 사이 '가운데'에 경계가 오게 한다:
+  //   경계가 별 중심·끝을 지나면 바람개비·별 끝만 걸려 실루엣이 들쭉날쭉, 가운데를 지나면 모든 마름모가 같은 반지름에서 잘려 원으로 보인다.
+  //   바깥 경계 y = 263.6, 안쪽은 띠 아랫변 312 (둘 다 줄 사이 가운데) → starY0 = 263.6 + 50
+  starM: 26, starIn: 1.85, starOut: 2.85, starY0: 313.4,
+  lightY: 150,                 // 등불 높이(이미지 px, 컴포넌트 기본 175). 별 고리 안·밖 반지름 ≈ 1.75R·2.85R (참고 이미지)
   penumbra: 0.6,               // 별무늬 가장자리 반그림자(px). 참고 이미지는 가장자리가 또렷하다
   glow: 0.14,                  // 등 바로 둘레 바닥빛
   paper: 0.07,                 // 종이창을 지난 바탕빛 (별 띠 바깥)
@@ -590,9 +602,9 @@ function buildLanternView() {
     try {
       const w = f.contentWindow, A = w.__api;
       A.pause(); A.setSpin(0); A.setTilt(LV.tilt); A.setRot(LV.rot);
-      w.eval(`STAR_GAP = ${LV.starGap}; rebuildBands(); rebuildFloor();`);   // 등 표면·바닥 투영 둘 다 같은 창 크기로
+      w.eval(`STAR_GAP = ${LV.starGap}; STAR_YSHIFT = ${LV.starShift}; LIGHT_Y = ${LV.lightY}; rebuildBands(); rebuildFloor();`);   // 등 표면·바닥 투영 둘 다 같은 창 크기로
       const g = w.eval('({S, OY, ct, st, CX, W, H, YC, Y_FLOOR, R, LIGHT_Y, RAILS, BAND_LO, rIn: FLOOR_HOLES.rIn, rOut: FLOOR_HOLES.rOut})');
-      const holes = JSON.parse(w.eval('JSON.stringify(FLOOR_HOLES.map(h => ({ pts: h.pts, I: h.I })))'));
+      const holes = lvStarHoles(g, JSON.parse(w.eval('JSON.stringify(BANDS[1].holes.map(h => ({ th: h.th, pts: h.pts })))')));
       const motifs = JSON.parse(w.eval('JSON.stringify(MOTIFS.map(m => ({ th: m.th, layers: m.layers })))'));
       const mcol = JSON.parse(w.eval('JSON.stringify(MOTIF_COL)'));
       // 등 몸통: 바닥 빛(타원·별·무늬)·후광 사각형은 빼고 무늬 아래(under)·위(over) 두 장. 크게 그려도 선명하게 SVG 크기를 키워 굽는다
@@ -642,6 +654,24 @@ function lvMotifs(V, motifs) {
     if (n) V.floorMot.push({ layers, I: Math.min(1, Math.pow(irr(sum / n) / e0, 0.3)) });
   }
 }
+// 아래 띠 투각 → 바닥 별 고리 (θ, ρ) 다각형. 등각 사상이라 별 모양이 눌리지 않는다 (LV.starM 설명)
+function lvStarHoles(g, raw) {
+  const R = g.R, s = 14 / LV.starM, per = 2 * (2 * Math.PI / 14);   // 별무늬 θ 주기 = 두 열
+  const hi = Math.min(LV.starY0, g.BAND_LO[1]), lo = Math.max(g.BAND_LO[0], LV.starY0 - R * Math.log(LV.starOut / LV.starIn) / s);
+  const rho = y => LV.starIn * R * Math.exp(s * (LV.starY0 - y) / R);
+  const arc = P => { const o = []; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length], n = Math.max(2, Math.ceil(Math.abs(b[0] - a[0]) / 0.004)); for (let t = 0; t < n; t++) o.push([a[0] + (b[0] - a[0]) * t / n, a[1] + (b[1] - a[1]) * t / n]); } return o; };
+  const one = [];   // 한 주기분
+  for (const h of raw) {
+    if (h.th < 0 || h.th >= per) continue;
+    const P = clipYPoly(h.pts, lo, hi); if (!P) continue;
+    const q = arc(P).map(([th, y]) => [th * s, rho(y)]);
+    const rc = q.reduce((a, p) => a + p[1], 0) / q.length;
+    one.push({ pts: q, I: Math.pow(LV.starIn * R / rc, 0.6) });
+  }
+  const out = [];
+  for (let k = 0; k < LV.starM / 2; k++) for (const h of one) out.push({ I: h.I, pts: h.pts.map(([th, r]) => [th + k * per * s, r]) });
+  return out;
+}
 // 바닥: 나무 마루(albedo) × (어둠 + 등 주변 빛 + 종이창 바탕빛 + 육각별) → 정적인 한 장. 도는 종이창 무늬만 매 프레임 따로
 function lvFloor(V, holes) {
   const { g } = V, st = g.st, k = LV.k;
@@ -665,6 +695,7 @@ function lvFloor(V, holes) {
   // 육각별 (띠는 고정 → 한 번만)
   const [sm, sg] = mkLayer();
   fx(sg);
+  sg.save(); sg.beginPath(); sg.arc(0, 0, LV.starOut * g.R, 0, Math.PI * 2); sg.arc(0, 0, LV.starIn * g.R, 0, Math.PI * 2, true); sg.clip();   // 고리만
   for (const hl of holes) {
     sg.beginPath();
     hl.pts.forEach(([th, r], i) => { const a = th + LV.rot, x = r * Math.sin(a), z = r * Math.cos(a); i ? sg.lineTo(x, z) : sg.moveTo(x, z); });
@@ -677,7 +708,8 @@ function lvFloor(V, holes) {
   const [lm, lg] = mkLayer();
   lg.fillStyle = LV.amb; lg.fillRect(0, 0, W, H);
   fx(lg); lg.globalCompositeOperation = 'lighter';
-  const rO = g.rOut || g.rIn * 1.8;
+  sg.restore();
+  const rO = Math.min(g.rOut || g.rIn * 1.8, LV.starOut * g.R);
   const radF = (r, stops) => { lg.fillStyle = (() => { const q = lg.createRadialGradient(0, 0, 0, 0, 0, r); stops.forEach(([o, c]) => q.addColorStop(o, c)); return q; })(); lg.fillRect(-r, -r, 2 * r, 2 * r); };
   radF(rO * 2.2, [[0, `rgba(255,140,60,${LV.glow})`], [0.45, `rgba(255,120,45,${LV.glow * 0.35})`], [1, 'rgba(255,110,40,0)']]);
   // 종이창 바탕빛: 아래 띠 윗변의 투영(rOut)부터 바깥으로, 멀수록 옅게. 경계는 부드럽게
@@ -688,9 +720,9 @@ function lvFloor(V, holes) {
   if (CAN_FILTER) lg.filter = `blur(${(LV.penumbra * dpr).toFixed(1)}px)`;   // 등불 크기만큼의 반그림자
   lg.drawImage(sm, 0, 0); lg.filter = 'none';
   lg.globalCompositeOperation = 'multiply'; lg.drawImage(alb, 0, 0);
-  // 밝은 별무늬는 살짝 넘치게(노출) + 번짐
+  // 별무늬 넘침(노출) + 번짐
   lg.globalCompositeOperation = 'lighter';
-  lg.globalAlpha = 0.25; lg.drawImage(sm, 0, 0);
+  lg.globalAlpha = LV.starOver; lg.drawImage(sm, 0, 0);
   if (CAN_FILTER) { lg.filter = `blur(${(9 * dpr).toFixed(1)}px)`; lg.globalAlpha = LV.starBloom; lg.drawImage(sm, 0, 0); lg.filter = 'none'; }
   lg.globalAlpha = 1; lg.globalCompositeOperation = 'source-over';
   V.floor = lm;
