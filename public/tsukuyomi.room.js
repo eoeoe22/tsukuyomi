@@ -577,7 +577,8 @@ const LV = {
   starShift: 7,                // 별무늬 세로 위상(px): 띠 아래 가장자리가 별 중심을 지나면 바닥 안쪽 경계가 톱니처럼 각진다 → 마름모를 가로지르게
   // 바닥 별 고리: 점광원 식 ρ = R·h/(y−광원)은 별이 반지름 방향으로 0.4~0.6배 눌려(화면 세로 압축과 겹치면 납작)
   // 참고 이미지와 다르다 → 원통→바닥 등각 사상 ρ = starIn·R·exp((띠 아랫변 − y)/R)로 별 모양을 그대로 둔다(밖/안 = e^(띠 높이/R))
-  starIn: 1.1,
+  // starIn: 안쪽 반지름(×R). 받침(모서리 1.34R) 둘레에 빈 그늘이 남게 넉넉히. starOut: 바깥을 잘라 고리가 너무 커지지 않게
+  starIn: 1.6, starOut: 3.3,
   lightY: 150,                 // 등불 높이(이미지 px, 컴포넌트 기본 175). 별 고리 안·밖 반지름 ≈ 1.75R·2.85R (참고 이미지)
   penumbra: 0.6,               // 별무늬 가장자리 반그림자(px). 참고 이미지는 가장자리가 또렷하다
   glow: 0.14,                  // 등 바로 둘레 바닥빛
@@ -671,6 +672,7 @@ function lvFloor(V, holes) {
   // 육각별 (띠는 고정 → 한 번만)
   const [sm, sg] = mkLayer();
   fx(sg);
+  sg.save(); sg.beginPath(); sg.arc(0, 0, LV.starOut * g.R, 0, Math.PI * 2); sg.clip();
   for (const hl of holes) {
     sg.beginPath();
     hl.pts.forEach(([th, r], i) => { const a = th + LV.rot, x = r * Math.sin(a), z = r * Math.cos(a); i ? sg.lineTo(x, z) : sg.moveTo(x, z); });
@@ -683,7 +685,8 @@ function lvFloor(V, holes) {
   const [lm, lg] = mkLayer();
   lg.fillStyle = LV.amb; lg.fillRect(0, 0, W, H);
   fx(lg); lg.globalCompositeOperation = 'lighter';
-  const rO = g.rOut || g.rIn * 1.8;
+  sg.restore();
+  const rO = Math.min(g.rOut || g.rIn * 1.8, LV.starOut * g.R);
   const radF = (r, stops) => { lg.fillStyle = (() => { const q = lg.createRadialGradient(0, 0, 0, 0, 0, r); stops.forEach(([o, c]) => q.addColorStop(o, c)); return q; })(); lg.fillRect(-r, -r, 2 * r, 2 * r); };
   radF(rO * 2.2, [[0, `rgba(255,140,60,${LV.glow})`], [0.45, `rgba(255,120,45,${LV.glow * 0.35})`], [1, 'rgba(255,110,40,0)']]);
   // 종이창 바탕빛: 아래 띠 윗변의 투영(rOut)부터 바깥으로, 멀수록 옅게. 경계는 부드럽게
