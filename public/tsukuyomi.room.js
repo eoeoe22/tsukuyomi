@@ -572,7 +572,7 @@ const LV = {
   plank: 40, plankRot: -0.55,  // 마루 판 너비(이미지 px)·방향(rad)
   wood: [[100, 64, 44], [134, 88, 62]],   // 마루 판 색 범위(albedo). 채도를 낮춰 그늘이 주황으로 뜨지 않게
   amb: 'rgb(8,7,7)',           // 바닥 바탕빛(어둠). 참고 이미지의 그늘은 주황기 없이 거의 무채색
-  star: 1.0, starBloom: 0.25,  // 육각별 빛 세기 / 번짐
+  star: 0.45, starOver: 0, starBloom: 0.08,  // 육각별 빛 세기 / 넘침(노출) / 번짐. 바깥 종이창 무늬(lit 0.42)와 같은 밝기로
   starGap: 0.2,                // 마름모 창 사이 나무살 비율(컴포넌트 기본 0.08). 참고 이미지처럼 창끼리 떨어져 바람개비 모양으로
   starShift: 7,                // 별무늬 세로 위상(px): 띠 아래 가장자리가 별 중심을 지나면 바닥 안쪽 경계가 톱니처럼 각진다 → 마름모를 가로지르게
   // 바닥 별 고리: 점광원 식 ρ = R·h/(y−광원)은 별이 반지름 방향으로 0.4~0.6배 눌려(화면 세로 압축과 겹치면 납작)
@@ -720,9 +720,9 @@ function lvFloor(V, holes) {
   if (CAN_FILTER) lg.filter = `blur(${(LV.penumbra * dpr).toFixed(1)}px)`;   // 등불 크기만큼의 반그림자
   lg.drawImage(sm, 0, 0); lg.filter = 'none';
   lg.globalCompositeOperation = 'multiply'; lg.drawImage(alb, 0, 0);
-  // 밝은 별무늬는 살짝 넘치게(노출) + 번짐
+  // 별무늬 넘침(노출) + 번짐
   lg.globalCompositeOperation = 'lighter';
-  lg.globalAlpha = 0.25; lg.drawImage(sm, 0, 0);
+  lg.globalAlpha = LV.starOver; lg.drawImage(sm, 0, 0);
   if (CAN_FILTER) { lg.filter = `blur(${(9 * dpr).toFixed(1)}px)`; lg.globalAlpha = LV.starBloom; lg.drawImage(sm, 0, 0); lg.filter = 'none'; }
   lg.globalAlpha = 1; lg.globalCompositeOperation = 'source-over';
   V.floor = lm;
