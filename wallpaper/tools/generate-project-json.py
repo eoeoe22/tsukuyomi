@@ -8,19 +8,19 @@
                                      FISH_GROUPS / FISH_COLORS (물고기 패널 스키마)
 
 쓰기:
-  - wallpaper/project.json        -> WE 사용자 속성 (기본 7종 + 그룹 12종 + CFG 전체 위임)
+  - wallpaper/project.json        -> WE 사용자 속성 (기본 8종 + 그룹 12종 + CFG 전체 위임)
   - wallpaper/tools/rebuild-map.json -> wallpaper.js와 GROUPS rebuild 대조용
 
 키 규칙 (WE의 표시 순서와 무관하게 카테고리가 뭉치도록):
   - 모든 키에 문자+2자리 순서 접두사. 알파벳순 렌더·파일순 렌더·order 렌더 모두에서 동일 배치.
   - WE 조건식은 식별자 형태(문자 시작)의 키만 해석하므로 숫자로 시작 금지.
-  - 기본: a00_scene, a01_intro, a01_fish(밤 계열 노출 콤보), a01_daystars, a01_daytone, a01_daydark,
-    a01_roomfront(야치요의 방 선택 시 노출 병풍 정면 뷰),
+  - 기본: a00_scene, a01_intro, a01_fish(밤 계열 노출 콤보), a01_lanternmove(月 노출 토글), a01_daystars, a01_daytone, a01_daydark,
+    a01_roomview(야치요의 방 선택 시 노출 시점 드롭다운: 방/병풍/랜턴),
     a02_show_advanced, a03_snapshot_json (그룹에 속하지 않음. intro/fish는 밤/미러볼,
-    daystars/daytone/daydark는 공백 선택 시, roomfront는 방 선택 시 노출)
-  - 그룹 헤더: a04 ~ a15 (값 없음, type=group, 그 뒤 속성이 소속)
+    daystars/daytone/daydark는 공백 선택 시, roomview는 방 선택 시 노출)
+  - 그룹 헤더: a04 ~ a16 (값 없음, type=group, 그 뒤 속성이 소속)
   - 멤버: <헤더코드>_<CFG키> (예: a04_T_NIGHT)
-  - 물고기 그룹: a16 헤더 + a16_fish_<FISH키> (토리이 반사광 켜기 tlOn 체크가 맨 앞, 색은 color)
+  - 물고기 그룹: aNN 헤더 + aNN_fish_<FISH키> (토리이 반사광 켜기 tlOn 체크가 맨 앞, 색은 color)
 
 실행: python wallpaper/tools/generate-project-json.py
 """
@@ -198,6 +198,14 @@ def main() -> None:
         ],
         "condition": "a00_scene.value == 3 || a00_scene.value == 4",
     })
+    # 月 랜턴 움직임: 月 선택 시 노출되는 일반 옵션 토글 (고급과 무관).
+    # 月에서만 그려지고 다른 장면에서는 값을 유지한 채 효과가 없다 (웹 하단 btnLanternMove와 동일, 기본 꺼짐).
+    add("a01_lanternmove", {
+        "text": "랜턴 움직임",
+        "type": "bool",
+        "value": False,
+        "condition": "a00_scene.value == 1 || a00_scene.value == 2 || a00_scene.value == 3 || a00_scene.value == 4",
+    })
     # 공백 장면 토글 3종: 그룹 미소속(고급 표시와 무관). 공백 선택 시에만 노출된다.
     # 공백 장면에서만 그려지고 다른 장면에서는 값을 유지한 채 효과가 없다 (웹 하단 btnStars/바다 색감/btnDark와 동일).
     # 색조·밤은 웹과 같이 둘 중 하나만 고른다 (둘 다 켜면 밤이 우선).
@@ -219,12 +227,18 @@ def main() -> None:
         "value": False,
         "condition": "a00_scene.value == 1",
     })
-    # 八 하위장면: 야치요의 방 선택 시 노출되는 일반 옵션 (고급과 무관).
-    # 방 장면에서만 그려지고 다른 장면에서는 값을 유지한 채 효과가 없다 (웹 #btnRoomFront와 동일).
-    add("a01_roomfront", {
-        "text": "병풍 정면 뷰",
-        "type": "bool",
-        "value": False,
+    # 八 시점: 야치요의 방 선택 시 노출되는 일반 옵션 드롭다운 (고급과 무관).
+    # 방 장면에서만 적용되고 다른 장면에서는 값을 유지한 채 효과가 없다 (웹 #roomGroup 3버튼과 동일).
+    # 구 a01_roomfront 불리언(true=병풍)도 wallpaper.js가 계속 받는다.
+    add("a01_roomview", {
+        "text": "방 시점",
+        "type": "combo",
+        "value": 0,
+        "options": [
+            {"label": "방", "value": 0},
+            {"label": "병풍", "value": 1},
+            {"label": "랜턴", "value": 2},
+        ],
         "condition": "a00_scene.value == 8",
     })
     add("a02_show_advanced", {
@@ -291,7 +305,7 @@ def main() -> None:
         add(prop_key, base)
 
     # 물고기 (토리이 수면 상승) 그룹: 코드 a16. CFG가 아니라 코어 FISH 객체(__TSUKUYOMI__.fish)에 위임한다.
-    # 토리이 반사광 켜기(tlOn) 체크를 맨 앞에 둔다. 멤버 키는 a16_fish_<FISH키>.
+    # 토리이 반사광 켜기(tlOn) 체크를 맨 앞에 둔다. 멤버 키는 aNN_fish_<FISH키>.
     fish = parse_fish(VENDOR_JS)
     checks, sliders, colors = parse_fish_groups(DEBUG_JS)
     fcode = f"a{4 + len(group_codes):02d}"
@@ -330,7 +344,7 @@ def main() -> None:
         # thumbnail.png 등 별도명은 무시되므로 반드시 preview.jpg를 지정한다.
         "preview": "preview.jpg",
         "title": "Tsukuyomi 月",
-        "description": "산·산(노을)·츠쿠요미 바다·황혼·밤·미러볼·지구·야치요의 방·뉴스 츠쿠요미를 고르는 고요한 토리이 장면. 산 계열은 산정 토리이 세계로, 지구·야치요의 방·뉴스 츠쿠요미는 각 세계로 페이드 전환된다. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출과 물고기 군집을 고를 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 공백 장면의 별 궤적·파스텔 색조·공백 밤 토글은 츠쿠요미 바다 선택 시 보이며(고급과 무관), 츠쿠요미 바다에서만 적용된다. 야치요의 방 선택 시 병풍 정면 뷰 토글이 보이며(고급과 무관), 방 장면에서만 적용된다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터(물고기 토리이 수면 상승·토리이 반사광 포함)를 그대로 조절할 수 있다.",
+        "description": "산·산(노을)·츠쿠요미 바다·황혼·밤·미러볼·지구·야치요의 방·뉴스 츠쿠요미를 고르는 고요한 토리이 장면. 산 계열은 산정 토리이 세계로, 지구·야치요의 방·뉴스 츠쿠요미는 각 세계로 페이드 전환된다. 하단 시간대 UI는 숨김, 장면은 이 옵션에서 선택. 밤 계열 선택 시 초기 연출과 물고기 군집을 고를 수 있다 (밤: 황혼→밤 / 미러볼: 그 이후 미러볼 전환까지). 月 선택 시 랜턴 움직임을 켜고 끌 수 있다. 공백 장면의 별 궤적·파스텔 색조·공백 밤 토글은 츠쿠요미 바다 선택 시 보이며(고급과 무관), 츠쿠요미 바다에서만 적용된다. 야치요의 방 선택 시 방 시점 드롭다운(방/병풍/랜턴)이 보이며(고급과 무관), 방 장면에서만 적용된다. 고급 옵션을 켜면 웹 디버그 패널의 파라미터(물고기 토리이 수면 상승·토리이 반사광 포함)를 그대로 조절할 수 있다.",
         "type": "web",
         "general": {"properties": props},
     }

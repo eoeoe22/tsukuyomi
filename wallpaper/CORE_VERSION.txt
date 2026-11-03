@@ -1,5 +1,5 @@
-40844aa0b23a98de0025d855de2861946715338a (八 병풍 정면 뷰·WebGL 빛무늬·P1 최적화·지구 허브 카메라까지, 2026-10-30 기준)
-2026-10-30
+70070230a9d592b35718e650a4c1b20407544831 (장면 전체 재동결: 月 랜턴 움직임·八 시점 드롭다운(방/병풍/랜턴)까지, 2026-11-03 기준)
+2026-11-03
 frozen source: public/tsukuyomi.js, public/tsukuyomi.css,
   public/cloud-live.js, public/cloud-overlay.js, public/tsukuyomi.mount.js,
   public/tsukuyomi.earth.js, public/tsukuyomi.room.js, public/tsukuyomi.news.js,

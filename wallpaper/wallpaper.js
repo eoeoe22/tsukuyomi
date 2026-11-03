@@ -8,8 +8,8 @@
  *  - 月 바깥(山·地·八·犬)은 각 엔진(vendor/tsukuyomi.{mount,earth,room,news}.js, 처음 필요할 때 로드)으로
  *    단순 페이드 전환한다 (웹 tsukuyomi.worlds.js와 같은 방식). 月 바깥에 있는 동안 月 루프는 멈춘다.
  *    八은 components/(랜턴 iframe 2종 + yachiroom.umd.js)를 쓴다.
- *  - 물고기 (토리이 수면 상승) 고급 그룹 `a16_fish_*` -> __TSUKUYOMI__.fish 위임
- *    (토리이 반사광 켜기 `a16_fish_tlOn` 체크 포함, 웹 디버그 패널 물고기 섹션과 동일)
+ *  - 물고기 (토리이 수면 상승) 고급 그룹 `aNN_fish_*` -> __TSUKUYOMI__.fish 위임
+ *    (토리이 반사광 켜기 `aNN_fish_tlOn` 체크 포함, 웹 디버그 패널 물고기 섹션과 동일)
  *  - 디버그 패널 미포함 -> WE 고급 옵션(12개 그룹 + `aNN_*` 슬라이더/체크)이
  *    window.__TSUKUYOMI__ 브릿지로 위임
  *  - 공백 장면 토글 3종은 일반 옵션으로 공백 선택 시 노출 (고급 표시와 무관):
@@ -17,8 +17,12 @@
  *    `a01_daydark` (공백 밤, 웹 btnDark와 동일).
  *    셋 다 공백 장면에서만 그려지고, 다른 장면에서는 값을 유지한 채 효과가 없다 (웹과 동일).
  *    색조·밤은 웹과 같이 둘 중 하나만 고른다 (둘 다 켜면 밤이 우선).
- *  - 八 하위장면 1종은 일반 옵션으로 야치요의 방 선택 시 노출 (고급 표시와 무관):
- *    `a01_roomfront` (병풍 정면 뷰, 웹 #btnRoomFront와 동일. 켜면 병풍 정면, 끄면 본 장면).
+ *  - 月 랜턴 움직임 1종은 일반 옵션으로 月(츠쿠요미 바다·황혼·밤·미러볼) 선택 시 노출 (고급 표시와 무관):
+ *    `a01_lanternmove` (웹 #btnLanternMove와 동일, 기본 꺼짐).
+ *    月에서만 그려지고, 다른 장면에서는 값을 유지한 채 효과가 없다.
+ *  - 八 시점 1종은 일반 옵션으로 야치요의 방 선택 시 노출되는 드롭다운 (고급 표시와 무관):
+ *    `a01_roomview` (방 0 / 병풍 1 / 랜턴 2, 웹 #roomGroup 3버튼과 동일, 기본 방).
+ *    구 `a01_roomfront` 불리언(true=병풍)도 계속 받는다.
  *    방 장면에서만 적용되고, 다른 장면에서는 값을 유지한 채 효과가 없다.
  *  - 밤 계열 2종은 일반 옵션으로 밤/미러볼 선택 시 노출 (고급 표시와 무관):
  *    `a01_intro` (초기 연출 켜고 끄기, 기본값 켜짐),
@@ -74,24 +78,28 @@
     const isOuterScene = s => isMountScene(s) || s === 'earth' || s === 'room' || s === 'news';
     const isMoonScene = s => !isOuterScene(s);
     // project.json 키 규칙 (tools/generate-project-json.py):
-    //   a00_scene, a01_intro, a01_fish(밤 계열 노출 콤보), a01_daystars, a01_daytone, a01_daydark,
-    //   a02_show_advanced, a03_snapshot_json (그룹 미소속, 고급 토글과 무관(공백 선택 시 노출))
+    //   a00_scene, a01_intro, a01_fish(밤 계열 노출 콤보), a01_lanternmove(月 노출 토글),
+    //   a01_daystars, a01_daytone, a01_daydark, a01_roomview(방 선택 시 노출 시점 드롭다운),
+    //   a02_show_advanced, a03_snapshot_json (그룹 미소속, 고급 토글과 무관(장면별 노출))
     //   a04~a15 그룹 헤더(type=group, 값 없음), 멤버 aNN_<CFG키> (예: a04_T_NIGHT)
     // 키는 반드시 식별자 형태(문자 시작) — WE 조건식이 숫자 시작 키를 해석하지 못한다.
     // 구 규칙(scene/intro/fish/cfg_<CFG키>/snapshot_json, 00_scene 등 숫자 시작)도 계속 받는다.
+    // 구 a01_roomfront 불리언(true=병풍)도 계속 받는다.
     const KEY_SCENE = 'a00_scene';
     const KEY_INTRO = 'a01_intro';
     const KEY_FISH = 'a01_fish';
+    const KEY_LANTERNMOVE = 'a01_lanternmove';
     const KEY_DAYSTARS = 'a01_daystars';
     const KEY_DAYTONE = 'a01_daytone';
     const KEY_DAYDARK = 'a01_daydark';
+    const KEY_ROOMVIEW = 'a01_roomview';
     const KEY_ROOMFRONT = 'a01_roomfront';
     const KEY_SNAPSHOT = 'a03_snapshot_json';
     const MEMBER_RE = /^(?:[A-Za-z]\d\d_|\d\d_|cfg_)(.+)$/;
-    // 물고기 (토리이 수면 상승) 그룹 멤버: a16_fish_<FISH키> -> __TSUKUYOMI__.fish[FISH키]
+    // 물고기 (토리이 수면 상승) 그룹 멤버: aNN_fish_<FISH키> -> __TSUKUYOMI__.fish[FISH키]
     const FISH_RE = /^[A-Za-z]\d\d_fish_(.+)$/;
-    const GENERAL_SKIP = new Set([KEY_FISH, KEY_DAYSTARS, KEY_DAYTONE, KEY_DAYDARK, KEY_ROOMFRONT, 'fish', 'cursor', 'cursorMode', 'cursormode', 'daystars', 'daytone', 'daydark', 'roomfront', 'roomFront']);
-    const desired = { scene: 'night', intro: true, fish: 0, dayStars: false, dayTone: false, dayDark: false, roomFront: false };
+    const GENERAL_SKIP = new Set([KEY_FISH, KEY_LANTERNMOVE, KEY_DAYSTARS, KEY_DAYTONE, KEY_DAYDARK, KEY_ROOMVIEW, KEY_ROOMFRONT, 'fish', 'cursor', 'cursorMode', 'cursormode', 'lanternmove', 'lanternMove', 'daystars', 'daytone', 'daydark', 'roomview', 'roomView', 'roomfront', 'roomFront']);
+    const desired = { scene: 'night', intro: true, fish: 0, lanternMove: false, dayStars: false, dayTone: false, dayDark: false, roomView: 'main' };
     const pendingCfg = new Map(); // CFG키 -> 마지막 값 (브릿지 대기분)
     const pendingFish = new Map(); // FISH키 -> 마지막 값 (브릿지 대기분)
     let pendingSnapshot = null;   // snapshot_json 원문 (브릿지 대기분)
@@ -220,13 +228,40 @@
     const loadRoom = () => loadEngine('TsukuyomiRoom', 'vendor/tsukuyomi.room.js');
     const loadNews = () => loadEngine('TsukuyomiNews', 'vendor/tsukuyomi.news.js');
     const outerLoaders = { mount: loadMount, earth: loadEarth, room: loadRoom, news: loadNews };
-    // 八 하위장면(병풍 정면 뷰): R.setView('front'/'main', true).
-    // 정면 뷰는 등 로드(ready)가 끝나야 열리므로, 아직이면 짧게 재시도한다 (웹 #btnRoomFront와 동일 조건).
+    // 八 시점(방/병풍/랜턴): R.setView('main'/'front'/'lantern', true).
+    // 병풍 뷰는 등 로드(ready)가 끝나야 열리므로, 아직이면 짧게 재시도한다.
+    // 랜턴 뷰는 컴포넌트를 불러와 굽기가 끝나면 방 엔진이 알아서 넘어가므로(wantView) 재시도하지 않는다.
+    const ROOM_VIEWS = ['main', 'front', 'lantern'];
+    function roomViewOf(v) {
+        // WE 콤보값 0/1/2, 웹 data-view 값(main/front/lantern), 한글 라벨(방/병풍/랜턴),
+        // 구 a01_roomfront 불리언(true=병풍)도 받는다.
+        if (v === 0 || v === '0' || v === 'main') return 'main';
+        if (v === 1 || v === '1' || v === 'front') return 'front';
+        if (v === 2 || v === '2' || v === 'lantern') return 'lantern';
+        if (typeof v === 'boolean') return v ? 'front' : 'main';
+        if (typeof v === 'string') {
+            const s = v.trim().toLowerCase();
+            if (s === '방' || s === 'main' || s === 'room') return 'main';
+            if (s === '병풍' || s === 'front' || s === 'byobu' || s === 'roomfront' || s === 'room_front') return 'front';
+            if (s === '랜턴' || s === 'lantern') return 'lantern';
+            const n = Number(s);
+            if (n === 0) return 'main';
+            if (n === 1) return 'front';
+            if (n === 2) return 'lantern';
+        }
+        if (typeof v === 'number' && isFinite(v)) {
+            const n = Math.round(v);
+            if (n === 0) return 'main';
+            if (n === 1) return 'front';
+            if (n === 2) return 'lantern';
+        }
+        return null;
+    }
     let roomViewTimer = 0;
     function applyRoomView(E) {
         clearTimeout(roomViewTimer);
         roomViewTimer = 0;
-        const want = desired.roomFront ? 'front' : 'main';
+        const want = ROOM_VIEWS.includes(desired.roomView) ? desired.roomView : 'main';
         let n = 0;
         const tryOnce = () => {
             roomViewTimer = 0;
@@ -489,6 +524,11 @@
             if ('cursorMode' in b) b.cursorMode = desired.fish;
             else if (b.actions && typeof b.actions.cursorPlace === 'function') b.actions.cursorPlace(desired.fish);
         } catch (e) { /* 브릿지 경합 시 현상 유지 */ }
+        // 랜턴 움직임은 CFG가 아니라 코어 상태(lanMove)다. 月에서만 그려진다.
+        // 세터가 없으면(구 코어) 무시.
+        try {
+            if ('lanternMove' in b) b.lanternMove = desired.lanternMove;
+        } catch (e) { /* 브릿지 경합 시 현상 유지 */ }
         applyLanternAvoid(b);
         // 月 바깥에서 月로 돌아올 때는 月가 화면 밖이었으므로 첫 진입과 같이 처리한다
         // (공백·황혼은 즉시 idle, 밤 계열은 인트로 설정을 따름).
@@ -502,7 +542,7 @@
         const sc = properties[KEY_SCENE] || properties.scene;
         if (sc && sc.value !== undefined) {
             const raw = String(sc.value).trim().toLowerCase();
-            if (ROOMFRONT_ALIAS.has(raw)) { desired.scene = 'room'; desired.roomFront = true; }
+            if (ROOMFRONT_ALIAS.has(raw)) { desired.scene = 'room'; desired.roomView = 'front'; }
             else {
                 const s = sceneOf(sc.value);
                 if (s) desired.scene = s;
@@ -517,6 +557,10 @@
             const f = fishOf(fh.value);
             if (f !== null) desired.fish = f;
         }
+        const lm = properties[KEY_LANTERNMOVE] || properties.lanternmove || properties.lanternMove;
+        if (lm && lm.value !== undefined) {
+            desired.lanternMove = !!lm.value;
+        }
         const st = properties[KEY_DAYSTARS] || properties.daystars;
         if (st && st.value !== undefined) {
             desired.dayStars = !!st.value;
@@ -529,9 +573,18 @@
         if (tn && tn.value !== undefined) {
             desired.dayTone = !!tn.value;
         }
+        const rv = properties[KEY_ROOMVIEW] || properties.roomview || properties.roomView;
+        if (rv && rv.value !== undefined && rv.value !== '') {
+            const v = roomViewOf(rv.value);
+            if (v !== null) desired.roomView = v;
+        }
         const rf = properties[KEY_ROOMFRONT] || properties.roomfront || properties.roomFront;
         if (rf && rf.value !== undefined && rf.value !== '') {
-            desired.roomFront = !!rf.value;
+            // 구 불리언(신규 드롭다운이 없을 때만): true=병풍, false=방
+            if (!rv || rv.value === undefined || rv.value === '') {
+                const v = roomViewOf(rf.value);
+                if (v !== null) desired.roomView = v;
+            }
         }
         for (const name of Object.keys(properties)) {
             if (GENERAL_SKIP.has(name)) continue;
@@ -580,15 +633,15 @@
         }, 50);
     }
 
-    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=mount|mount-sunset|earth|room|room-front|news|day|dusk|night|mirror(또는 1~9)&intro=0&fish=0/1/2&stars=1&tone=1&dark=1&roomfront=1
-    // 예: wallpaper.html?scene=earth , wallpaper.html?scene=room , wallpaper.html?scene=room-front , wallpaper.html?scene=room&roomfront=1
+    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=mount|mount-sunset|earth|room|room-front|news|day|dusk|night|mirror(또는 1~9)&intro=0&fish=0/1/2&lanternmove=1&stars=1&tone=1&dark=1&roomview=front
+    // 예: wallpaper.html?scene=earth , wallpaper.html?scene=room , wallpaper.html?scene=room-front , wallpaper.html?scene=room&roomview=lantern
     // 예: wallpaper.html?scene=earth , wallpaper.html?scene=room , wallpaper.html?scene=news
     // 예: wallpaper.html?scene=day&stars=1 , wallpaper.html?scene=day&tone=1 , wallpaper.html?scene=day&dark=1 , wallpaper.html?scene=night&intro=0 , wallpaper.html?scene=night&fish=1 , wallpaper.html?scene=mirror&fish=2
     function applyQueryOverride() {
         try {
             const q = new URLSearchParams(location.search);
             const rawScene = (q.get('scene') || '').trim().toLowerCase();
-            if (ROOMFRONT_ALIAS.has(rawScene)) { desired.scene = 'room'; desired.roomFront = true; }
+            if (ROOMFRONT_ALIAS.has(rawScene)) { desired.scene = 'room'; desired.roomView = 'front'; }
             else {
                 const s = sceneOf(q.get('scene') || '');
                 if (s) desired.scene = s;
@@ -607,12 +660,17 @@
             const dark = q.get('dark');
             if (dark === '0' || dark === 'false' || dark === 'off') desired.dayDark = false;
             if (dark === '1' || dark === 'true' || dark === 'on') desired.dayDark = true;
+            const lan = q.get('lanternmove') ?? q.get('lanternMove');
+            if (lan === '0' || lan === 'false' || lan === 'off') desired.lanternMove = false;
+            if (lan === '1' || lan === 'true' || lan === 'on') desired.lanternMove = true;
             const tone = q.get('tone') ?? q.get('daytone');
             if (tone === '0' || tone === 'false' || tone === 'off') desired.dayTone = false;
             if (tone === '1' || tone === 'true' || tone === 'on') desired.dayTone = true;
-            const rfq = q.get('roomfront') ?? q.get('roomFront');
-            if (rfq === '0' || rfq === 'false' || rfq === 'off') desired.roomFront = false;
-            if (rfq === '1' || rfq === 'true' || rfq === 'on') desired.roomFront = true;
+            const rvq = q.get('roomview') ?? q.get('roomView') ?? q.get('roomfront') ?? q.get('roomFront');
+            if (rvq !== null && rvq !== undefined) {
+                const v = roomViewOf(rvq);
+                if (v !== null) desired.roomView = v;
+            }
         } catch (e) { /* file:// 등 파서 미지원 시 무시 */ }
     }
 
@@ -628,10 +686,12 @@
         get scene() { return desired.scene; },
         get intro() { return desired.intro; },
         get fish() { return desired.fish; },
+        get lanternMove() { return desired.lanternMove; },
         get dayStars() { return desired.dayStars; },
         get dayTone() { return desired.dayTone; },
         get dayDark() { return desired.dayDark; },
-        get roomFront() { return desired.roomFront; },
+        get roomView() { return desired.roomView; },
+        get roomFront() { return desired.roomView === 'front'; },
         get fps() { return weFps; },
         get ready() { return !!bridge(); },
         get world() { return world; },

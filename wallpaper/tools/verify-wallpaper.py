@@ -4,7 +4,7 @@
 검사:
   1. vendor/components 동결본 == public 현행본 (sha256, 코어 11종 + 컴포넌트 4종)
      + newstile 번들==dist, 웹 뉴스 장면 CDN(integrity)·로컬 폴백·구 코드 제거
-  2. project.json 유효성 (file/type/기본 9종/전 GROUPS 커버/기본값 일치/타입·조건)
+  2. project.json 유효성 (file/type/기본 10종/전 GROUPS 커버/기본값 일치/타입·조건)
   3. wallpaper.js 내 REBUILD 맵 == tools/rebuild-map.json (GROUPS rebuild와 1:1)
   4. wallpaper.html 참조 무결성 (vendor만 참조, public/debug/cloudedit/bootstrap 금지)
   5. wallpaper.css 숨김 규칙 존재
@@ -119,7 +119,7 @@ def main() -> int:
     except Exception as e:
         check("뉴스 CDN 확인", False, str(e))
 
-    # 1b. 코어 브릿지: 공백 토글·물고기 군집 세터가 있어야 WE 일반 옵션이 동작한다
+    # 1b. 코어 브릿지: 공백 토글·물고기 군집·랜턴 움직임 세터가 있어야 WE 일반 옵션이 동작한다
     try:
         vendor_js_text = (VENDOR / "tsukuyomi.js").read_text(encoding="utf-8")
         check("코어 dayStars 브릿지", "setDayStars(!!v)" in vendor_js_text, "bridge dayStars 세터 없음")
@@ -127,6 +127,7 @@ def main() -> int:
         check("코어 seaMode 브릿지", "get seaMode()" in vendor_js_text, "bridge seaMode 없음")
         check("코어 dayDark 브릿지", "setDayDark(!!v)" in vendor_js_text, "bridge dayDark 세터 없음")
         check("코어 cursorMode 브릿지", "setCursorMode(" in vendor_js_text, "bridge cursorMode 세터 없음")
+        check("코어 lanternMove 브릿지", "setLanternMove(" in vendor_js_text, "bridge lanternMove 세터 없음")
     except Exception as e:
         check("코어 브릿지 읽기", False, str(e))
 
@@ -143,8 +144,8 @@ def main() -> int:
         check("project.json file", pj.get("file") == "wallpaper.html", f"file={pj.get('file')}")
         check("project.json type", pj.get("type") == "web", f"type={pj.get('type')}")
         props = (pj.get("general") or {}).get("properties") or {}
-        for k in ("a00_scene", "a01_intro", "a01_fish", "a01_daystars", "a01_daytone", "a01_daydark",
-                  "a01_roomfront", "a02_show_advanced", "a03_snapshot_json"):
+        for k in ("a00_scene", "a01_intro", "a01_fish", "a01_lanternmove", "a01_daystars", "a01_daytone",
+                  "a01_daydark", "a01_roomview", "a02_show_advanced", "a03_snapshot_json"):
             check(f"project.json 기본 속성: {k}", k in props, "누락")
         sc = props.get("a00_scene", {})
         check("scene 콤보", sc.get("type") == "combo"
@@ -167,17 +168,28 @@ def main() -> int:
               f"labels={[o.get('label') for o in fh.get('options', [])]}")
         check("fish 조건(밤 계열만)", fh.get("condition") == "a00_scene.value == 3 || a00_scene.value == 4",
               "밤/미러볼 선택 시에만 표시")
+        lm = props.get("a01_lanternmove", {})
+        check("일반 토글 a01_lanternmove (bool 꺼짐)", lm.get("type") == "bool" and lm.get("value") is False,
+              f"{lm.get('type')}/{lm.get('value')}")
+        check("일반 토글 a01_lanternmove 조건(月 선택 시)",
+              lm.get("condition") == "a00_scene.value == 1 || a00_scene.value == 2 || a00_scene.value == 3 || a00_scene.value == 4",
+              f"condition={lm.get('condition')!r}")
         for k in ("a01_daystars", "a01_daytone", "a01_daydark"):
             p = props.get(k, {})
             check(f"일반 토글 {k} (bool 꺼짐)", p.get("type") == "bool" and p.get("value") is False,
                   f"{p.get('type')}/{p.get('value')}")
             check(f"일반 토글 {k} 조건(공백 선택 시)", p.get("condition") == "a00_scene.value == 1",
                   f"condition={p.get('condition')!r}")
-        rp = props.get("a01_roomfront", {})
-        check("일반 토글 a01_roomfront (bool 꺼짐)", rp.get("type") == "bool" and rp.get("value") is False,
-              f"{rp.get('type')}/{rp.get('value')}")
-        check("일반 토글 a01_roomfront 조건(야치요의 방 선택 시)", rp.get("condition") == "a00_scene.value == 8",
-              f"condition={rp.get('condition')!r}")
+        rv = props.get("a01_roomview", {})
+        check("일반 드롭다운 a01_roomview (콤보 방)",
+              rv.get("type") == "combo" and rv.get("value") == 0
+              and sorted(o.get("value") for o in rv.get("options", [])) == [0, 1, 2],
+              f"{rv.get('type')}/{rv.get('value')}")
+        check("일반 드롭다운 a01_roomview 문구(방/병풍/랜턴)",
+              [o.get("label") for o in rv.get("options", [])] == ["방", "병풍", "랜턴"],
+              f"labels={[o.get('label') for o in rv.get('options', [])]}")
+        check("일반 드롭다운 a01_roomview 조건(야치요의 방 선택 시)", rv.get("condition") == "a00_scene.value == 8",
+              f"condition={rv.get('condition')!r}")
         # WE Installed 탭 썸네일은 preview.jpg/gif 관례만 인식한다 (thumbnail.png 등 별도명 무시됨).
         pv = pj.get("preview")
         check("preview 관례명", isinstance(pv, str) and pv in ("preview.jpg", "preview.gif"),
@@ -208,7 +220,7 @@ def main() -> int:
                     "min": float(m.group(2)), "max": float(m.group(3)),
                     "step": m.group(4).strip(),
                 })
-        check("GROUPS 파싱", len(entries) > 100 and len(cat_order) == 12,
+        check("GROUPS 파싱", len(entries) > 100 and len(cat_order) == 13,
               f"{len(entries)}개/{len(cat_order)}종")
         # WE 조건식은 식별자 형태(문자 시작)의 키만 해석한다.
         # 숫자로 시작하는 키는 조건 평가가 실패해 속성이 영구히 숨겨진다 (회귀 방지).
@@ -217,15 +229,15 @@ def main() -> int:
         # 에디터 출력에는 "index"가 없다. 비표준 키가 있으면 WE가 파일을 거부할 수 있다 (회귀 방지).
         no_index = [k for k, p in props.items() if "index" in p]
         check("비표준 index 없음(에디터 출력과 동일)", not no_index, f"{no_index[:5]}")
-        # 그룹 헤더 13종: CFG 카테고리 a04~a15 + 물고기 a16, type=group, 조건은 고급 표시
+        # 그룹 헤더 14종: CFG 카테고리 a04~a16 + 물고기 a17, type=group, 조건은 고급 표시
         headers = [k for k, p in props.items() if p.get("type") == "group"]
-        check("그룹 헤더 13종", len(headers) == 13, f"{len(headers)}종")
-        if len(headers) == 13:
-            check("그룹 헤더 키 a04~a16", sorted(headers) == [f"a{i:02d}" for i in range(4, 17)],
+        check("그룹 헤더 14종", len(headers) == 14, f"{len(headers)}종")
+        if len(headers) == 14:
+            check("그룹 헤더 키 a04~a17", sorted(headers) == [f"a{i:02d}" for i in range(4, 18)],
                   f"{sorted(headers)[:4]}...")
             htxt = [props[k].get("text") for k in sorted(headers)]
-            check("그룹 헤더명==디버그 카테고리", htxt[:12] == cat_order, f"{htxt[:3]}...")
-            check("물고기 그룹 헤더", htxt[12] == "물고기 (토리이 수면 상승)", f"{htxt[12]!r}")
+            check("그룹 헤더명==디버그 카테고리", htxt[:13] == cat_order, f"{htxt[:3]}...")
+            check("물고기 그룹 헤더", htxt[13] == "물고기 (토리이 수면 상승)", f"{htxt[13]!r}")
         code_of = {t: f"a{4 + i:02d}" for i, t in enumerate(cat_order)}
         expected = {f"{code_of[e['title']]}_{e['key']}": e["title"] for e in entries}
         missing = [k for k in expected if k not in props]
@@ -290,16 +302,16 @@ def main() -> int:
         fish_sl = re.findall(r"\['([a-z][A-Za-z0-9]*)',\s*(-?[\d.]+),\s*(-?[\d.]+),\s*(-?[\d.]+)\]",
                              fg.group(1)) if fg else []
         fish_cols = re.findall(r"\['(c\d)',", dbg)
-        fish_keys = [k for k in props if k.startswith("a16_fish_")]
-        check("물고기 반사광 켜기 고급 체크", bool(fish_keys) and fish_keys[0] == "a16_fish_tlOn"
-              and props["a16_fish_tlOn"].get("type") == "bool"
-              and props["a16_fish_tlOn"].get("value") is (float(fish_def.get("tlOn", 0)) >= 0.5),
+        fish_keys = [k for k in props if k.startswith("a17_fish_")]
+        check("물고기 반사광 켜기 고급 체크", bool(fish_keys) and fish_keys[0] == "a17_fish_tlOn"
+              and props["a17_fish_tlOn"].get("type") == "bool"
+              and props["a17_fish_tlOn"].get("value") is (float(fish_def.get("tlOn", 0)) >= 0.5),
               f"first={fish_keys[:1]}")
-        miss_f = [k for k, *_ in fish_sl if f"a16_fish_{k}" not in props] +                  [k for k in fish_cols if f"a16_fish_{k}" not in props]
+        miss_f = [k for k, *_ in fish_sl if f"a17_fish_{k}" not in props] +                  [k for k in fish_cols if f"a17_fish_{k}" not in props]
         check("물고기 멤버 전수 커버", fish_sl and not miss_f, f"누락: {miss_f[:8]}")
         bad_f = []
         for k, mn, mx, st in fish_sl:
-            pp = props.get(f"a16_fish_{k}") or {}
+            pp = props.get(f"a17_fish_{k}") or {}
             exp = min(float(mx), max(float(mn), float(fish_def.get(k, "nan"))))
             try:
                 if abs(float(pp.get("value")) - exp) > 1e-9 or pp.get("type") != "slider"                         or float(pp.get("step")) <= 0 or not isinstance(pp.get("fraction"), bool):
@@ -307,7 +319,7 @@ def main() -> int:
             except (TypeError, ValueError):
                 bad_f.append(k)
         for k in fish_cols:
-            pp = props.get(f"a16_fish_{k}") or {}
+            pp = props.get(f"a17_fish_{k}") or {}
             hx = fish_def.get(k, "#000000")
             want = [int(hx[i:i + 2], 16) / 255 for i in (1, 3, 5)]
             try:
@@ -385,7 +397,7 @@ def main() -> int:
     check("wallpaper.js 산 엔진 로드", "vendor/tsukuyomi.mount.js" in wjs, "vendor 경로 누락")
     for mod in ("vendor/tsukuyomi.earth.js", "vendor/tsukuyomi.room.js", "vendor/tsukuyomi.news.js"):
         check(f"wallpaper.js 세계 엔진 로드: {mod}", mod in wjs, "vendor 경로 누락")
-    check("wallpaper.js 물고기 그룹 위임", "FISH_RE" in wjs and "b.fish" in wjs, "a16_fish_* 처리 없음")
+    check("wallpaper.js 물고기 그룹 위임", "FISH_RE" in wjs and "b.fish" in wjs, "a17_fish_* 처리 없음")
     for ref in ("vendor/tsukuyomi.js", "vendor/tsukuyomi.css",
                 "vendor/cloud-live.js", "vendor/cloud-overlay.js",
                 "wallpaper.js", "wallpaper.css"):
@@ -401,14 +413,20 @@ def main() -> int:
     # 4b. wallpaper.js 브릿지: 공백 토글·물고기 군집 키 + 코어 세터 위임이 있어야 한다
     check("wallpaper.js 공백 토글 키", "a01_daystars" in wjs and "a01_daytone" in wjs and "a01_daydark" in wjs,
           "a01_daystars/a01_daytone/a01_daydark 처리 없음")
-    check("wallpaper.js 병풍 하위장면 키", "a01_roomfront" in wjs and "roomFront" in wjs,
-          "a01_roomfront 처리 없음")
+    check("wallpaper.js 방 시점 키", "a01_roomview" in wjs and "roomView" in wjs,
+          "a01_roomview 처리 없음")
+    check("wallpaper.js 구 병풍 토글 호환", "a01_roomfront" in wjs,
+          "구 a01_roomfront 처리 없음")
     check("wallpaper.js 병풍 setView 위임", "setView" in wjs and "TsukuyomiRoom" in wjs,
           "room setView 위임 없음")
     check("wallpaper.js 코어 위임", "b.dayStars" in wjs and "b.dayTone" in wjs and "b.dayDark" in wjs,
           "bridge dayStars/dayTone/dayDark 위임 없음")
     check("wallpaper.js 물고기 군집 키", "a01_fish" in wjs,
           "a01_fish 처리 없음")
+    check("wallpaper.js 랜턴 움직임 키", "a01_lanternmove" in wjs,
+          "a01_lanternmove 처리 없음")
+    check("wallpaper.js 랜턴 코어 위임", "b.lanternMove" in wjs or "lanternMove" in wjs,
+          "bridge lanternMove 위임 없음")
     check("wallpaper.js 군집 코어 위임", "cursorMode" in wjs and "cursorPlace" in wjs,
           "bridge cursorMode/cursorPlace 위임 없음")
 
