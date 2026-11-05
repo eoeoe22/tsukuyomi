@@ -1,6 +1,7 @@
 /* 세계 전환: 月(수면 토리이: 황혼·밤·미러볼) · 海(공백) · 山(산정 토리이, tsukuyomi.mount.js) · 地(역광 지구, tsukuyomi.earth.js) · 八(야치요의 방, tsukuyomi.room.js) · 犬(뉴스 츠쿠요미, tsukuyomi.news.js).
  * 경로는 tsukuyomi.html 하나로 통합하고 해시로 연다(정적 호스팅이라 경로 리라이트 없이):
  *   없음 = 月, #sea = 海, #mount = 山, #earth = 地, #room = 八, #news = 犬.
+ *   #news/cup = 犬의 야치요컵 하위 장면(tsukuyomi.newscup.js, 준더미 보존). UI 없이 주소 직접 입력으로만 연다.
  * 月와 海는 같은 엔진(tsukuyomi.js)·캔버스를 쓴다. 둘 사이는 엔진의 장면 전환(공백 ↔ 황혼 스냅샷 크로스페이드 등)에
  * 맡기고 하단 패널만 바꾼다. 그 밖의 전환은 모두 단순 페이드.
  *
@@ -65,11 +66,12 @@
   const loadEarth = lazyScript('tsukuyomi.earth.js', 'TsukuyomiEarth');
   const loadRoom = lazyScript('tsukuyomi.room.js', 'TsukuyomiRoom');
   const loadNews = lazyScript('tsukuyomi.news.js', 'TsukuyomiNews');
+  const loadNewsCup = lazyScript('tsukuyomi.newscup.js', 'TsukuyomiNewsCup');   // 犬 하위 페이지(#news/cup, 준더미 보존)
   // 의도가 보이면(드롭다운 근처) 미리 받아 배치·구름 생성·셰이더 컴파일을 시작해 둔다
   const prewarmMount = () => { loadMount().catch(e => console.warn('[tsukuyomi] 산 장면 미리 로드 실패:', e)); };
   const prewarmEarth = () => { if (earthEl) loadEarth().catch(e => console.warn('[tsukuyomi] 지구 장면 미리 로드 실패:', e)); };
   const prewarmRoom = () => { if (roomEl) loadRoom().catch(e => console.warn('[tsukuyomi] 방 장면 미리 로드 실패:', e)); };
-  const prewarmNews = () => { if (newsEl) loadNews().catch(e => console.warn('[tsukuyomi] 뉴스 장면 미리 로드 실패:', e)); };
+  const prewarmNews = () => { if (newsEl) { loadNews().catch(e => console.warn('[tsukuyomi] 뉴스 장면 미리 로드 실패:', e)); loadNewsCup().catch(() => { /* 무시 */ }); } };
   const prewarm = () => { prewarmMount(); prewarmEarth(); prewarmRoom(); prewarmNews(); };
 
   // ---------- 세계 어댑터: 시작/정지 ----------
@@ -213,12 +215,21 @@
     roomPanel.addEventListener('focusout', () => setTimeout(() => roomMoveThumb(), 0));
     window.addEventListener('resize', () => roomMoveThumb(false));
   }
-  // 犬: 단일 장면이라 옵션이 없다. 첫 프레임을 그린 뒤 전환이 시작된다
+  // 犬: 단일 장면이라 옵션이 없다. 첫 프레임을 그린 뒤 전환이 시작된다.
+  // 하위 페이지(야치요컵, #news/cup, 준더미 보존)가 열려 있으면 그것만 올리고 뒤 장면은 멈춰 둔다. 하위 로드 실패는 무시.
+  // UI(트로피 버튼)는 이식하지 않아 #news/cup는 주소 직접 입력으로만 열린다.
   const news = (newsEl && newsDock) ? {
     id: 'news', el: newsEl, dock: newsDock,
-    N: null,
-    start() { return loadNews().then(N => { this.N = N; return N.start(); }); },
-    stop() { if (this.N) this.N.stop(); },
+    N: null, C: null,
+    start() {
+      return Promise.all([loadNews(), loadNewsCup().catch(() => null)]).then(([N, C]) => {
+        this.N = N; this.C = C;
+        if (C) C.start();
+        return C && C.isOpen ? undefined : N.start();
+      });
+    },
+    leave() { if (this.C) this.C.leave(); },
+    stop() { if (this.N) this.N.stop(); if (this.C) this.C.stop(); },
   } : null;
   const WORLDS = { moon };
   if (sea) WORLDS.sea = sea;
@@ -337,7 +348,8 @@
 
   // ---------- 경로(해시)와 기록 ----------
   function hashWorld() {
-    for (const id in HASH) if (location.hash === HASH[id] && WORLDS[id]) return id;
+    // 하위 페이지(#news/cup 등)는 그 세계로 센다. UI 없이 주소 직접 입력으로만 연다.
+    for (const id in HASH) if ((location.hash === HASH[id] || location.hash.startsWith(HASH[id] + '/')) && WORLDS[id]) return id;
     return 'moon';
   }
   function navigate(target) {

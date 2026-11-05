@@ -659,7 +659,291 @@
             pointer-events: none;
         }
 
-        #worldEarth {
+        /* 犬 하위 페이지: 야치요컵 중간 속보 (tsukuyomi.newscup.js, 경로 #news/cup).
+           원본 화면(2000×1108) 비율: 제목 띠 위 6.3%·높이 16.5%, 액자 5:3 위 4개 + 아래 3개 */
+        .news-cup {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            overflow: hidden;
+            background: #0b6a80;
+            --cup-font: 'Noto Sans KR', sans-serif;
+            --cup-u: max(1vw, 5px);   /* 장식 단위: 원본 20px. 좁은 화면에서 너무 작아지지 않게 */
+        }
+
+        .news-cup[hidden] {
+            display: none;
+        }
+
+        .news-cup .cup-defs {
+            position: absolute;
+            width: 0;
+            height: 0;
+        }
+
+        .news-cup .cup-bg,
+        .news-cup .cup-clouds {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+            pointer-events: none;
+        }
+
+        .news-cup .cup-band {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 6.3%;
+            height: 16.5%;
+            min-height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            box-shadow: 0 0.5vh 1.6vh rgba(2, 20, 40, 0.35);
+        }
+
+        .news-cup .cup-band-bg {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .news-cup .cup-title {
+            position: relative;
+            margin: 0;
+            display: flex;
+            gap: 0.9em;
+            color: #fff;
+            font-family: var(--cup-font);
+            font-weight: 700;
+            font-size: min(5.6vw, 9.5vh);
+            line-height: 1;
+            letter-spacing: 0.08em;
+            white-space: nowrap;
+            text-shadow: 0 0.04em 0 rgba(4, 22, 52, 0.55);
+        }
+
+        /* 장식. 원본 화면(가로 2000px) 실측을 --cup-u(원본 20px) 단위로 옮겼다 */
+        /* 제목 띠 위 작은 사각형: 한 칸 33.5px. 외톨이 1개 + 3칸 띄우고 2×4 체커보드(위 2, 아래 2) */
+        .news-cup .cup-squares {
+            position: absolute;
+            left: 48.75%;
+            top: calc(6.3% - 3.65 * var(--cup-u));
+            width: calc(11.7 * var(--cup-u));
+            height: calc(3.35 * var(--cup-u));
+            display: block;
+            pointer-events: none;
+        }
+
+        /* 제목 띠 위 왼쪽 화살표 2개(머리는 오른쪽): 띠 위 공간 세로 가운데 */
+        .news-cup .cup-arrows-top {
+            position: absolute;
+            left: 15%;
+            top: calc(3.15% - 1.35 * var(--cup-u));
+            width: calc(9.45 * var(--cup-u));
+            height: calc(2.7 * var(--cup-u));
+            display: block;
+            pointer-events: none;
+        }
+
+        /* 아래 가운데 삼각형: 아랫줄 4개, 그 사이 윗줄 2개. 한 개 47×42px, 아랫줄 밑변이 화면 아래에 걸친다 */
+        .news-cup .cup-tris {
+            position: absolute;
+            left: 50.15%;
+            bottom: calc(-0.15 * var(--cup-u));
+            width: calc(9.4 * var(--cup-u));
+            height: calc(4.23 * var(--cup-u));
+            display: block;
+            pointer-events: none;
+        }
+
+        /* 오른쪽 아래 화살표 4개: 4위 액자 기준(액자 폭 = 100cqw). 줄 사이는 화살표 1개 높이,
+           옆 간격은 가운데에 화살표 1개가 끼워질 만큼, 아랫줄은 화살표 길이만큼 오른쪽. 윗줄 왼쪽은 액자 뒤에 일부 가려진다 */
+        .news-cup .cup-arrows {
+            position: absolute;
+            left: 91.1cqw;
+            top: 45.72cqw;
+            width: 51.13cqw;
+            height: auto;
+            z-index: -1;
+            display: block;
+            pointer-events: none;
+        }
+
+        .news-cup .cup-grid {
+            position: absolute;
+            top: 27.5%;
+            left: 50%;
+            width: min(95vw, 198vh);
+            transform: translateX(-50%);
+            margin: 0;
+            padding: 0;
+            list-style: none;
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            column-gap: 1.3%;
+            row-gap: 3.2vh;
+        }
+
+        .news-cup .cup-card {
+            grid-column: span 2;
+            position: relative;
+            aspect-ratio: 5 / 3;
+            container-type: inline-size;
+        }
+
+        /* 아래 줄 3개는 가운데로 */
+        .news-cup .cup-card:nth-child(5) {
+            grid-column: 2 / span 2;
+        }
+
+        /* 액자 안 그림 자리: 아직 그림이 없어 순위별 두 색 빗금만 */
+        .news-cup .cup-pic {
+            position: absolute;
+            inset: 1.4%;
+            background:
+                linear-gradient(160deg, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.12)),
+                repeating-linear-gradient(135deg, var(--bg1) 0 5cqw, var(--bg2) 5cqw 10cqw);
+        }
+
+        .news-cup .cup-frame {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .news-cup .cup-rank {
+            position: absolute;
+            left: 5.5%;
+            top: 8.5%;
+            height: 9.5cqw;
+            padding: 0 2.6cqw;
+            display: flex;
+            align-items: center;
+            gap: 0.6cqw;
+            border-radius: 999px;
+            background: var(--badge-bg);
+            color: var(--badge-fg);
+            font-family: var(--cup-font);
+            font-weight: 700;
+            font-size: 5.6cqw;
+            line-height: 1;
+            box-shadow: 0 0.4cqw 0 rgba(0, 0, 0, 0.18);
+        }
+
+        .news-cup .cup-rank b {
+            font-weight: inherit;
+            font-size: 7.2cqw;
+        }
+
+        .news-cup .cup-name {
+            position: absolute;
+            left: 50%;
+            bottom: 12%;
+            transform: translateX(-50%);
+            max-width: 88%;
+            height: 10.5cqw;
+            padding: 0 4cqw;
+            display: flex;
+            align-items: center;
+            border-radius: 999px;
+            background: var(--name-bg, rgba(255, 255, 255, 0.62));
+            color: var(--name-fg, #fff);
+            font-family: var(--cup-font);
+            font-weight: 700;
+            font-size: 6.6cqw;
+            line-height: 1;
+            white-space: nowrap;
+        }
+
+        .news-cup .cup-name .cup-name-text {
+            display: inline-block;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* 그라데이션 이름표(7·6·4위): 위→아래, 글자 높이 기준 위 6 : 아래 4.
+           글자 잉크가 박스의 약 8%~102%에 걸리므로 경계(글자 60%)는 박스 약 64%다. 그 앞뒤로 짧게 섞는다 */
+        .news-cup .cup-name.is-grad {
+            color: transparent;
+        }
+
+        .news-cup .cup-name.is-grad .cup-name-text {
+            background: linear-gradient(to bottom, var(--name-grad1) 0%, var(--name-grad1) 57%, var(--name-grad2) 72%, var(--name-grad2) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* 등장: 띠가 내려오고 액자가 10위부터 차례로 */
+        .news-cup.intro .cup-band {
+            animation: cup-band-in 0.55s cubic-bezier(0.22, 0.8, 0.24, 1) both;
+        }
+
+        .news-cup.intro .cup-squares,
+        .news-cup.intro .cup-arrows-top,
+        .news-cup.intro .cup-tris {
+            animation: cup-fade-in 0.6s 0.3s ease-out both;
+        }
+
+        .news-cup.intro .cup-card {
+            animation: cup-card-in 0.5s cubic-bezier(0.22, 0.8, 0.24, 1) both;
+            animation-delay: calc(0.25s + var(--i, 0) * 0.09s);
+        }
+
+        @keyframes cup-band-in {
+            from { transform: translateY(-120%); }
+            to { transform: none; }
+        }
+
+        @keyframes cup-fade-in {
+            from { opacity: 0; }
+        }
+
+        @keyframes cup-card-in {
+            from { opacity: 0; transform: translateY(6%) scale(0.94); }
+            to { opacity: 1; transform: none; }
+        }
+
+        /* 세로 화면: 2열 */
+        @media (max-aspect-ratio: 1/1) {
+            .news-cup .cup-band {
+                height: 11%;
+            }
+
+            .news-cup .cup-title {
+                font-size: min(7.4vw, 8vh);
+            }
+
+            .news-cup .cup-grid {
+                top: 21%;
+                width: min(92vw, 70vh);
+                grid-template-columns: repeat(4, 1fr);
+                column-gap: 3%;
+                row-gap: 2vh;
+            }
+
+            .news-cup .cup-card:nth-child(5) {
+                grid-column: span 2;
+            }
+
+            .news-cup .cup-card:nth-child(7) {
+                grid-column: 2 / span 2;
+            }
+        }
+
+        
+
+#worldEarth {
             background: #02050a;
         }
 
