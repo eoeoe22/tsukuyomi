@@ -17,9 +17,9 @@
  *    `a01_daydark` (공백 밤, 웹 btnDark와 동일).
  *    셋 다 공백 장면에서만 그려지고, 다른 장면에서는 값을 유지한 채 효과가 없다 (웹과 동일).
  *    색조·밤은 웹과 같이 둘 중 하나만 고른다 (둘 다 켜면 밤이 우선).
- *  - 月 랜턴 움직임 1종은 일반 옵션으로 月(츠쿠요미 바다·황혼·밤·미러볼) 선택 시 노출 (고급 표시와 무관):
+ *  - 月 랜턴 움직임 1종은 일반 옵션으로 황혼·밤·미러볼 선택 시 노출 (고급 표시와 무관):
  *    `a01_lanternmove` (웹 #btnLanternMove와 동일, 기본 꺼짐).
- *    月에서만 그려지고, 다른 장면에서는 값을 유지한 채 효과가 없다.
+ *    황혼·밤·미러볼에서만 그려지고, 다른 장면에서는 값을 유지한 채 효과가 없다 (츠쿠요미 바다는 낮이라 랜턴 없음).
  *  - 八 시점 1종은 일반 옵션으로 야치요의 방 선택 시 노출되는 드롭다운 (고급 표시와 무관):
  *    `a01_roomview` (방 0 / 병풍 1 / 랜턴 2, 웹 #roomGroup 3버튼과 동일, 기본 방).
  *    구 `a01_roomfront` 불리언(true=병풍)도 계속 받는다.
@@ -78,7 +78,7 @@
     const isOuterScene = s => isMountScene(s) || s === 'earth' || s === 'room' || s === 'news';
     const isMoonScene = s => !isOuterScene(s);
     // project.json 키 규칙 (tools/generate-project-json.py):
-    //   a00_scene, a01_intro, a01_fish(밤 계열 노출 콤보), a01_lanternmove(月 노출 토글),
+    //   a00_scene, a01_intro, a01_fish(밤 계열 노출 콤보), a01_lanternmove(황혼·밤·미러볼 노출 토글),
     //   a01_daystars, a01_daytone, a01_daydark, a01_roomview(방 선택 시 노출 시점 드롭다운),
     //   a02_show_advanced, a03_snapshot_json (그룹 미소속, 고급 토글과 무관(장면별 노출))
     //   a04~a15 그룹 헤더(type=group, 값 없음), 멤버 aNN_<CFG키> (예: a04_T_NIGHT)
@@ -524,7 +524,7 @@
             if ('cursorMode' in b) b.cursorMode = desired.fish;
             else if (b.actions && typeof b.actions.cursorPlace === 'function') b.actions.cursorPlace(desired.fish);
         } catch (e) { /* 브릿지 경합 시 현상 유지 */ }
-        // 랜턴 움직임은 CFG가 아니라 코어 상태(lanMove)다. 月에서만 그려진다.
+        // 랜턴 움직임은 CFG가 아니라 코어 상태(lanMove)다. 황혼·밤·미러볼에서만 그려진다.
         // 세터가 없으면(구 코어) 무시.
         try {
             if ('lanternMove' in b) b.lanternMove = desired.lanternMove;

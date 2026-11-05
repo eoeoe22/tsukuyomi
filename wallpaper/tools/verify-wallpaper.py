@@ -171,8 +171,8 @@ def main() -> int:
         lm = props.get("a01_lanternmove", {})
         check("일반 토글 a01_lanternmove (bool 꺼짐)", lm.get("type") == "bool" and lm.get("value") is False,
               f"{lm.get('type')}/{lm.get('value')}")
-        check("일반 토글 a01_lanternmove 조건(月 선택 시)",
-              lm.get("condition") == "a00_scene.value == 1 || a00_scene.value == 2 || a00_scene.value == 3 || a00_scene.value == 4",
+        check("일반 토글 a01_lanternmove 조건(황혼·밤·미러볼 선택 시)",
+              lm.get("condition") == "a00_scene.value == 2 || a00_scene.value == 3 || a00_scene.value == 4",
               f"condition={lm.get('condition')!r}")
         for k in ("a01_daystars", "a01_daytone", "a01_daydark"):
             p = props.get(k, {})
