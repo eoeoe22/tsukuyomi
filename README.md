@@ -29,6 +29,7 @@ python -m http.server 8788 --directory wallpaper
 public/tsukuyomi.html  기본 웹 배포판
 public/landing.html    랜딩페이지 (실험용)
 public/tsukuyomi.*.js  세계별 장면 (mount·earth·room·news는 지연 로드)
+public/tsukuyomi.fusuma.js  후스마 회랑(세계 전환 오버레이 + 무한 반복, 단독 미리보기 public/fusuma.html)
 public/components/     장면이 런타임에 쓰는 외부 파일 복사본 (랜턴 iframe 2종, yachiroom·newstile UMD)
 packages/              장면 부품 패키지 원본 (yachiroom, newstile, mirrorball 등)
 wallpaper/             월페이퍼엔진 포팅 (vendor 동결본 + wallpaper.html/js/css/project.json)
@@ -58,6 +59,6 @@ preview-worker.js      "/" -> tsukuyomi.html, "/landing" -> landing.html 매핑
 레이어는 뒤 SVG(하늘·햇무리 빛줄기·구름 글리프·파도 언덕·토리이) → 바닥 캔버스 → 앞 SVG(가로등) 세 장이고, 모두 1600×1066 설계 좌표를 `xMidYMid slice`로 공유한다. 구름·파도 봉우리는 고정 시드로 배치해 각자 방향·속도로 흐르고, 토리이 10기는 파도 줄 사이에 끼워 앞줄이 다리를 가린다.
 바닥은 지평선 거리로 깊이를 구하는 원근 타일 바닥을 줄 단위 스트립으로 그린다. 가까운 칸은 `newstile` 패키지 타일 애니메이션(`Newstile.internals.drawTile`/`buildTiming`, jsDelivr CDN + integrity, 실패 시 `components/newstile.umd.js` 폴백), 먼 칸(`BAND_ROW` 이후)은 별 패턴 띠로 가로등과 같은 속도(`SLIDE`)로 흐르고 끝에 안개를 깐다. 시간은 내렸다 올려도 이어지며, 동작 줄이기 설정이면 정지 화면이다.
 
-공통: 세계 전환(`public/tsukuyomi.worlds.js`)은 해시(`#sea` / `#mount` / `#earth` / `#room` / `#news`, 없음=月)로 라우팅하고 月↔海는 엔진 모드 전환, 그 외는 단순 페이드 + 미사용 엔진 `stop()`이다. 산·지구·방·뉴스는 첫 진입 때 동적 `<script>` 로드 후 `start()`하고, 드롭다운 호버·포커스·유휴 시간에 미리 데워둔다(`prewarm`). 수치 튜닝은 `__TSUKUYOMI__` / `__TSUKUYOMI_DEBUG__` 브릿지(F12 패널, `public/tsukuyomi.debug.js`)로 라이브 조절한다.
+공통: 세계 전환(`public/tsukuyomi.worlds.js`)은 해시(`#sea` / `#mount` / `#earth` / `#room` / `#news`, 없음=月)로 라우팅하고 月↔海는 엔진 모드 전환, 그 외는 후스마 회랑 전환(`public/tsukuyomi.fusuma.js`: 닫힌 후스마로 다가가며 덮은 동안 다음 세계를 불러오고(늦으면 문 앞에서 대기), 준비되면 뒤가 비어 있는 문을 한 번 열어 드러냄) + 미사용 엔진 `stop()`이다. 동작 줄이기 설정·랜딩·모듈 부재 시에는 단순 페이드. 산·지구·방·뉴스는 첫 진입 때 동적 `<script>` 로드 후 `start()`하고, 드롭다운 호버·포커스·유휴 시간에 미리 데워둔다(`prewarm`). 수치 튜닝은 `__TSUKUYOMI__` / `__TSUKUYOMI_DEBUG__` 브릿지(F12 패널, `public/tsukuyomi.debug.js`)로 라이브 조절한다.
 
 https://vialinks.xyz/tsukuyomi

@@ -3,7 +3,9 @@
  *   없음 = 月, #sea = 海, #mount = 山, #earth = 地, #room = 八, #news = 犬.
  *   #news/cup = 犬의 야치요컵 하위 장면(tsukuyomi.newscup.js, 준더미 보존). UI 없이 주소 직접 입력으로만 연다.
  * 月와 海는 같은 엔진(tsukuyomi.js)·캔버스를 쓴다. 둘 사이는 엔진의 장면 전환(공백 ↔ 황혼 스냅샷 크로스페이드 등)에
- * 맡기고 하단 패널만 바꾼다. 그 밖의 전환은 모두 단순 페이드.
+ * 맡기고 하단 패널만 바꾼다. 그 밖의 전환은 후스마(tsukuyomi.fusuma.js): 닫힌 후스마로 다가가며 화면을 덮고, 그동안 다음 세계를
+ * 불러온다(늦으면 닫힌 문 앞에서 기다림). 준비되면 문을 한 번 열어 그 너머로 다음 세계를 드러낸다.
+ * 동작 줄이기 설정·랜딩(data-worlds-route="off")·후스마 모듈이 없을 때는 단순 페이드.
  *
  * 진입 / 복귀
  *   - 각 세계 패널 맨 왼쪽의 세계 드롭다운(.world-picker, 이 파일이 만든다).
@@ -37,6 +39,8 @@
   const CFG = {
     FADE_MS: 1100,      // 단순 페이드
     FADE_RM_MS: 450,    // 동작 줄이기 설정의 페이드
+    TRANSITION: 'fusuma',   // 'fusuma' | 'fade'
+    FUSUMA_ZOOM: 0.86,  // 마지막 문 너머 세계가 다가오는 시작 배율
     // 디버그: 0~1 숫자면 전환을 그 진행도에 멈춰 둔다(콘솔에서 __TSUKUYOMI_WORLDS__.cfg.SCRUB = 0.4). null이면 정상 재생
     SCRUB: null,
   };
@@ -249,7 +253,7 @@
   }
   function clearFx(w) {
     const st = w.el.style;
-    st.opacity = ''; st.zIndex = '';
+    st.opacity = ''; st.zIndex = ''; st.transform = '';
   }
   // 전환이 끝나면 B만 남기고 A를 내린다
   function settle(A, B) {
@@ -298,6 +302,31 @@
     });
   }
 
+  // 후스마 전환: 덮개가 완전히 덮이면 A를 멈추고 B를 준비해 그 아래에 깐 뒤 마지막 문을 연다.
+  // 실패하면 덮개(cover.tr)를 남긴 채 던진다 → go()가 A를 되살린 다음 걷는다
+  const Fusuma = () => window.TsukuyomiFusuma || null;
+  const useFusuma = () => CFG.TRANSITION === 'fusuma' && ROUTE && !RM.matches && !!Fusuma();
+  async function fusumaSwap(A, B, opts, cover) {
+    const z0 = CFG.FUSUMA_ZOOM;
+    cover.tr = Fusuma().transition({
+      // 다가오는 느낌의 확대(z0 → 1)는 두되, 문 틈이 장면 가장자리보다 넓어지면 그만큼 키워 바깥 바탕이 보이지 않게 한다
+      onReveal: (k, need) => {
+        const z = Math.max(z0 + (1 - z0) * k * (2 - k), need || 0);
+        B.el.style.transform = 'scale(' + Math.min(1, z).toFixed(4) + ')';
+      },
+    });
+    await cover.tr.covered;
+    A.stop();
+    await B.start(Object.assign({}, opts, { snap: true }));
+    B.el.style.zIndex = '1';
+    B.el.style.transform = 'scale(' + z0 + ')';
+    B.el.hidden = false;
+    await new Promise(r => requestAnimationFrame(() => r()));
+    await cover.tr.finish();
+    cover.tr = null;
+  }
+  if (Fusuma()) (window.requestIdleCallback || setTimeout)(() => { try { Fusuma().prewarm(); } catch (e) { /* 무시 */ } });
+
   // ---------- 전환 진입점 ----------
   const urlOf = id => (HASH[id] || (location.pathname + location.search));
   let wanted = null, wantedOpts = null;   // 전환 중 들어온 마지막 요청(해시 변화 등)
@@ -326,17 +355,22 @@
       else { wanted = null; wantedOpts = null; }
       return;
     }
+    const cover = { tr: null };
     try {
-      await B.start(Object.assign({}, opts, { snap: true }));
-      // 첫 프레임이 캔버스에 올라간 다음부터 보여 준다
-      await new Promise(r => requestAnimationFrame(() => r()));
-      await fade(A, B);
+      if (useFusuma()) await fusumaSwap(A, B, opts, cover);
+      else {
+        await B.start(Object.assign({}, opts, { snap: true }));
+        // 첫 프레임이 캔버스에 올라간 다음부터 보여 준다
+        await new Promise(r => requestAnimationFrame(() => r()));
+        await fade(A, B);
+      }
       settle(A, B);
     } catch (e) {
       console.warn('[tsukuyomi] 세계 전환 실패:', e);
       clearFx(B);
-      WORLDS[world].start().catch(() => { /* 무시 */ });   // fade()가 멈췄을 수 있다
+      WORLDS[world].start().catch(() => { /* 무시 */ });   // fade()·후스마가 멈췄을 수 있다
       if (B !== WORLDS[world]) { B.stop(); B.el.hidden = true; }
+      if (cover.tr) await cover.tr.finish();   // 되살린 A 위로 문을 연다
       // 주소를 실제로 남은 세계에 맞춘다(뒤로 가기 기록은 건드리지 않음)
       if (ROUTE && hashWorld() !== world) history.replaceState(history.state, '', urlOf(world));
     } finally {

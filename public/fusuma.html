@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>襖 | ( ◠ ᗜ ◠ )</title>
+    <link rel="icon" href="/assets/icons/icon.svg" type="image/x-icon">
+    <!-- 후스마 회랑 무한 반복 단독 미리보기. ?t=초 로 시간 고정(캡처용), ?roll=도/초 로 롤 각속도, ?cycle=초 로 주기 -->
+    <style>
+        html, body { margin: 0; height: 100%; background: #140d07; overflow: hidden; }
+        #fusuma { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+    </style>
+</head>
+<body>
+    <canvas id="fusuma" aria-hidden="true"></canvas>
+    <script src="tsukuyomi.fusuma.js"></script>
+    <script>
+        (() => {
+            const F = window.TsukuyomiFusuma;
+            const q = new URLSearchParams(location.search);
+            if (q.has('roll')) F.cfg.ROLL_SPEED = +q.get('roll');
+            if (q.has('cycle')) F.cfg.CYCLE = Math.max(0.4, +q.get('cycle'));
+            const loop = F.mount(document.getElementById('fusuma'));
+            if (q.has('t')) loop.setTime(+q.get('t'));
+            else loop.start();
+            window.__FUSUMA__ = loop;
+        })();
+    </script>
+</body>
+</html>
