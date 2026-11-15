@@ -16,6 +16,7 @@ Copy-Item public/tsukuyomi.mount.js wallpaper/vendor/tsukuyomi.mount.js -Force
 Copy-Item public/tsukuyomi.earth.js wallpaper/vendor/tsukuyomi.earth.js -Force
 Copy-Item public/tsukuyomi.room.js wallpaper/vendor/tsukuyomi.room.js -Force
 Copy-Item public/tsukuyomi.news.js wallpaper/vendor/tsukuyomi.news.js -Force
+Copy-Item public/tsukuyomi.fusuma.js wallpaper/vendor/tsukuyomi.fusuma.js -Force
 New-Item -ItemType Directory -Force wallpaper/components | Out-Null
 Copy-Item public/components/lantern-frustum.html wallpaper/components/lantern-frustum.html -Force
 Copy-Item public/components/lantern-cylinder.html wallpaper/components/lantern-cylinder.html -Force

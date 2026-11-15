@@ -6,7 +6,8 @@
  *     1은 웹 海(#sea), 2~4는 웹 月(황혼/밤/미러볼), 5·6은 웹 山(#mount)의 땅거미/노을 2버튼,
  *     7~9는 웹 地(#earth)/八(#room)/犬(#news)와 동일)
  *  - 月 바깥(山·地·八·犬)은 각 엔진(vendor/tsukuyomi.{mount,earth,room,news}.js, 처음 필요할 때 로드)으로
- *    단순 페이드 전환한다 (웹 tsukuyomi.worlds.js와 같은 방식). 月 바깥에 있는 동안 月 루프는 멈춘다.
+ *    전환한다 (문열림 켜면 후스마 문열림, 끄면 단순 페이드. 웹 tsukuyomi.worlds.js의 후스마/페이드와 같은 방식).
+ *    月 바깥에 있는 동안 月 루프는 멈춘다.
  *    八은 components/(랜턴 iframe 2종 + yachiroom.umd.js)를 쓴다.
  *  - 물고기 (토리이 수면 상승) 고급 그룹 `aNN_fish_*` -> __TSUKUYOMI__.fish 위임
  *    (토리이 반사광 켜기 `aNN_fish_tlOn` 체크 포함, 웹 디버그 패널 물고기 섹션과 동일)
@@ -24,6 +25,11 @@
  *    `a01_roomview` (방 0 / 병풍 1 / 랜턴 2, 웹 #roomGroup 3버튼과 동일, 기본 방).
  *    구 `a01_roomfront` 불리언(true=병풍)도 계속 받는다.
  *    방 장면에서만 적용되고, 다른 장면에서는 값을 유지한 채 효과가 없다.
+ *  - 전환 1종은 항상 표시되는 일반 옵션 체크 (고급·장면 조건 없음):
+ *    `a01_fusuma` (전환시 문열림 애니메이션, 기본 켜짐).
+ *    켜면 바깥 세계 전환(月↔山/地/八/犬, 바깥 세계 간)을 닫힌 후스마로 덮고 문을 열어 드러낸다.
+ *    끄면 단순 페이드. 月 내부(공백/황혼/밤/미러볼) 전환과 최초 진입에는 적용하지 않는다
+ *    (장면을 직접 바꿀 때만 발동).
  *  - 밤 계열 2종은 일반 옵션으로 밤/미러볼 선택 시 노출 (고급 표시와 무관):
  *    `a01_intro` (초기 연출 켜고 끄기, 기본값 켜짐),
  *    `a01_fish` (물고기 군집 콤보: 끔 0 / 커서 따라가기 1 / 달에 배치 2, 기본값 끔,
@@ -74,12 +80,13 @@
     // (mountSunset을 그대로 세계 id로 쓰면 worldEls/outerLoaders에 없어 月로 되돌아간다.)
     const worldOf = s => (s === 'mount' || s === 'mountSunset') ? 'mount' : s;
     const isMountScene = s => Object.prototype.hasOwnProperty.call(MOUNT_SCENE, s);
-    // 月 바깥 세계 판정 (단순 페이드 전환 대상)
+    // 月 바깥 세계 판정 (후스마 문열림 / 단순 페이드 전환 대상)
     const isOuterScene = s => isMountScene(s) || s === 'earth' || s === 'room' || s === 'news';
     const isMoonScene = s => !isOuterScene(s);
     // project.json 키 규칙 (tools/generate-project-json.py):
     //   a00_scene, a01_intro, a01_fish(밤 계열 노출 콤보), a01_lanternmove(황혼·밤·미러볼 노출 토글),
     //   a01_daystars, a01_daytone, a01_daydark, a01_roomview(방 선택 시 노출 시점 드롭다운),
+    //   a01_fusuma(항상 표시 문열림 토글),
     //   a02_show_advanced, a03_snapshot_json (그룹 미소속, 고급 토글과 무관(장면별 노출))
     //   a04~a15 그룹 헤더(type=group, 값 없음), 멤버 aNN_<CFG키> (예: a04_T_NIGHT)
     // 키는 반드시 식별자 형태(문자 시작) — WE 조건식이 숫자 시작 키를 해석하지 못한다.
@@ -94,12 +101,13 @@
     const KEY_DAYDARK = 'a01_daydark';
     const KEY_ROOMVIEW = 'a01_roomview';
     const KEY_ROOMFRONT = 'a01_roomfront';
+    const KEY_FUSUMA = 'a01_fusuma';
     const KEY_SNAPSHOT = 'a03_snapshot_json';
     const MEMBER_RE = /^(?:[A-Za-z]\d\d_|\d\d_|cfg_)(.+)$/;
     // 물고기 (토리이 수면 상승) 그룹 멤버: aNN_fish_<FISH키> -> __TSUKUYOMI__.fish[FISH키]
     const FISH_RE = /^[A-Za-z]\d\d_fish_(.+)$/;
-    const GENERAL_SKIP = new Set([KEY_FISH, KEY_LANTERNMOVE, KEY_DAYSTARS, KEY_DAYTONE, KEY_DAYDARK, KEY_ROOMVIEW, KEY_ROOMFRONT, 'fish', 'cursor', 'cursorMode', 'cursormode', 'lanternmove', 'lanternMove', 'daystars', 'daytone', 'daydark', 'roomview', 'roomView', 'roomfront', 'roomFront']);
-    const desired = { scene: 'night', intro: true, fish: 0, lanternMove: false, dayStars: false, dayTone: false, dayDark: false, roomView: 'main' };
+    const GENERAL_SKIP = new Set([KEY_FISH, KEY_LANTERNMOVE, KEY_DAYSTARS, KEY_DAYTONE, KEY_DAYDARK, KEY_ROOMVIEW, KEY_ROOMFRONT, KEY_FUSUMA, 'fish', 'cursor', 'cursorMode', 'cursormode', 'lanternmove', 'lanternMove', 'daystars', 'daytone', 'daydark', 'roomview', 'roomView', 'roomfront', 'roomFront', 'fusuma', 'door', 'transition', 'dooropen']);
+    const desired = { scene: 'night', intro: true, fish: 0, lanternMove: false, dayStars: false, dayTone: false, dayDark: false, roomView: 'main', fusuma: true };
     const pendingCfg = new Map(); // CFG키 -> 마지막 값 (브릿지 대기분)
     const pendingFish = new Map(); // FISH키 -> 마지막 값 (브릿지 대기분)
     let pendingSnapshot = null;   // snapshot_json 원문 (브릿지 대기분)
@@ -196,7 +204,8 @@
     }
 
     // ---------- 다섯 세계: 月(수면, vendor/tsukuyomi.js) ↔ 山/地/八/犬 ----------
-    // 웹 tsukuyomi.worlds.js와 같은 단순 페이드. 해시 경로·하단 버튼 없이 WE 장면 옵션만 따른다.
+    // 웹 tsukuyomi.worlds.js와 같은 전환 (문열림 켜면 후스마, 끄면 단순 페이드).
+    // 해시 경로·하단 버튼 없이 WE 장면 옵션만 따른다.
     // 月와 海(공백)은 같은 엔진·캔버스를 쓴다 (day + dayStars/dayTone/dayDark).
     const moonEl = document.getElementById('worldMoon');
     const mountEl = document.getElementById('worldMount');
@@ -228,6 +237,17 @@
     const loadRoom = () => loadEngine('TsukuyomiRoom', 'vendor/tsukuyomi.room.js');
     const loadNews = () => loadEngine('TsukuyomiNews', 'vendor/tsukuyomi.news.js');
     const outerLoaders = { mount: loadMount, earth: loadEarth, room: loadRoom, news: loadNews };
+    // 후스마 회랑 (vendor/tsukuyomi.fusuma.js, 바깥 세계로 처음 전환할 때 로드).
+    // 웹 tsukuyomi.worlds.js의 후스마 전환과 같은 방식. 첫 진입(instant)에는 쓰지 않는다.
+    const loadFusuma = () => loadEngine('TsukuyomiFusuma', 'vendor/tsukuyomi.fusuma.js');
+    const RM = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+    const FUSUMA_ZOOM = 0.86;   // 마지막 문 너머 세계가 다가오는 시작 배율 (웹과 동일)
+    async function ensureFusuma() {
+        if (window.TsukuyomiFusuma) return true;
+        if (RM.matches) return false;
+        try { await loadFusuma(); return !!window.TsukuyomiFusuma; }
+        catch (e) { return false; }
+    }
     // 八 시점(방/병풍/랜턴): R.setView('main'/'front'/'lantern', true).
     // 병풍 뷰는 등 로드(ready)가 끝나야 열리므로, 아직이면 짧게 재시도한다.
     // 랜턴 뷰는 컴포넌트를 불러와 굽기가 끝나면 방 엔진이 알아서 넘어가므로(wantView) 재시도하지 않는다.
@@ -297,7 +317,27 @@
             requestAnimationFrame(tick);
         });
     }
-    const clearFx = el => { el.style.opacity = ''; el.style.zIndex = ''; };
+    const clearFx = el => { el.style.opacity = ''; el.style.zIndex = ''; el.style.transform = ''; };
+    // 후스마 문열림 전환: 닫힌 후스마로 덮은 뒤 아래 세계를 준비해 깔고 마지막 문을 열어 드러낸다.
+    // onCovered는 완전히 덮인 시점에 실행한다 (옛 세계 정지·새 세계 재개).
+    // 실패하면 던진다 → 호출부가 페이드로 내린다.
+    async function fusumaSwap(B, onCovered) {
+        const F = window.TsukuyomiFusuma;
+        const tr = F.transition({
+            // 다가오는 느낌의 확대(z0 → 1)는 두되, 문 틈이 장면 가장자리보다 넓어지면 그만큼 키워 바깥 바탕이 보이지 않게 한다
+            onReveal: (k, need) => {
+                const z = Math.max(FUSUMA_ZOOM + (1 - FUSUMA_ZOOM) * k * (2 - k), need || 0);
+                B.style.transform = 'scale(' + Math.min(1, z).toFixed(4) + ')';
+            },
+        });
+        await tr.covered;
+        await onCovered();
+        B.style.zIndex = '1';
+        B.style.transform = 'scale(' + FUSUMA_ZOOM + ')';
+        B.hidden = false;
+        await nextFrame();
+        await tr.finish();
+    }
 
     async function switchWorld(instant) {
         // 큐에서 실행되는 시점의 최신 요청을 따른다 (빠른 연속 변경은 마지막 값으로 수렴)
@@ -321,8 +361,19 @@
             if (target === 'room') applyRoomView(E);   // 진입과 동시에 하위장면 반영 (ready 전이면 재시도)
             const b = bridge();
             if (instant) {
+                // 최초 진입: 전환 연출 없이 바로 보여 준다 (후스마 발동 안 함)
                 if (b) b.suspend();
                 T.hidden = false;
+            } else if (desired.fusuma && !RM.matches && await ensureFusuma()) {
+                // 장면 직접 전환: 닫힌 후스마로 덮고 문을 열어 드러낸다. 실패하면 페이드로 내린다
+                document.body.setAttribute('data-world-busy', '');
+                try {
+                    await fusumaSwap(T, async () => { if (b) b.suspend(); });
+                } catch (e) {
+                    await nextFrame();
+                    await fadeIn(T);
+                    if (b) b.suspend();
+                }
             } else {
                 document.body.setAttribute('data-world-busy', '');
                 await nextFrame();   // 첫 프레임이 캔버스에 올라간 다음부터 보여 준다
@@ -337,10 +388,28 @@
         } else {
             if (world === 'moon') return;
             const b = bridge();
-            if (b) b.resume();
-            document.body.setAttribute('data-world-busy', '');
-            await nextFrame();
-            await fadeIn(moonEl);
+            if (instant) {
+                // 최초 진입: 전환 연출 없이 바로 보여 준다 (후스마 발동 안 함)
+                if (b) b.resume();
+            } else if (desired.fusuma && !RM.matches && await ensureFusuma()) {
+                // 장면 직접 전환: 닫힌 후스마로 덮고 문을 열어 드러낸다. 실패하면 페이드로 내린다
+                document.body.setAttribute('data-world-busy', '');
+                try {
+                    await fusumaSwap(moonEl, async () => {
+                        for (const id of ['mount', 'earth', 'room', 'news']) stopOuter(id);
+                        if (b) b.resume();
+                    });
+                } catch (e) {
+                    if (b) b.resume();
+                    await nextFrame();
+                    await fadeIn(moonEl);
+                }
+            } else {
+                if (b) b.resume();
+                document.body.setAttribute('data-world-busy', '');
+                await nextFrame();
+                await fadeIn(moonEl);
+            }
             for (const id of ['mount', 'earth', 'room', 'news']) {
                 stopOuter(id);
                 if (worldEls[id]) worldEls[id].hidden = true;
@@ -535,6 +604,12 @@
         const enteringMoon = world !== 'moon' && isMoonScene(desired.scene);
         syncWorld(first);
         if (isMoonScene(desired.scene)) applyScene(b, first || enteringMoon);
+        // 후스마 미리 로드: 첫 바깥 전환이 끊기지 않게 (첫 진입 연출에는 쓰지 않음)
+        if (first) {
+            (window.requestIdleCallback || setTimeout)(() => {
+                ensureFusuma().then(ok => { try { ok && window.TsukuyomiFusuma.prewarm(); } catch (e) { /* 무시 */ } });
+            });
+        }
     }
 
     function applyUserProperties(properties) {
@@ -586,6 +661,10 @@
                 if (v !== null) desired.roomView = v;
             }
         }
+        const fu = properties[KEY_FUSUMA] || properties.fusuma || properties.door || properties.transition;
+        if (fu && fu.value !== undefined) {
+            desired.fusuma = !!fu.value;
+        }
         for (const name of Object.keys(properties)) {
             if (GENERAL_SKIP.has(name)) continue;
             const fm = FISH_RE.exec(name);
@@ -633,7 +712,7 @@
         }, 50);
     }
 
-    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=mount|mount-sunset|earth|room|room-front|news|day|dusk|night|mirror(또는 1~9)&intro=0&fish=0/1/2&lanternmove=1&stars=1&tone=1&dark=1&roomview=front
+    // WE가 없을 때(일반 브라우저 미리보기) 테스트용 쿼리: ?scene=mount|mount-sunset|earth|room|room-front|news|day|dusk|night|mirror(또는 1~9)&intro=0&fish=0/1/2&lanternmove=1&stars=1&tone=1&dark=1&roomview=front&fusuma=0/1
     // 예: wallpaper.html?scene=earth , wallpaper.html?scene=room , wallpaper.html?scene=room-front , wallpaper.html?scene=room&roomview=lantern
     // 예: wallpaper.html?scene=earth , wallpaper.html?scene=room , wallpaper.html?scene=news
     // 예: wallpaper.html?scene=day&stars=1 , wallpaper.html?scene=day&tone=1 , wallpaper.html?scene=day&dark=1 , wallpaper.html?scene=night&intro=0 , wallpaper.html?scene=night&fish=1 , wallpaper.html?scene=mirror&fish=2
@@ -671,6 +750,9 @@
                 const v = roomViewOf(rvq);
                 if (v !== null) desired.roomView = v;
             }
+            const fuq = q.get('fusuma') ?? q.get('door') ?? q.get('transition');
+            if (fuq === '0' || fuq === 'false' || fuq === 'off') desired.fusuma = false;
+            if (fuq === '1' || fuq === 'true' || fuq === 'on') desired.fusuma = true;
         } catch (e) { /* file:// 등 파서 미지원 시 무시 */ }
     }
 
@@ -692,6 +774,7 @@
         get dayDark() { return desired.dayDark; },
         get roomView() { return desired.roomView; },
         get roomFront() { return desired.roomView === 'front'; },
+        get fusuma() { return desired.fusuma; },
         get fps() { return weFps; },
         get ready() { return !!bridge(); },
         get world() { return world; },

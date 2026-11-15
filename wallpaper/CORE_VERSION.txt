@@ -1,8 +1,9 @@
-70070230a9d592b35718e650a4c1b20407544831 (장면 전체 재동결: 月 랜턴 움직임·八 시점 드롭다운(방/병풍/랜턴)까지, 2026-11-03 기준)
-2026-11-03
+34ac3de1d9dcc43a1ed0fc590e7891c4fb7adc7a (八 랜턴 뷰 바닥 판자 수정 + news/cup CSS 동기화, 후스마·컵 로직은 WE 미포함, 2026-11-15 기준)
+2026-11-15
 frozen source: public/tsukuyomi.js, public/tsukuyomi.css,
   public/cloud-live.js, public/cloud-overlay.js, public/tsukuyomi.mount.js,
   public/tsukuyomi.earth.js, public/tsukuyomi.room.js, public/tsukuyomi.news.js,
+  public/tsukuyomi.fusuma.js,
   public/clouds/day-overlay.json, public/lantern-front.svg, public/assets/icons/icon.svg,
   public/components/lantern-frustum.html, public/components/lantern-cylinder.html,
   public/components/yachiroom.umd.js, public/components/newstile.umd.js

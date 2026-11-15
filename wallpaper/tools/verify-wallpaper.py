@@ -2,9 +2,9 @@
 """wallpaper 패키지 검증 (읽기 전용, 수정 없음).
 
 검사:
-  1. vendor/components 동결본 == public 현행본 (sha256, 코어 11종 + 컴포넌트 4종)
+  1. vendor/components 동결본 == public 현행본 (sha256, 코어 12종 + 컴포넌트 4종)
      + newstile 번들==dist, 웹 뉴스 장면 CDN(integrity)·로컬 폴백·구 코드 제거
-  2. project.json 유효성 (file/type/기본 10종/전 GROUPS 커버/기본값 일치/타입·조건)
+  2. project.json 유효성 (file/type/기본 11종/전 GROUPS 커버/기본값 일치/타입·조건)
   3. wallpaper.js 내 REBUILD 맵 == tools/rebuild-map.json (GROUPS rebuild와 1:1)
   4. wallpaper.html 참조 무결성 (vendor만 참조, public/debug/cloudedit/bootstrap 금지)
   5. wallpaper.css 숨김 규칙 존재
@@ -37,6 +37,7 @@ FROZEN_FILES = [
     "tsukuyomi.earth.js",
     "tsukuyomi.room.js",
     "tsukuyomi.news.js",
+    "tsukuyomi.fusuma.js",
 ]
 
 # 八(야치요의 방) 런타임 의존 + 犬(뉴스) 타일 패키지 번들: public/components -> wallpaper/components (페이지 기준 상대경로 그대로)
@@ -145,7 +146,7 @@ def main() -> int:
         check("project.json type", pj.get("type") == "web", f"type={pj.get('type')}")
         props = (pj.get("general") or {}).get("properties") or {}
         for k in ("a00_scene", "a01_intro", "a01_fish", "a01_lanternmove", "a01_daystars", "a01_daytone",
-                  "a01_daydark", "a01_roomview", "a02_show_advanced", "a03_snapshot_json"):
+                  "a01_daydark", "a01_roomview", "a01_fusuma", "a02_show_advanced", "a03_snapshot_json"):
             check(f"project.json 기본 속성: {k}", k in props, "누락")
         sc = props.get("a00_scene", {})
         check("scene 콤보", sc.get("type") == "combo"
@@ -190,6 +191,13 @@ def main() -> int:
               f"labels={[o.get('label') for o in rv.get('options', [])]}")
         check("일반 드롭다운 a01_roomview 조건(야치요의 방 선택 시)", rv.get("condition") == "a00_scene.value == 8",
               f"condition={rv.get('condition')!r}")
+        fm = props.get("a01_fusuma", {})
+        check("일반 토글 a01_fusuma (bool 켜짐)", fm.get("type") == "bool" and fm.get("value") is True,
+              f"{fm.get('type')}/{fm.get('value')}")
+        check("일반 토글 a01_fusuma 문구", fm.get("text") == "전환시 문열림 애니메이션",
+              f"text={fm.get('text')!r}")
+        check("일반 토글 a01_fusuma 항상 표시(조건 없음)", "condition" not in fm,
+              f"condition={fm.get('condition')!r}")
         # WE Installed 탭 썸네일은 preview.jpg/gif 관례만 인식한다 (thumbnail.png 등 별도명 무시됨).
         pv = pj.get("preview")
         check("preview 관례명", isinstance(pv, str) and pv in ("preview.jpg", "preview.gif"),
@@ -429,6 +437,12 @@ def main() -> int:
           "bridge lanternMove 위임 없음")
     check("wallpaper.js 군집 코어 위임", "cursorMode" in wjs and "cursorPlace" in wjs,
           "bridge cursorMode/cursorPlace 위임 없음")
+    check("wallpaper.js 후스마 엔진 로드", "vendor/tsukuyomi.fusuma.js" in wjs,
+          "vendor 경로 누락")
+    check("wallpaper.js 문열림 키", "a01_fusuma" in wjs,
+          "a01_fusuma 처리 없음")
+    check("wallpaper.js 후스마 문열림 위임", "fusumaSwap" in wjs and "TsukuyomiFusuma" in wjs,
+          "후스마 transition 위임 없음")
 
     # 5. wallpaper.css 숨김
     css = (WP / "wallpaper.css").read_text(encoding="utf-8")

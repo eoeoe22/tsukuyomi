@@ -16,6 +16,7 @@ cp public/tsukuyomi.mount.js wallpaper/vendor/tsukuyomi.mount.js
 cp public/tsukuyomi.earth.js wallpaper/vendor/tsukuyomi.earth.js
 cp public/tsukuyomi.room.js wallpaper/vendor/tsukuyomi.room.js
 cp public/tsukuyomi.news.js wallpaper/vendor/tsukuyomi.news.js
+cp public/tsukuyomi.fusuma.js wallpaper/vendor/tsukuyomi.fusuma.js
 mkdir -p wallpaper/components
 cp public/components/lantern-frustum.html wallpaper/components/lantern-frustum.html
 cp public/components/lantern-cylinder.html wallpaper/components/lantern-cylinder.html

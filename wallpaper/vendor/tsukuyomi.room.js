@@ -561,7 +561,7 @@ function buildFront() {
 // 위 띠는 광원보다 위라 천장 쪽으로 가므로 투영하지 않는다.
 const LV = {
   // 시점 기울기(도, 위에서): 바닥 별 고리가 참고 이미지처럼 가로:세로 ≈ 2:1로 눌리고, 위 띠는 화면 위로 빠진다
-  tilt: 30, rot: -0.4,     // 등 방향(rad): 받침판 가까운 모서리가 오른쪽 아래로 (참고 이미지)
+  tilt: 30, rot: 0.55,      // 등 방향(rad): 화면상 판자와 평행 = -plankRot (3D 회전과 캔버스 회전 부호가 반대)
   ax: 1010, ay: 590,       // 등 축이 바닥과 만나는 화면 점 (참고 이미지처럼 오른쪽으로 치우침)
   k: 2.6,                  // 화면 px / 랜턴 이미지 px
   focusX: 1010,            // 세로 화면 등 좁은 화면에서 잘라 보일 때 가운데로 둘 x (등 축)
@@ -569,7 +569,7 @@ const LV = {
   // 종이창 무늬 두 묶음(원래 광원 아래·위)을 옮겨 둘 높이(이미지 px, 광원 lightY · 아래 가로대 249.6).
   // 바닥 반지름 ρ = R·(Y_FLOOR − 광원)/(y − 광원) → 광원에 가까울수록 멀리 크게 맺힌다. 둘 다 광원 아래라 바닥에 닿는다
   motifY: [209, 186],
-  plank: 40, plankRot: -0.55,  // 마루 판 너비(이미지 px)·방향(rad)
+  plank: 80, plankRot: -0.55,  // 마루 판 너비(이미지 px)·방향(rad)
   wood: [[100, 64, 44], [134, 88, 62]],   // 마루 판 색 범위(albedo). 채도를 낮춰 그늘이 주황으로 뜨지 않게
   amb: 'rgb(40,34,32)',        // 바닥 바탕빛(어둠). 그늘에서도 나무결이 보이게 (참고 이미지)
   star: 1.0, starOver: 0.65, starBloom: 0.18,  // 육각별 빛 세기 / 넘침(노출) / 번짐. 참고 이미지처럼 바닥에서 가장 밝게
@@ -687,14 +687,13 @@ function lvFloor(V, holes) {
   fx(ag); ag.rotate(LV.plankRot);
   const rnd = mulberry32(11), PW = LV.plank;
   const tone = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t))})`;
-  for (let z0 = -Math.ceil(E / PW) * PW; z0 < E; z0 += PW) {
+  for (let z0 = -Math.ceil(E / PW) * PW - PW * 0.2; z0 < E; z0 += PW) {   // 판자 결 수직 방향 반대쪽으로 1/5 너비 이동
     ag.fillStyle = tone(LV.wood[0], LV.wood[1], rnd()); ag.fillRect(-E, z0, 2 * E, PW);
-    for (let i = 0; i < 70; i++) {   // 결
+    for (let i = 0; i < 140; i++) {   // 결 (판 너비 2배에 맞춰 밀도 유지)
       ag.fillStyle = `rgba(${rnd() < 0.55 ? '36,14,4' : '255,210,150'},${0.05 + rnd() * 0.16})`;
       ag.fillRect(-E + rnd() * 2 * E, z0 + 1.5 + rnd() * (PW - 3), 40 + rnd() * 220, 0.35 + rnd() * 1.1);
     }
-    ag.fillStyle = '#1e0c04'; ag.fillRect(-E, z0, 2 * E, 1.3);   // 판 사이 이음
-    for (let x = -E + rnd() * 300; x < E; x += 300 + rnd() * 500) ag.fillRect(x, z0, 1.2, PW);
+    ag.fillStyle = '#1e0c04'; ag.fillRect(-E, z0, 2 * E, 1.3);   // 판 사이 이음 (긴쪽만, 짧은쪽 가로선 없음)
   }
   V.alb = alb;
   // 육각별 (띠는 고정 → 한 번만)
