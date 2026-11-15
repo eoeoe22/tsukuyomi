@@ -443,6 +443,14 @@ def main() -> int:
           "a01_fusuma 처리 없음")
     check("wallpaper.js 후스마 문열림 위임", "fusumaSwap" in wjs and "TsukuyomiFusuma" in wjs,
           "후스마 transition 위임 없음")
+    check("wallpaper.js 문 먼저 덮기(로드+시동은 문 뒤)", "throw CANCEL" in wjs and "isCancel" in wjs,
+          "cover-first 순서 없음")
+    check("wallpaper.js 최소 덮개 유지", "MIN_COVER_MS" in wjs,
+          "최소 홀드 없음")
+    check("wallpaper.js 최소 노출 보장", "MIN_SHOW_MS" in wjs,
+          "최소 노출 없음")
+    check("wallpaper.js 전환 재료 사전 로드", "prewarmAll" in wjs,
+          "prewarmAll 없음")
 
     # 5. wallpaper.css 숨김
     css = (WP / "wallpaper.css").read_text(encoding="utf-8")

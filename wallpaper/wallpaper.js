@@ -5,8 +5,9 @@
  *    (표시 순서: 산 5 / 산(노을) 6 / 츠쿠요미 바다 1 / 황혼 2 / 밤 3 / 미러볼 4 / 지구 7 / 야치요의 방 8 / 뉴스 츠쿠요미 9.
  *     1은 웹 海(#sea), 2~4는 웹 月(황혼/밤/미러볼), 5·6은 웹 山(#mount)의 땅거미/노을 2버튼,
  *     7~9는 웹 地(#earth)/八(#room)/犬(#news)와 동일)
- *  - 月 바깥(山·地·八·犬)은 각 엔진(vendor/tsukuyomi.{mount,earth,room,news}.js, 처음 필요할 때 로드)으로
+ *  - 月 바깥(山·地·八·犬)은 각 엔진(vendor/tsukuyomi.{mount,earth,room,news}.js, 유휴 때 미리 로드)으로
  *    전환한다 (문열림 켜면 후스마 문열림, 끄면 단순 페이드. 웹 tsukuyomi.worlds.js의 후스마/페이드와 같은 방식).
+ *    후스마는 닫힌 문으로 먼저 덮고 문 뒤에서 로드+시동하며, 문 뒤에 깔고 2프레임+최소 노출(150ms)+최소 덮개 시간 뒤에 연다.
  *    月 바깥에 있는 동안 月 루프는 멈춘다.
  *    八은 components/(랜턴 iframe 2종 + yachiroom.umd.js)를 쓴다.
  *  - 물고기 (토리이 수면 상승) 고급 그룹 `aNN_fish_*` -> __TSUKUYOMI__.fish 위임
@@ -237,16 +238,40 @@
     const loadRoom = () => loadEngine('TsukuyomiRoom', 'vendor/tsukuyomi.room.js');
     const loadNews = () => loadEngine('TsukuyomiNews', 'vendor/tsukuyomi.news.js');
     const outerLoaders = { mount: loadMount, earth: loadEarth, room: loadRoom, news: loadNews };
-    // 후스마 회랑 (vendor/tsukuyomi.fusuma.js, 바깥 세계로 처음 전환할 때 로드).
-    // 웹 tsukuyomi.worlds.js의 후스마 전환과 같은 방식. 첫 진입(instant)에는 쓰지 않는다.
+    // 후스마 회랑 (vendor/tsukuyomi.fusuma.js, 유휴 때 미리 로드. 첫 진입 연출에는 쓰지 않음).
+    // 웹 tsukuyomi.worlds.js의 후스마 전환과 같은 방식: 닫힌 문으로 먼저 덮고 문 뒤에서 로드+시동한다.
     const loadFusuma = () => loadEngine('TsukuyomiFusuma', 'vendor/tsukuyomi.fusuma.js');
     const RM = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
     const FUSUMA_ZOOM = 0.86;   // 마지막 문 너머 세계가 다가오는 시작 배율 (웹과 동일)
+    const MIN_COVER_MS = 900;   // D: 닫힌 문 최소 유지. 준비가 빨라도 애니메이션을 온전히 재생한다
+    const MIN_SHOW_MS = 150;    // 문 뒤에 깐 뒤 최소 노출. rAF 기아(렉) 때 합성 페인트를 보장한다
+    const CANCEL = { __tsukuyomiCancel: true };   // 문 뒤에서 superseded → 덮개만 걷고 다음 작업에 맡긴다
+    const isCancel = e => !!(e && e.__tsukuyomiCancel);
     async function ensureFusuma() {
         if (window.TsukuyomiFusuma) return true;
         if (RM.matches) return false;
         try { await loadFusuma(); return !!window.TsukuyomiFusuma; }
         catch (e) { return false; }
+    }
+    // B: 유휴 시간에 전환 재료를 미리 로드한다 (스크립트 fetch/parse + 후스마 텍스처 + 방/뉴스 하위 의존).
+    // E.start() 같은 무거운 초기화는 전환 때(문 뒤에서) 한다.
+    // yachiroom/newstile UMD는 실행해도 전역 정의만 하고 그리기는 시작하지 않아 미리 올려도 안전하다.
+    function preloadScript(src) {
+        try {
+            if (document.querySelector('script[data-prewarm="' + src + '"]')) return;
+            const s = document.createElement('script');
+            s.src = src; s.async = true; s.setAttribute('data-prewarm', src);
+            s.onload = s.onerror = () => { try { s.remove(); } catch (e) { /* 무시 */ } };
+            document.head.appendChild(s);
+        } catch (e) { /* 무시 */ }
+    }
+    function prewarmAll() {
+        ensureFusuma().then(ok => { try { ok && window.TsukuyomiFusuma.prewarm(); } catch (e) { /* 무시 */ } }).catch(() => {});
+        for (const k of ['mount', 'earth', 'room', 'news']) {
+            try { outerLoaders[k]().catch(() => {}); } catch (e) { /* 무시 */ }
+        }
+        preloadScript('components/yachiroom.umd.js');
+        preloadScript('components/newstile.umd.js');
     }
     // 八 시점(방/병풍/랜턴): R.setView('main'/'front'/'lantern', true).
     // 병풍 뷰는 등 로드(ready)가 끝나야 열리므로, 아직이면 짧게 재시도한다.
@@ -318,11 +343,14 @@
         });
     }
     const clearFx = el => { el.style.opacity = ''; el.style.zIndex = ''; el.style.transform = ''; };
-    // 후스마 문열림 전환: 닫힌 후스마로 덮은 뒤 아래 세계를 준비해 깔고 마지막 문을 열어 드러낸다.
-    // onCovered는 완전히 덮인 시점에 실행한다 (옛 세계 정지·새 세계 재개).
-    // 실패하면 던진다 → 호출부가 페이드로 내린다.
+    // 후스마 문열림 전환: 닫힌 후스마로 먼저 덮은 뒤 문 뒤에서 아래 세계를 준비해 깔고 마지막 문을 열어 드러낸다.
+    // onCovered는 완전히 덮인 시점에 실행한다 (로드+시동). D: 문 뒤에 깔고 2프레임+최소 노출(150ms)을 그린 뒤
+    // 최소 덮개 시간(MIN_COVER_MS)을 채우고 문을 연다 (축소 빈 프레임·스킵 방지).
+    // onCovered가 던지면(취소 포함) 덮개를 걷고 다시 던진다 → 호출부가 폴백/복원을 맡는다.
+    // B는 덮개 시작과 함께 미리 보여 둔다 (호출부): 레이아웃 확정 + 컴포지터 선행 업로드.
     async function fusumaSwap(B, onCovered) {
         const F = window.TsukuyomiFusuma;
+        const t0 = performance.now();
         const tr = F.transition({
             // 다가오는 느낌의 확대(z0 → 1)는 두되, 문 틈이 장면 가장자리보다 넓어지면 그만큼 키워 바깥 바탕이 보이지 않게 한다
             onReveal: (k, need) => {
@@ -330,13 +358,24 @@
                 B.style.transform = 'scale(' + Math.min(1, z).toFixed(4) + ')';
             },
         });
-        await tr.covered;
-        await onCovered();
-        B.style.zIndex = '1';
-        B.style.transform = 'scale(' + FUSUMA_ZOOM + ')';
-        B.hidden = false;
-        await nextFrame();
-        await tr.finish();
+        try {
+            await tr.covered;
+            await onCovered();
+            B.style.zIndex = '1';
+            B.style.transform = 'scale(' + FUSUMA_ZOOM + ')';
+            B.hidden = false;
+            const shownAt = performance.now();
+            await nextFrame();
+            await nextFrame();
+            const restShow = MIN_SHOW_MS - (performance.now() - shownAt);
+            if (restShow > 0) await new Promise(r => setTimeout(r, restShow));
+            const rest = MIN_COVER_MS - (performance.now() - t0);
+            if (rest > 0) await new Promise(r => setTimeout(r, rest));
+            await tr.finish();
+        } catch (e) {
+            try { tr.cancel(); } catch (e2) { /* 무시 */ }
+            throw e;
+        }
     }
 
     async function switchWorld(instant) {
@@ -346,30 +385,77 @@
         const T = worldEls[target];
         if (!T) { worldTarget = 'moon'; return; }   // DOM 없는 세계는 月로
         if (target !== 'moon') {
-            const E = await outerLoaders[target]();
-            if (worldTarget !== target) return;   // 로드 중 되돌렸으면 다음 작업에 맡긴다
-            if (target === 'mount') {
-                const id = MOUNT_SCENE[desired.scene];
-                if (id && E.scene !== id) E.setScene(id);   // 산에 있는 중이면 크로스페이드
-                if (world === 'mount') return;
-            } else if (target === 'room') {
-                // 방에 머물며 하위장면(병풍 정면)만 바꾸면 전환 없이 시점만 바꾼다
-                if (world === 'room') { applyRoomView(E); return; }
-            } else if (world === target) return;
-            await E.start();   // 八·犬은 베이스/첫 프레임이 준비된 뒤에 resolve
-            if (worldTarget !== target) { try { E.stop(); } catch (e) { /* 무시 */ } return; }
-            if (target === 'room') applyRoomView(E);   // 진입과 동시에 하위장면 반영 (ready 전이면 재시도)
+            // 같은 세계 안의 변경은 문 없이 끝낸다 (산 노을 크로스페이드 / 방 시점). 덮개를 띄우기 전에 처리
+            if (world === target) {
+                if (target === 'mount') {
+                    const E = await outerLoaders.mount();
+                    if (worldTarget !== target) return;   // 로드 중 되돌렸으면 다음 작업에 맡긴다
+                    const id = MOUNT_SCENE[desired.scene];
+                    if (id && E.scene !== id) E.setScene(id);
+                } else if (target === 'room') {
+                    // 방에 머물며 하위장면(병풍 정면)만 바꾸면 전환 없이 시점만 바꾼다
+                    const E = await outerLoaders.room();
+                    if (worldTarget !== target) return;
+                    applyRoomView(E);
+                }
+                return;
+            }
             const b = bridge();
             if (instant) {
                 // 최초 진입: 전환 연출 없이 바로 보여 준다 (후스마 발동 안 함)
+                const E = await outerLoaders[target]();
+                if (worldTarget !== target) return;
+                if (target === 'mount') {
+                    const id = MOUNT_SCENE[desired.scene];
+                    if (id && E.scene !== id) E.setScene(id);
+                }
+                await E.start();   // 八·犬은 베이스/첫 프레임이 준비된 뒤에 resolve
+                if (worldTarget !== target) { try { E.stop(); } catch (e) { /* 무시 */ } return; }
+                if (target === 'room') applyRoomView(E);   // 진입과 동시에 하위장면 반영 (ready 전이면 재시도)
                 if (b) b.suspend();
                 T.hidden = false;
             } else if (desired.fusuma && !RM.matches && await ensureFusuma()) {
-                // 장면 직접 전환: 닫힌 후스마로 덮고 문을 열어 드러낸다. 실패하면 페이드로 내린다
+                // A: 닫힌 후스마로 먼저 덮고, 문 뒤에서 로드+시동한다 (웹 worlds.js와 같은 순서).
+                // E: 옛 루프는 덮개와 함께 멈춘다 (문 뒤는 정지 화면, 삼중 부하 방지). 실패하면 페이드로 내린다.
+                // T는 덮개 시작과 함께 미리 보여 둔다 (빈 캔버스는 투명이라 옛 세계가 그대로 비친다)
                 document.body.setAttribute('data-world-busy', '');
+                T.hidden = false;
                 try {
-                    await fusumaSwap(T, async () => { if (b) b.suspend(); });
+                    if (b) b.suspend();
+                    await fusumaSwap(T, async () => {
+                        const E = await outerLoaders[target]();
+                        if (worldTarget !== target) throw CANCEL;
+                        if (target === 'mount') {
+                            const id = MOUNT_SCENE[desired.scene];
+                            if (id && E.scene !== id) E.setScene(id);
+                        }
+                        await E.start();
+                        if (worldTarget !== target) { try { E.stop(); } catch (e) { /* 무시 */ } throw CANCEL; }
+                        if (target === 'room') applyRoomView(E);
+                    });
                 } catch (e) {
+                    if (isCancel(e)) {
+                        // 더 최신 요청이 큐에 있다. 덮개는 걷혔으니 미리 보여 둔 T를 되돌리고 안착 세계 루프만 살려 둔다
+                        T.hidden = true; clearFx(T);
+                        if (world === 'moon') { try { const rb = bridge(); if (rb) rb.resume(); } catch (e2) { /* 무시 */ } }
+                        return;
+                    }
+                    // 폴백 페이드: 로드 재시도(캐시됨) 후 첫 프레임부터 보여 준다
+                    try {
+                        const E = await outerLoaders[target]();
+                        if (worldTarget !== target) { try { E.stop(); } catch (e2) { /* 무시 */ } return; }
+                        if (target === 'mount') {
+                            const id = MOUNT_SCENE[desired.scene];
+                            if (id && E.scene !== id) E.setScene(id);
+                        }
+                        await E.start();
+                        if (worldTarget !== target) { try { E.stop(); } catch (e2) { /* 무시 */ } return; }
+                        if (target === 'room') applyRoomView(E);
+                    } catch (e2) {
+                        T.hidden = true; clearFx(T);
+                        if (world === 'moon') { try { const rb = bridge(); if (rb) rb.resume(); } catch (e3) { /* 무시 */ } }
+                        return;
+                    }
                     await nextFrame();
                     await fadeIn(T);
                     if (b) b.suspend();
@@ -392,11 +478,13 @@
                 // 최초 진입: 전환 연출 없이 바로 보여 준다 (후스마 발동 안 함)
                 if (b) b.resume();
             } else if (desired.fusuma && !RM.matches && await ensureFusuma()) {
-                // 장면 직접 전환: 닫힌 후스마로 덮고 문을 열어 드러낸다. 실패하면 페이드로 내린다
+                // A: 닫힌 후스마로 먼저 덮고, 문 뒤에서 月를 깨운다.
+                // E: 바깥 루프는 덮개와 함께 멈춘다 (문 뒤는 정지 화면). 月도 덮개 시작과 함께 미리 보여 둔다
                 document.body.setAttribute('data-world-busy', '');
+                moonEl.hidden = false;
                 try {
+                    for (const id of ['mount', 'earth', 'room', 'news']) stopOuter(id);
                     await fusumaSwap(moonEl, async () => {
-                        for (const id of ['mount', 'earth', 'room', 'news']) stopOuter(id);
                         if (b) b.resume();
                     });
                 } catch (e) {
@@ -604,11 +692,12 @@
         const enteringMoon = world !== 'moon' && isMoonScene(desired.scene);
         syncWorld(first);
         if (isMoonScene(desired.scene)) applyScene(b, first || enteringMoon);
-        // 후스마 미리 로드: 첫 바깥 전환이 끊기지 않게 (첫 진입 연출에는 쓰지 않음)
+        // B: 첫 진입 뒤 유휴 시간에 전환 재료를 미리 로드한다 (첫 진입 연출에는 쓰지 않음).
+        // 스크립트 + 후스마 텍스처 + 방/뉴스 하위 의존까지 데워 둔다
         if (first) {
-            (window.requestIdleCallback || setTimeout)(() => {
-                ensureFusuma().then(ok => { try { ok && window.TsukuyomiFusuma.prewarm(); } catch (e) { /* 무시 */ } });
-            });
+            const later = () => { try { prewarmAll(); } catch (e) { /* 무시 */ } };
+            if (window.requestIdleCallback) setTimeout(() => requestIdleCallback(later, { timeout: 4000 }), 2000);
+            else setTimeout(later, 4000);
         }
     }
 
