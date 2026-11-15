@@ -8,13 +8,24 @@
 - 월페이퍼 배포판 (`wallpaper/`): 웹 배포판의 장면을 그대로 사용하고, UI만 Wallpaper Engine용으로 재구성한 단순 포팅. 상세는 `wallpaper/README.md` 참조.
 - 랜딩페이지 (`public/landing.html`): 실험용.
 
-## 미리보기
+## 설치법
+
+웹 배포판:
 
 ```sh
 wrangler dev
 # http://localhost:8787/ -> tsukuyomi.html
 # http://localhost:8787/landing -> landing.html
 ```
+
+정적 호스팅에도 그대로 올릴 수 있다 (`public/` 이하를 서빙).
+
+월페이퍼 배포판 (상세는 `wallpaper/README.md`):
+
+1. Wallpaper Engine을 완전히 종료한다.
+2. `dist-we/Tsukuyomi-WE.zip`을 압축 해제한다.
+3. 푼 `Tsukuyomi/` 폴더째 `wallpaper_engine/projects/myprojects/` 안에 복사한다 (같은 이름의 기존 폴더가 있으면 먼저 삭제).
+4. WE 실행 → Installed 탭에서 `Tsukuyomi 月` 선택. 속성 패널에 `장면`이 보이면 정상이다 (파일 열기로 `wallpaper.html`만 불러오면 `project.json`이 새로 생성되므로 쓰지 않는다).
 
 월페이퍼 단독 미리보기 (Wallpaper Engine 없이):
 
